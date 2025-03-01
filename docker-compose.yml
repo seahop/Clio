@@ -1,0 +1,205 @@
+services:
+  frontend:
+    build: 
+      context: ./frontend
+      args:
+        - NODE_ENV=production
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - type: bind
+        source: ./certs
+        target: /app/certs
+        read_only: true
+    environment:
+      - NODE_ENV=production
+      - REACT_APP_API_URL=https://localhost:3001
+      - HTTPS=true
+      - SSL_CRT_FILE=/app/certs/server.crt
+      - SSL_KEY_FILE=/app/certs/server.key
+      - NODE_TLS_REJECT_UNAUTHORIZED=0
+    networks:
+      - frontend-network
+    restart: unless-stopped
+    # ADDED: Logging limits
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "--no-check-certificate", "https://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  backend:
+    build: ./backend
+    ports:
+      - "127.0.0.1:3001:3001"
+    volumes:
+      - type: bind
+        source: ./backend/data
+        target: /app/data
+      - type: bind
+        source: ./certs
+        target: /app/certs
+        read_only: true
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - DATA_PATH=/app/data/logs.json
+      - FRONTEND_URL=https://localhost:3000
+      - NODE_TLS_REJECT_UNAUTHORIZED=0
+      - SSL_CRT_FILE=certs/server.crt
+      - SSL_KEY_FILE=certs/server.key
+    depends_on:
+      redis:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+    networks:
+      - frontend-network
+      - backend-network
+    restart: unless-stopped
+    # ADDED: Logging limits
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD", "wget", "--no-check-certificate", "-q", "-O", "-", "https://localhost:3001/api/csrf-token"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  redis:
+    image: redis:7.4.2-alpine
+    expose:
+      - "6379"
+    volumes:
+      - redis_data:/data
+      - ./certs:/certs:ro
+    command: >
+      redis-server 
+      --requirepass "${REDIS_PASSWORD}" 
+      --appendonly yes 
+      --save 60 1 
+      --maxmemory 512mb 
+      --maxmemory-policy noeviction
+      --tls-port 6379
+      --port 0
+      --tls-cert-file /certs/redis.crt
+      --tls-key-file /certs/redis.key
+      --tls-ca-cert-file /certs/server.crt
+      --tls-auth-clients no
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - REDIS_ENCRYPTION_KEY=${REDIS_ENCRYPTION_KEY}
+    networks:
+      - backend-network
+    restart: unless-stopped
+    # ADDED: Logging limits
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "--tls", "--cert", "/certs/redis.crt", "--key", "/certs/redis.key", "--cacert", "/certs/server.crt", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  db:
+    image: postgres:17-alpine
+    expose:
+      - "5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/db/init:/docker-entrypoint-initdb.d
+      - ./certs/server.crt:/docker-entrypoint-initdb.d/server.crt:ro
+      - ./certs/server.key:/docker-entrypoint-initdb.d/server.key:ro
+    environment:
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_SSL=${POSTGRES_SSL}
+    networks:
+      - backend-network
+    # ADDED: Logging limits
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  relation-service:
+    build: ./relation-service
+    ports:
+      - "127.0.0.1:3002:3002"
+    volumes:
+      - type: bind
+        source: ./relation-service/data
+        target: /app/src/data
+      - type: bind
+        source: ./certs
+        target: /app/certs
+        read_only: true
+      - type: bind
+        source: ./relation-service/logs
+        target: /app/src/logs
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+      - PORT=3002
+      - FRONTEND_URL=https://localhost:3000
+      - POSTGRES_HOST=db
+      - POSTGRES_DB=redteamlogger 
+      - NODE_TLS_REJECT_UNAUTHORIZED=0
+      - SSL_CRT_FILE=certs/server.crt
+      - SSL_KEY_FILE=certs/server.key
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - frontend-network
+      - backend-network
+    restart: unless-stopped
+    # ADDED: Logging limits
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD", "wget", "--no-check-certificate", "-q", "-O", "-", "https://localhost:3002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  redis_data:
+    driver: local
+  postgres_data:
+    driver: local
+
+networks:
+  frontend-network:
+    driver: bridge
+  backend-network:
+    driver: bridge
+    internal: true
