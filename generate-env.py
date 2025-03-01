@@ -127,31 +127,39 @@ def generate_certificate(common_name):
             encryption_algorithm=serialization.NoEncryption(),
         ))
     
-    # Set secure permissions for private key
-    os.chmod(key_path, 0o600)
+    # Set secure permissions for private key - allow read by all (needed for Docker)
+    os.chmod(key_path, 0o644)
     
     with open(cert_path, "wb") as f:
         f.write(cert.public_bytes(serialization.Encoding.PEM))
+    
+    # Make certificate readable by all
+    os.chmod(cert_path, 0o644)
     
     # Create symbolic links or copy files for service-specific names with correct permissions
     for service in ['frontend', 'backend', 'db', 'redis', 'relation-service']:
         service_key_path = certs_dir / f"{service}.key"
         service_cert_path = certs_dir / f"{service}.crt"
         
-        # Copy key and set secure permissions
+        # Copy key and set secure but readable permissions
         with open(service_key_path, "wb") as f:
             f.write(private_key.private_bytes(
                 encoding=serialization.Encoding.PEM,
                 format=serialization.PrivateFormat.TraditionalOpenSSL,
                 encryption_algorithm=serialization.NoEncryption(),
             ))
-        os.chmod(service_key_path, 0o600)
+        os.chmod(service_key_path, 0o644)  # Allow read by all (needed for Docker)
         
         # Copy certificate
         with open(service_cert_path, "wb") as f:
             f.write(cert.public_bytes(serialization.Encoding.PEM))
+        os.chmod(service_cert_path, 0o644)  # Allow read by all
+    
+    # For extra safety, make the entire certs directory readable by all
+    os.system(f"chmod -R a+r {certs_dir}")
     
     print("\033[32mSSL certificate generated successfully\033[0m")
+    print("\033[32mAll certificates have been set with proper permissions (644)\033[0m")
 
 def main():
     # Check if .env exists

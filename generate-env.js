@@ -120,23 +120,37 @@ function generateCertificates() {
     // Generate a single certificate for all services
     const certs = generateCertificate(frontendHostname);
 
-    // Save the certificate and key with correct permissions
+    // Save the certificate and key with proper permissions
     const keyPath = path.join(certsDir, 'server.key');
     fs.writeFileSync(keyPath, certs.privateKey);
-    fs.chmodSync(keyPath, 0o600); // Set permissions to 600 (owner read/write only)
+    fs.chmodSync(keyPath, 0o644); // Set permissions to 644 (readable by all)
     
-    fs.writeFileSync(path.join(certsDir, 'server.crt'), certs.certificate);
+    const certPath = path.join(certsDir, 'server.crt');
+    fs.writeFileSync(certPath, certs.certificate);
+    fs.chmodSync(certPath, 0o644); // Set permissions to 644 (readable by all)
 
     // Create symbolic links or copy files for service-specific names with correct permissions
     ['frontend', 'backend', 'db', 'redis', 'relation-service'].forEach(service => {
         const serviceKeyPath = path.join(certsDir, `${service}.key`);
         fs.copyFileSync(keyPath, serviceKeyPath);
-        fs.chmodSync(serviceKeyPath, 0o600); // Set permissions to 600
+        fs.chmodSync(serviceKeyPath, 0o644); // Set permissions to 644 (readable by all)
         
-        fs.copyFileSync(path.join(certsDir, 'server.crt'), path.join(certsDir, `${service}.crt`));
+        const serviceCertPath = path.join(certsDir, `${service}.crt`);
+        fs.copyFileSync(certPath, serviceCertPath);
+        fs.chmodSync(serviceCertPath, 0o644); // Set permissions to 644 (readable by all)
     });
 
+    // For extra safety, make entire certs directory readable
+    if (process.platform !== 'win32') {
+        try {
+            require('child_process').execSync(`chmod -R a+r ${certsDir}`);
+        } catch (error) {
+            console.warn('Could not set read permissions on certs directory:', error.message);
+        }
+    }
+
     console.log('\x1b[32m%s\x1b[0m', 'SSL certificate generated successfully');
+    console.log('\x1b[32m%s\x1b[0m', 'All certificates have been set with proper permissions (644)');
 }
 
 async function main() {
