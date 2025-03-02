@@ -1,4 +1,19 @@
--- Initialize the database schema
+-- First check and configure SSL if enabled
+DO $$
+BEGIN
+    IF current_setting('environment_variables.POSTGRES_SSL', true) = 'true' THEN
+        -- The second parameter 'true' above makes it ignore missing variables instead of raising an error
+        RAISE NOTICE 'Configuring PostgreSQL for SSL';
+        ALTER SYSTEM SET ssl = 'on';
+        ALTER SYSTEM SET ssl_cert_file = '/var/lib/postgresql/certs/server.crt';
+        ALTER SYSTEM SET ssl_key_file = '/var/lib/postgresql/certs/server.key';
+        PERFORM pg_reload_conf();
+    ELSE
+        RAISE NOTICE 'SSL not enabled, skipping SSL configuration';
+    END IF;
+END $$;
+
+-- Then initialize the database schema
 CREATE TABLE IF NOT EXISTS logs (
     id SERIAL PRIMARY KEY,
     timestamp TIMESTAMPTZ NOT NULL,
