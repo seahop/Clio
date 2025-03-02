@@ -1,0 +1,12 @@
+# Set default behavior to automatically normalize line endings
+* text=auto
+
+# Explicitly declare files that must use LF
+*.sh text eol=lf
+*.py text eol=lf
+*.js text eol=lf
+
+# Declare certificates as binary to prevent any modification
+certs/* binary
+*.crt binary
+*.key binary
