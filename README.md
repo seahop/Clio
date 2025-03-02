@@ -3,7 +3,7 @@
 <img src="./images/Clio_Logging_Platform_Logo.png" alt="Clio Logo" width="300"/>
 <p>
 
-A secure, collaborative logging system designed for red team operations and security assessments. This application provides real-time logging capabilities with features like row locking, user authentication, and audit trails.
+A secure, collaborative logging system designed for red team operations and security assessments. This application provides real-time logging capabilities with features like row locking, user authentication, and audit trails. Currently, this is only working with a Chromium based browsers.
 
 ## Features
 
