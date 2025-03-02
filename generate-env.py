@@ -20,6 +20,7 @@ import base64
 import secrets
 import subprocess
 import datetime
+import platform
 from pathlib import Path
 from urllib.parse import urlparse
 from cryptography import x509
@@ -257,7 +258,7 @@ JWT Secret: {jwt_secret}"""
             print("\033[32mSSL setup script is now executable\033[0m")
         except Exception as e:
             print(f"Warning: Could not make SSL setup script executable: {str(e)}")
-            
+
     # Add .env, certificates, and credentials backup to .gitignore
     gitignore_path = '.gitignore'
     gitignore_entries = [
