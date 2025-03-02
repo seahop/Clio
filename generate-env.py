@@ -248,6 +248,16 @@ JWT Secret: {jwt_secret}"""
         print(f"Error generating certificates: {str(e)}")
         sys.exit(1)
 
+    # Make setup-ssl script executable on Linux/Mac
+    if platform.system() != 'Windows':
+        try:
+            ssl_script_path = Path("backend/db/init/00-setup-ssl.sh")
+            print("\033[36mMaking SSL setup script executable\033[0m")
+            os.chmod(ssl_script_path, 0o755)  # rwxr-xr-x
+            print("\033[32mSSL setup script is now executable\033[0m")
+        except Exception as e:
+            print(f"Warning: Could not make SSL setup script executable: {str(e)}")
+            
     # Add .env, certificates, and credentials backup to .gitignore
     gitignore_path = '.gitignore'
     gitignore_entries = [

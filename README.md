@@ -76,7 +76,7 @@ Clio uses a microservices architecture with three primary components:
 
 1. Clone the repository:
    ```bash
-   git clone git@github.com:seahop/Clio.git
+   git clone https://github.com/seahop/Clio.git
    cd Clio
    ```
 

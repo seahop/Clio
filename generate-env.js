@@ -230,6 +230,18 @@ JWT Secret: ${/JWT_SECRET=(.*)/.exec(envContent)[1]}`;
         process.exit(1);
     }
 
+    // Make setup-ssl script executable on Linux/Mac
+    if (process.platform !== 'win32') {
+        try {
+            const sslScriptPath = path.join(__dirname, 'backend', 'db', 'init', '00-setup-ssl.sh');
+            console.log('\x1b[36m%s\x1b[0m', `Making SSL setup script executable: ${sslScriptPath}`);
+            require('child_process').execSync(`chmod +x ${sslScriptPath}`);
+            console.log('\x1b[32m%s\x1b[0m', 'SSL setup script is now executable');
+        } catch (error) {
+            console.warn('Warning: Could not make SSL setup script executable:', error.message);
+        }
+    }
+
     // Add .env, certificates, and credentials backup to .gitignore
     const gitignorePath = '.gitignore';
     const gitignoreEntries = [
