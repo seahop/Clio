@@ -124,8 +124,8 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./backend/db/init:/docker-entrypoint-initdb.d
-      - ./certs/server.crt:/docker-entrypoint-initdb.d/server.crt:ro
-      - ./certs/server.key:/docker-entrypoint-initdb.d/server.key:ro
+      - ./certs/server.crt:/tmp/certs/server.crt:ro
+      - ./certs/server.key:/tmp/certs/server.key:ro
     environment:
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
       - POSTGRES_DB=${POSTGRES_DB}
@@ -133,7 +133,7 @@ services:
       - POSTGRES_SSL=${POSTGRES_SSL}
     networks:
       - backend-network
-    # ADDED: Logging limits
+    command: postgres
     logging:
       driver: "json-file"
       options:
