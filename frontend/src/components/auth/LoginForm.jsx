@@ -3,13 +3,11 @@ import React, { useState } from 'react';
 import { LogIn } from 'lucide-react';
 import { validateLoginInput } from '../../utils/passwordValidation';
 
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:3001';
-
 const LoginForm = ({ onLoginSuccess, csrfToken }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [loading, setIsLoading] = useState(false);
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -27,10 +25,11 @@ const LoginForm = ({ onLoginSuccess, csrfToken }) => {
     }
 
     setError('');
-    setLoading(true);
+    setIsLoading(true);
 
     try {
-      const response = await fetch(`${API_URL}/api/auth/login`, {
+      // Use relative URL with proxy
+      const response = await fetch(`/api/auth/login`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -43,7 +42,13 @@ const LoginForm = ({ onLoginSuccess, csrfToken }) => {
         }),
       });
 
-      const data = await response.json();
+      let data;
+      try {
+        data = await response.json();
+      } catch (parseError) {
+        console.error('Error parsing response:', parseError);
+        throw new Error('Invalid response from server. Please try again.');
+      }
 
       if (!response.ok) {
         throw new Error(data.error || 'Login failed');
@@ -62,11 +67,12 @@ const LoginForm = ({ onLoginSuccess, csrfToken }) => {
         onLoginSuccess(data.user);
       }
     } catch (err) {
-      setError(err.message);
+      console.error('Login error:', err);
+      setError(err.message || 'Failed to connect to server. Please check your network connection.');
       // Add delay on failed login to prevent brute force
       await new Promise(resolve => setTimeout(resolve, 1000));
     } finally {
-      setLoading(false);
+      setIsLoading(false);
     }
   };
 

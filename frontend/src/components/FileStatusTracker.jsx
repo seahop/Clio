@@ -29,9 +29,6 @@ const FileStatusTracker = () => {
   const [showFilters, setShowFilters] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
-  // Get relation service URL by replacing backend port with relation-service port
-  const API_URL = (process.env.REACT_APP_API_URL || 'https://localhost:3001').replace('3001', '3002');
-
   // Status definitions with icons and colors
   const statusConfig = {
     'ON_DISK': { 
@@ -109,7 +106,9 @@ const FileStatusTracker = () => {
   const fetchFiles = async () => {
     try {
       setRefreshing(true);
-      const response = await fetch(`${API_URL}/api/file-status`, {
+      
+      // Use relative URL with proxy
+      const response = await fetch(`/relation-service/api/file-status`, {
         credentials: 'include',
         headers: {
           'Accept': 'application/json'
@@ -134,7 +133,7 @@ const FileStatusTracker = () => {
 
   useEffect(() => {
     fetchFiles();
-  }, [API_URL]);
+  }, []);
 
   const toggleExpand = (filename) => {
     const newExpanded = new Set(expandedItems);

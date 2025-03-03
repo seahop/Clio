@@ -15,8 +15,11 @@ const eventLogger = require('./lib/eventLogger');
 const { errorMiddleware, notFoundMiddleware } = require('./middleware/error.middleware');
 const { csrfProtection, csrfTokenEndpoint } = require('./middleware/csrf.middleware');
 const db = require('./db');
+const url = require('url');
 
 const app = express();
+
+app.set('trust proxy', ['loopback', 'linklocal', 'uniquelocal', '172.16.0.0/12']);
 
 // Set serverInstanceId for global access
 app.set('serverInstanceId', security.SERVER_INSTANCE_ID);
@@ -27,13 +30,43 @@ app.use(cookieParser());
 
 // Enhanced CORS configuration
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'https://localhost:3000',
+  origin: function(origin, callback) {
+    // Get allowed origins: FRONTEND_URL and derive alternatives
+    const frontendUrl = process.env.FRONTEND_URL || 'https://localhost:3000';
+    const frontendHostname = process.env.HOSTNAME || 'localhost';
+    
+    // Create an array of allowed origins
+    const allowedOrigins = [
+      frontendUrl,                         // The configured frontend URL
+      `https://localhost:3000`,            // Standard localhost
+      `https://${frontendHostname}:3000`,  // The hostname-based URL
+      'https://frontend:3000',             // Docker service name
+      'https://backend:3001',              // Allow backend self-requests
+      undefined,                           // Allow requests with no origin (like curl or Postman)
+      null                                 // null origin (same-origin requests)
+    ];
+    
+    // For development, add additional debug info
+    if (process.env.NODE_ENV === 'development') {
+      console.log('CORS request from origin:', origin);
+      console.log('Allowed origins:', allowedOrigins);
+    }
+    
+    // THE KEY FIX IS HERE - using "includes" instead of checking for an exact match
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true); // Origin is allowed
+    } else {
+      console.warn(`CORS blocked request from: ${origin}`);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'CSRF-Token', 'Accept', 'X-CSRF-Token'],
-  optionsSuccessStatus: 204,
+  exposedHeaders: ['Set-Cookie'],
+  maxAge: 86400,
   preflightContinue: false,
-  maxAge: 86400, // 24 hours
+  optionsSuccessStatus: 204
 }));
 
 // Enhanced security headers with fixed Helmet configuration

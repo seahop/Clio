@@ -11,8 +11,9 @@ const UserCommandsViewer = () => {
     const fetchUserCommands = async () => {
       try {
         setLoading(true);
+        // Use proxy instead of direct service URL
         const response = await fetch(
-          `${process.env.REACT_APP_API_URL.replace('3001', '3002')}/api/relations/user`,
+          `/relation-service/api/relations/user`,
           {
             credentials: 'include',
             headers: {

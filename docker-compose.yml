@@ -5,7 +5,7 @@ services:
       args:
         - NODE_ENV=production
     ports:
-      - "127.0.0.1:3000:3000"
+      - "${BIND_ADDRESS:-0.0.0.0}:3000:3000"
     volumes:
       - type: bind
         source: ./certs
@@ -13,7 +13,6 @@ services:
         read_only: true
     environment:
       - NODE_ENV=production
-      - REACT_APP_API_URL=https://localhost:3001
       - HTTPS=true
       - SSL_CRT_FILE=/app/certs/server.crt
       - SSL_KEY_FILE=/app/certs/server.key
@@ -21,7 +20,6 @@ services:
     networks:
       - frontend-network
     restart: unless-stopped
-    # ADDED: Logging limits
     logging:
       driver: "json-file"
       options:
@@ -38,8 +36,8 @@ services:
 
   backend:
     build: ./backend
-    ports:
-      - "127.0.0.1:3001:3001"
+    expose:
+      - "3001"
     volumes:
       - type: bind
         source: ./backend/data
@@ -54,7 +52,7 @@ services:
       - NODE_ENV=production
       - PORT=3001
       - DATA_PATH=/app/data/logs.json
-      - FRONTEND_URL=https://localhost:3000
+      - FRONTEND_URL=https://frontend:3000
       - NODE_TLS_REJECT_UNAUTHORIZED=0
       - SSL_CRT_FILE=certs/server.crt
       - SSL_KEY_FILE=certs/server.key
@@ -67,7 +65,6 @@ services:
       - frontend-network
       - backend-network
     restart: unless-stopped
-    # ADDED: Logging limits
     logging:
       driver: "json-file"
       options:
@@ -75,6 +72,50 @@ services:
         max-file: "3"
     healthcheck:
       test: ["CMD", "wget", "--no-check-certificate", "-q", "-O", "-", "https://localhost:3001/api/csrf-token"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  relation-service:
+    build: ./relation-service
+    expose:
+      - "3002"
+    volumes:
+      - type: bind
+        source: ./relation-service/data
+        target: /app/src/data
+      - type: bind
+        source: ./certs
+        target: /app/certs
+        read_only: true
+      - type: bind
+        source: ./relation-service/logs
+        target: /app/src/logs
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+      - PORT=3002
+      - FRONTEND_URL=https://frontend:3000
+      - POSTGRES_HOST=db
+      - POSTGRES_DB=redteamlogger 
+      - NODE_TLS_REJECT_UNAUTHORIZED=0
+      - SSL_CRT_FILE=certs/server.crt
+      - SSL_KEY_FILE=certs/server.key
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - frontend-network
+      - backend-network
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD", "wget", "--no-check-certificate", "-q", "-O", "-", "https://localhost:3002/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -105,7 +146,6 @@ services:
     networks:
       - backend-network
     restart: unless-stopped
-    # ADDED: Logging limits
     logging:
       driver: "json-file"
       options:
@@ -145,51 +185,6 @@ services:
       timeout: 5s
       retries: 5
     restart: unless-stopped
-
-  relation-service:
-    build: ./relation-service
-    ports:
-      - "127.0.0.1:3002:3002"
-    volumes:
-      - type: bind
-        source: ./relation-service/data
-        target: /app/src/data
-      - type: bind
-        source: ./certs
-        target: /app/certs
-        read_only: true
-      - type: bind
-        source: ./relation-service/logs
-        target: /app/src/logs
-    env_file:
-      - .env
-    environment:
-      - NODE_ENV=production
-      - PORT=3002
-      - FRONTEND_URL=https://localhost:3000
-      - POSTGRES_HOST=db
-      - POSTGRES_DB=redteamlogger 
-      - NODE_TLS_REJECT_UNAUTHORIZED=0
-      - SSL_CRT_FILE=certs/server.crt
-      - SSL_KEY_FILE=certs/server.key
-    depends_on:
-      db:
-        condition: service_healthy
-    networks:
-      - frontend-network
-      - backend-network
-    restart: unless-stopped
-    # ADDED: Logging limits
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-    healthcheck:
-      test: ["CMD", "wget", "--no-check-certificate", "-q", "-O", "-", "https://localhost:3002/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
 
 volumes:
   redis_data:

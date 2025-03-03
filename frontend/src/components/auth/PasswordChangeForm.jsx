@@ -3,7 +3,8 @@ import React, { useState } from 'react';
 import { Key } from 'lucide-react';
 import { validateNewPassword } from '../../utils/passwordValidation';
 
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:3001';
+// No need for API_URL with proxy
+// const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:3001';
 
 const PasswordChangeForm = ({ username, onPasswordChanged }) => {
   const [newPassword, setNewPassword] = useState('');
@@ -30,7 +31,8 @@ const PasswordChangeForm = ({ username, onPasswordChanged }) => {
     setError('');
 
     try {
-      const response = await fetch(`${API_URL}/api/auth/change-password`, {
+      // Use relative URL with proxy
+      const response = await fetch(`/api/auth/change-password`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

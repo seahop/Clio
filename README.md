@@ -3,7 +3,7 @@
 <img src="./images/Clio_Logging_Platform_Logo.png" alt="Clio Logo" width="300"/>
 <p>
 
-A secure, collaborative logging system designed for red team operations and security assessments. This application provides real-time logging capabilities with features like row locking, user authentication, and audit trails. Currently, this is only working with a Chromium based browsers.
+A secure, collaborative logging system designed for red team operations and security assessments. This application provides real-time logging capabilities with features like row locking, user authentication, and audit trails.
 
 ## Features
 
@@ -27,7 +27,16 @@ Clio uses a microservices architecture with three primary components:
 2. **Backend**: Core API service for authentication and logging operations
 3. **Relation Service**: Analysis service that builds relationships between log entries
 
+The frontend serves as a secure gateway to both backend services via a proxy configuration. This ensures that only the frontend port (3000) is exposed to users, while the backend and relation-service remain protected internally.
+
 ![Service Connections](./images/service_connections.png)
+
+### Network Security
+
+- Only the frontend port (3000) is exposed to external connections
+- Backend and relation-service ports are only accessible within the Docker network
+- All external requests are proxied through the frontend for enhanced security
+- TLS certificates are used for all inter-service communication
 
 ## Technology Stack
 
@@ -82,18 +91,6 @@ Clio uses a microservices architecture with three primary components:
 
 2. Generate environment variables and security keys using either Node.js or Python:
 
-   **Option 1: Using Node.js**
-   ```bash
-   npm install
-   node generate-env.js
-   ```
-   or specify a custom domain:
-   ```bash
-   npm install
-   node generate-env.js https://yourdomain.com
-   ```
-
-   **Option 2: Using Python (if Node.js is not installed)**
    ```bash
    # Create and activate a virtual environment
    python -m venv venv
@@ -107,13 +104,13 @@ Clio uses a microservices architecture with three primary components:
    ```
    or specify a custom domain:
    ```bash
-   python generate-env.py https://yourdomain.com
+   python generate-env.py https://yourDomainOrIP.com:3000
    ```
 
    This will create:
    - A `.env` file with necessary secrets
    - Initial admin and user passwords
-   - Self-signed TLS certificates
+   - Self-signed TLS certificates for all services
    - A backup of credentials in the project directory
 
 3. Build and start the containers:
@@ -124,6 +121,11 @@ Clio uses a microservices architecture with three primary components:
 
 4. When the services start, you'll see the admin and user passwords in the console output. Make note of these credentials as you'll need them for the first login. A backup of these credentials is also saved in the project root directory as `credentials-backup-[timestamp].txt`.
 
+5. Access the application at:
+   - Frontend: https://localhost:3000 (or your custom domain/IP)
+   
+   You'll need to accept the self-signed certificate warning in your browser. All API requests will be automatically proxied to the appropriate backend service.
+
 ### Subsequent Starts
 
 After initial setup, you can start the application with:
@@ -131,8 +133,17 @@ After initial setup, you can start the application with:
 docker-compose up
 ```
 
-The application will be available at:
-- Frontend: https://localhost:3000
+### Understanding the Network Architecture
+
+After setup, the following services will be running:
+
+- **Frontend**: https://localhost:3000 (exposed to users)
+- **Backend**: https://backend:3001 (internal only)
+- **Relation Service**: https://relation-service:3002 (internal only)
+- **Redis**: rediss://redis:6379 (internal only)
+- **PostgreSQL**: postgres://db:5432 (internal only)
+
+Only the frontend port is accessible from outside the Docker network. All other services communicate over an encrypted internal network.
 
 ## Usage Guide
 
@@ -202,23 +213,6 @@ Sessions are managed using Redis with the following features:
 - PostgreSQL data is persisted in Docker volumes
 - TLS encryption for all service communications
 - Automatic backup scripts included for both Redis and PostgreSQL data
-
-## Utility Tools
-
-### Backup Tools
-The project includes several utility scripts for data management:
-
-- `tools/backupPostgresData.js`: PostgreSQL database backup
-- `tools/backupRedisData.js`: Redis data backup
-- `tools/decryptRedisData.js`: Decrypt Redis backup data
-- `tools/exportPostgresData.js`: Export logs to JSON format
-- `tools/testRedisConnection.js`: Test Redis TLS connectivity
-
-These tools provide:
-- Encrypted backups
-- Data export capabilities
-- Backup verification
-- Separate storage of encryption keys
 
 ## Development Notes
 

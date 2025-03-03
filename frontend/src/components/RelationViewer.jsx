@@ -40,7 +40,8 @@ const RelationViewer = () => {
 
     try {
       setLoading(true);
-      const apiUrl = `${process.env.REACT_APP_API_URL.replace('3001', '3002')}/api/relations${
+      // Use proxy instead of direct service URL - proxied to relation-service
+      const apiUrl = `/relation-service/api/relations${
         selectedFilter !== 'all' ? `/${selectedFilter}` : ''
       }`;
       

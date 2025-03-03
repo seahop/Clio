@@ -8,6 +8,7 @@ Usage:
     
 Example:
     python3 generate-env.py https://myapp.example.com
+    python3 generate-env.py https://192.168.1.100:3000
     
 If no URL is provided, https://localhost:3000 will be used.
 """
@@ -21,6 +22,8 @@ import secrets
 import subprocess
 import datetime
 import platform
+import re
+import ipaddress
 from pathlib import Path
 from urllib.parse import urlparse
 from cryptography import x509
@@ -43,9 +46,26 @@ try:
 except Exception as e:
     print(f"Error: Invalid URL format provided - {str(e)}")
     print("Usage: python3 generate-env.py [frontend-url]")
-    print("Example: python3 generate-env.py https://myapp.example.com")
+    print("Example: python3 generate-env.py https://192.168.1.100:3000")
+    print("Example: python3 generate-env.py https://mydomain.com:3000")
     print("If no URL is provided, https://localhost:3000 will be used")
     sys.exit(1)
+
+# Extract hostname from the URL
+frontend_hostname = urlparse(frontend_url).netloc.split(':')[0]
+
+# Determine if the hostname is an IP address
+is_ip_address = bool(re.match(r'^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$', frontend_hostname))
+
+# Set the bind address based on the hostname
+if frontend_hostname == 'localhost':
+    bind_address = '127.0.0.1'  # Bind only to localhost
+else:
+    bind_address = '0.0.0.0'    # Bind to all interfaces for non-localhost hostnames
+
+# Log the binding details
+print(f"\033[36mUsing hostname: {frontend_hostname}\033[0m")
+print(f"\033[36mBinding to address: {bind_address}\033[0m")
 
 ENV_FILE = '.env'
 
@@ -65,14 +85,39 @@ def generate_certificate(common_name):
     certs_dir = Path("certs")
     certs_dir.mkdir(exist_ok=True)
     
-    # Get hostname from frontend URL
-    frontend_hostname = urlparse(frontend_url).netloc.split(':')[0]
-    if frontend_hostname == 'localhost':
-        # Add 127.0.0.1 for localhost connections
-        extra_hostnames = ['localhost', '127.0.0.1']
-    else:
-        extra_hostnames = ['localhost']
-
+    # Define alternative hostnames
+    alt_names = [
+        x509.DNSName(common_name),
+        x509.DNSName(frontend_hostname),  # Include the hostname from URL
+        x509.DNSName("localhost"),
+        # Service hostnames
+        x509.DNSName("backend"),
+        x509.DNSName("frontend"),
+        x509.DNSName("relation-service"),
+        x509.DNSName("db"),
+        x509.DNSName("redis")
+    ]
+    
+    # Remove any duplicates in alt_names
+    unique_alt_names = []
+    seen_values = set()
+    
+    for alt_name in alt_names:
+        value = alt_name.value
+        if value not in seen_values:
+            seen_values.add(value)
+            unique_alt_names.append(alt_name)
+    
+    # Include IP addresses
+    unique_alt_names.append(x509.IPAddress(ipaddress.IPv4Address('127.0.0.1')))
+    
+    # If hostname looks like an IP address, add it as IP
+    if is_ip_address:
+        try:
+            unique_alt_names.append(x509.IPAddress(ipaddress.IPv4Address(frontend_hostname)))
+        except ValueError:
+            pass
+    
     # Generate a key pair
     private_key = rsa.generate_private_key(
         public_exponent=65537,
@@ -98,16 +143,7 @@ def generate_certificate(common_name):
         .not_valid_before(now)
         .not_valid_after(now + datetime.timedelta(days=365))
         .add_extension(
-            x509.SubjectAlternativeName([
-                x509.DNSName(common_name),
-                *[x509.DNSName(name) for name in extra_hostnames],
-                # Service hostnames
-                x509.DNSName("backend"),
-                x509.DNSName("frontend"),
-                x509.DNSName("relation-service"),
-                x509.DNSName("db"),
-                x509.DNSName("redis"),
-            ]),
+            x509.SubjectAlternativeName(unique_alt_names),
             critical=False,
         )
         .add_extension(
@@ -157,7 +193,8 @@ def generate_certificate(common_name):
         os.chmod(service_cert_path, 0o644)  # Allow read by all
     
     # For extra safety, make the entire certs directory readable by all
-    os.system(f"chmod -R a+r {certs_dir}")
+    if platform.system() != 'Windows':
+        os.system(f"chmod -R a+r {certs_dir}")
     
     print("\033[32mSSL certificate generated successfully\033[0m")
     print("\033[32mAll certificates have been set with proper permissions (644)\033[0m")
@@ -194,6 +231,8 @@ POSTGRES_SSL=true
 PORT=3001
 NODE_ENV=development
 FRONTEND_URL={frontend_url}
+BIND_ADDRESS={bind_address}
+HOSTNAME={frontend_hostname}
 HTTPS=true
 SSL_CRT_FILE=certs/server.crt
 SSL_KEY_FILE=certs/server.key
@@ -243,7 +282,7 @@ JWT Secret: {jwt_secret}"""
 
     # Generate certificates regardless of whether .env exists
     try:
-        frontend_hostname = urlparse(frontend_url).netloc.split(':')[0]
+        # Don't redefine frontend_hostname here - use the one from the global scope
         generate_certificate(frontend_hostname)
     except Exception as e:
         print(f"Error generating certificates: {str(e)}")
@@ -294,10 +333,11 @@ JWT Secret: {jwt_secret}"""
     frontend_dir.mkdir(exist_ok=True)
     frontend_env_path = frontend_dir / ".env"
     
+    # Update the API URL to use the correct hostname
     frontend_env_content = f"""HTTPS=true
 SSL_CRT_FILE=../certs/server.crt
 SSL_KEY_FILE=../certs/server.key
-REACT_APP_API_URL={frontend_url.replace('3000', '3001')}"""
+REACT_APP_API_URL=https://{frontend_hostname}:3001"""
 
     with open(frontend_env_path, 'w') as f:
         f.write(frontend_env_content)
@@ -314,6 +354,7 @@ import sys
 import redis
 import dotenv
 import ssl
+import datetime
 from pathlib import Path
 
 # Load environment variables
@@ -406,10 +447,14 @@ if __name__ == '__main__':
     print("2. Delete the credentials backup file")
     print("3. Run docker-compose up --build to start the application")
     print("4. Accept the self-signed certificate in your browser when prompted")
-    print("5. Login with the admin credentials to set up initial access")
-    print("6. To test Redis TLS connection: python3 backend/tools/testRedisConnection.py")
-    print(f"\nFrontend URL configured as: {frontend_url}")
-    print(f"Backend URL will be: {frontend_url.replace('3000', '3001')}\n")
+    print("5. Login with the admin and/or user credentials to set up initial access")
+    
+    if bind_address == '0.0.0.0':
+        print("\033[32m------- EXTERNAL ACCESS ENABLED -------\033[0m")
+        print("Your application will be accessible from other machines at:")
+        print(f"- Frontend: https://{frontend_hostname}:3000")
+        print("\033[33mNote: Users will need to accept the self-signed certificate warning.\033[0m")
+        print("-------------------------------------------\n")
 
 if __name__ == "__main__":
     main()

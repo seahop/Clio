@@ -1,11 +1,61 @@
-// frontend/src/App.jsx - Add CSRF token auto-refresh
+// frontend/src/App.jsx - With proxy support
 import React, { useState, useEffect, useCallback } from 'react';
 import RedTeamLogger from './components/RedTeamLogger';
 import Login from './components/Login';
 
-// Log the API URL being used
-const API_URL = process.env.REACT_APP_API_URL || 'https://localhost:3001';
-console.log('Using API URL:', API_URL);
+// No need for API_URL, we use proxy with relative URLs
+// console.log('Using API URL:', API_URL);
+
+// Debug function to help diagnose CSRF and CORS issues
+const debugNetworkIssues = async () => {
+  try {
+    console.log("Debugging network connectivity...");
+    
+    // Test CSRF token endpoint
+    const csrfResponse = await fetch('/api/csrf-token', {
+      credentials: 'include',
+      headers: {
+        'Accept': 'application/json'
+      }
+    });
+    
+    console.log("CSRF Token Response:", { 
+      status: csrfResponse.status,
+      ok: csrfResponse.ok
+    });
+    
+    if (csrfResponse.ok) {
+      const csrfData = await csrfResponse.json();
+      console.log("CSRF Token received:", !!csrfData.csrfToken);
+    }
+    
+    // Test health check endpoint
+    try {
+      const healthResponse = await fetch('/api/health', {
+        credentials: 'include'
+      });
+      
+      console.log("Health Check Response:", {
+        status: healthResponse.status,
+        ok: healthResponse.ok
+      });
+      
+      if (healthResponse.ok) {
+        const healthData = await healthResponse.json();
+        console.log("Health Check Data:", healthData);
+      }
+    } catch (healthError) {
+      console.log("Health check error:", healthError.message);
+    }
+    
+    // Check if cookies are accessible
+    console.log("Cookies:", document.cookie ? "Present" : "None or inaccessible");
+    
+    console.log("Debug completed");
+  } catch (error) {
+    console.error("Debug error:", error);
+  }
+};
 
 // CSRF token refresh interval - 10 minutes (shorter than the 15-minute expiry)
 const TOKEN_REFRESH_INTERVAL = 10 * 60 * 1000; 
@@ -27,7 +77,8 @@ function App() {
   // Fetch CSRF token function - moved to a separate function to enable reuse
   const fetchCsrfToken = useCallback(async () => {
     console.log('Fetching CSRF token...');
-    const csrfEndpoint = `${API_URL}/api/csrf-token`;
+    // Use relative URL with proxy
+    const csrfEndpoint = `/api/csrf-token`;
 
     try {
       const fetchOptions = {
@@ -82,9 +133,9 @@ function App() {
       
       setCsrfToken(token);
 
-      // Check authentication
+      // Check authentication - use relative URL with proxy
       console.log('Checking authentication...');
-      const response = await fetch(`${API_URL}/api/auth/me`, {
+      const response = await fetch(`/api/auth/me`, {
         credentials: 'include',
         headers: {
           'CSRF-Token': token
@@ -156,6 +207,8 @@ function App() {
     if (!csrfToken && initializationAttempts < 3) {
       console.log(`Scheduling auth check (attempt ${initializationAttempts + 1} of 3)...`);
       const timeoutId = setTimeout(() => {
+        // Add the debug call here to diagnose issues
+        debugNetworkIssues();
         checkAuth();
       }, initializationAttempts * 1000); // Exponential backoff
 
@@ -266,12 +319,14 @@ function App() {
                     onClick={async () => {
                       try {
                         console.log('Attempting logout...');
-                        const response = await fetch(`${API_URL}/api/auth/logout`, {
+                        const response = await fetch(`/api/auth/logout`, {
                           method: 'POST',
-                          credentials: 'include',
                           headers: {
+                            'Content-Type': 'application/json',
                             'CSRF-Token': csrfToken
-                          }
+                          },
+                          credentials: 'include',
+                          body: JSON.stringify({}) // We don't need userId since we're revoking all
                         });
                         console.log('Logout response:', response.status);
                         localStorage.removeItem('user');

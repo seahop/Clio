@@ -1,7 +1,8 @@
-// hooks/useLoggerApi.js - with CSRF error handling
+// hooks/useLoggerApi.js - with proxy support
 import { useState, useCallback } from 'react';
 
-const API_URL = process.env.REACT_APP_API_URL || 'https://localhost:3001';
+// No need for API_URL anymore; we use relative URLs
+// const API_URL = process.env.REACT_APP_API_URL || 'https://localhost:3001';
 
 export const useLoggerApi = (csrfToken) => {
   const [error, setError] = useState(null);
@@ -12,7 +13,8 @@ export const useLoggerApi = (csrfToken) => {
       setIsRefreshingToken(true);
       console.log("API hook: Refreshing CSRF token...");
       
-      const response = await fetch(`${API_URL}/api/csrf-token`, {
+      // Use relative URL with proxy
+      const response = await fetch(`/api/csrf-token`, {
         credentials: 'include',
         headers: {
           'Accept': 'application/json',
@@ -155,7 +157,8 @@ export const useLoggerApi = (csrfToken) => {
         headers: getAuthHeaders()
       };
       
-      return await executeApiRequest(`${API_URL}/api/logs`, options);
+      // Use relative URL with proxy
+      return await executeApiRequest(`/api/logs`, options);
     } catch (err) {
       console.error('Error fetching logs:', err);
       setError(err.message);
@@ -172,7 +175,8 @@ export const useLoggerApi = (csrfToken) => {
         body: JSON.stringify(updates),
       };
       
-      return await executeApiRequest(`${API_URL}/api/logs/${logId}`, options);
+      // Use relative URL with proxy
+      return await executeApiRequest(`/api/logs/${logId}`, options);
     } catch (err) {
       setError(err.message);
       throw err;
@@ -187,7 +191,8 @@ export const useLoggerApi = (csrfToken) => {
         credentials: 'include'
       };
       
-      return await executeApiRequest(`${API_URL}/api/logs/${logId}`, options);
+      // Use relative URL with proxy
+      return await executeApiRequest(`/api/logs/${logId}`, options);
     } catch (err) {
       setError(err.message);
       throw err;
@@ -203,7 +208,8 @@ export const useLoggerApi = (csrfToken) => {
         body: JSON.stringify(newLog),
       };
       
-      return await executeApiRequest(`${API_URL}/api/logs`, options);
+      // Use relative URL with proxy
+      return await executeApiRequest(`/api/logs`, options);
     } catch (err) {
       setError(err.message);
       throw err;

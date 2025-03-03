@@ -2,8 +2,6 @@
 import React, { useState } from 'react';
 import { AlertCircle, Shield, Users } from 'lucide-react';
 
-const API_URL = process.env.REACT_APP_API_URL || 'https://localhost:3001';
-
 const AdminPanel = ({ csrfToken }) => {
   const [actionMessage, setActionMessage] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -15,7 +13,8 @@ const AdminPanel = ({ csrfToken }) => {
 
     setIsLoading(true);
     try {
-      const response = await fetch(`${API_URL}/api/auth/revoke-all`, {
+      // Use relative URL with proxy
+      const response = await fetch(`/api/auth/revoke-all`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
