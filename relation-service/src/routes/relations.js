@@ -43,7 +43,21 @@ router.get('/:type', authenticateToken, async (req, res) => {
 
     // Special handling for user commands
     if (type === 'user') {
+      console.log('Fetching user commands for relation view');
       const userCommands = await RelationsModel.getUserCommands();
+      
+      // Log what we're sending back to help with debugging
+      if (userCommands && userCommands.length > 0) {
+        console.log(`Returning ${userCommands.length} user commands`);
+        console.log('Sample command from response:', {
+          username: userCommands[0].username,
+          command: userCommands[0].command ? 
+            (userCommands[0].command.substring(0, 50) + 
+             (userCommands[0].command.length > 50 ? '...' : '')) : 
+            'null'
+        });
+      }
+      
       return res.json(userCommands);
     }
 

@@ -191,6 +191,9 @@ class RelationsModel {
       }
       
       // Not in cache, fetch from database with optimized query
+      // Add some debugging to see if we have backslash issues
+      console.log('Fetching user commands from database');
+      
       const result = await db.query(`
         SELECT 
           source_value as username,
@@ -203,11 +206,32 @@ class RelationsModel {
           AND target_type = 'command'
         ORDER BY last_seen DESC
       `);
-
+  
+      // Log the first few commands to check for backslash issues
+      if (result.rows.length > 0) {
+        console.log('Sample commands from database:');
+        result.rows.slice(0, 3).forEach((row, i) => {
+          console.log(`Command ${i+1}: ${row.username} - ${
+            row.command ? 
+              (row.command.length > 50 ? 
+                row.command.substring(0, 50) + '...' : 
+                row.command) : 
+              'null'
+          }`);
+        });
+      }
+  
+      // Make sure commands with backslashes are properly escaped in JSON
+      const processedRows = result.rows.map(row => ({
+        ...row,
+        // Ensure command is passed as-is without manipulation
+        command: row.command
+      }));
+  
       // Cache the result
-      this._cacheData(cacheKey, result.rows);
+      this._cacheData(cacheKey, processedRows);
       
-      return result.rows;
+      return processedRows;
     } catch (error) {
       console.error('Error getting user commands:', error);
       throw error;

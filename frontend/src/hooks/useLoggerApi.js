@@ -1,9 +1,6 @@
 // hooks/useLoggerApi.js - with proxy support
 import { useState, useCallback } from 'react';
 
-// No need for API_URL anymore; we use relative URLs
-// const API_URL = process.env.REACT_APP_API_URL || 'https://localhost:3001';
-
 export const useLoggerApi = (csrfToken) => {
   const [error, setError] = useState(null);
   const [isRefreshingToken, setIsRefreshingToken] = useState(false);
@@ -168,6 +165,9 @@ export const useLoggerApi = (csrfToken) => {
 
   const updateLog = async (logId, updates) => {
     try {
+      // Add debugging to see what's being sent
+      console.log('Updating log', logId, 'with data:', updates);
+      
       const options = {
         method: 'PUT',
         headers: getAuthHeaders(),
@@ -178,6 +178,7 @@ export const useLoggerApi = (csrfToken) => {
       // Use relative URL with proxy
       return await executeApiRequest(`/api/logs/${logId}`, options);
     } catch (err) {
+      console.error('Error updating log:', err);
       setError(err.message);
       throw err;
     }
@@ -194,6 +195,7 @@ export const useLoggerApi = (csrfToken) => {
       // Use relative URL with proxy
       return await executeApiRequest(`/api/logs/${logId}`, options);
     } catch (err) {
+      console.error('Error deleting log:', err);
       setError(err.message);
       throw err;
     }
@@ -211,6 +213,7 @@ export const useLoggerApi = (csrfToken) => {
       // Use relative URL with proxy
       return await executeApiRequest(`/api/logs`, options);
     } catch (err) {
+      console.error('Error creating log:', err);
       setError(err.message);
       throw err;
     }

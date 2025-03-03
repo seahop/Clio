@@ -90,11 +90,18 @@ export const useLoggerOperations = (currentUser, csrfToken) => {
     const row = logs.find(log => log.id === rowId);
     if (row && !row.locked) {
       setEditingCell({ rowId, field });
-      setEditingValue(row[field]);
+      
+      // Make sure we're working with a string to avoid issues with special characters
+      // This is critical for fields that might contain backslashes or special chars
+      setEditingValue(row[field] !== null && row[field] !== undefined ? String(row[field]) : '');
+      
+      console.log(`Editing ${field} with value:`, row[field]);
     }
   };
 
   const handleCellChange = (e) => {
+    // Directly use the event target value without any transformation
+    // This preserves all characters including special chars and backslashes
     setEditingValue(e.target.value);
   };
 
@@ -104,14 +111,24 @@ export const useLoggerOperations = (currentUser, csrfToken) => {
 
     try {
       if (field !== 'analyst') {
-        await updateLog(rowId, { [field]: editingValue });
+        // Log what we're about to send to the server
+        console.log(`Updating ${field} with value:`, editingValue);
+        
+        // Send the raw value to the server without any processing
+        // We don't want to transform it in any way
+        const result = await updateLog(rowId, { [field]: editingValue });
+        
+        // Update the local logs state with the exact same value we sent
         setLogs(prevLogs => sortLogs(prevLogs.map(log => 
           log.id === rowId ? { ...log, [field]: editingValue } : log
         )));
+        
+        console.log('Update result:', result);
       }
       setEditingCell(null);
       setEditingValue('');
     } catch (err) {
+      console.error('Error updating cell:', err);
       setEditingCell(null);
       setEditingValue('');
     }
@@ -152,13 +169,23 @@ export const useLoggerOperations = (currentUser, csrfToken) => {
     if (nextRow && !nextRow.locked) {
       try {
         if (currentField !== 'analyst') {
+          // Log what we're about to send from tab navigation
+          console.log(`Tab updating ${currentField} with value:`, currentValue);
+          
+          // Send raw value to the server without modifications
           await updateLog(currentRowId, { [currentField]: currentValue });
+          
+          // Update local state with the exact same value
           setLogs(prevLogs => sortLogs(prevLogs.map(log => 
             log.id === currentRowId ? { ...log, [currentField]: currentValue } : log
           )));
         }
   
-        const nextValue = nextRow[nextField] || '';
+        // Set the next cell's value, ensuring it's treated as a string
+        const nextValue = nextRow[nextField] !== null && nextRow[nextField] !== undefined 
+          ? String(nextRow[nextField]) 
+          : '';
+          
         setEditingCell({ rowId: nextRowId, field: nextField });
         setEditingValue(nextValue);
       } catch (err) {
@@ -222,6 +249,7 @@ export const useLoggerOperations = (currentUser, csrfToken) => {
       setLogs(prevLogs => sortLogs([...prevLogs, createdRow]));
     } catch (err) {
       // Error is handled by useLoggerApi
+      console.error('Error creating new row:', err);
     }
   };
 
@@ -232,6 +260,7 @@ export const useLoggerOperations = (currentUser, csrfToken) => {
       await deleteLog(rowId);
       setLogs(prevLogs => sortLogs(prevLogs.filter(log => log.id !== rowId)));
     } catch (err) {
+      console.error('Error deleting row:', err);
       setTimeout(() => setError(null), 5000);
     }
   };

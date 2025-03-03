@@ -153,7 +153,7 @@ const UserCommandsViewer = () => {
                       >
                         <div className="flex items-start gap-3">
                           <Terminal className="w-4 h-4 text-green-400 mt-1 flex-shrink-0" />
-                          <div className="flex-1 font-mono text-sm text-gray-200 break-all">
+                          <div className="flex-1 font-mono text-sm text-gray-200 break-all whitespace-pre-wrap">
                             {cmd.command}
                           </div>
                         </div>

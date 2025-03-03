@@ -30,12 +30,39 @@ const redactSensitiveData = (obj, fieldsToRedact = ['secrets', 'password']) => {
   }, {});
 };
 
-const sanitizeString = (str) => {
+// List of fields that should preserve special characters
+const PRESERVE_SPECIAL_CHARS_FIELDS = ['command', 'notes', 'filename', 'secrets'];
+
+/**
+ * Sanitizes a string with special handling for specific fields
+ * @param {string} str - The string to sanitize
+ * @param {string} fieldName - Optional field name for specialized handling
+ * @returns {string} - The sanitized string
+ */
+const sanitizeString = (str, fieldName = '') => {
   if (typeof str !== 'string') return '';
   
-  // First pass: Basic sanitization
+  // For fields that need to preserve special characters
+  if (PRESERVE_SPECIAL_CHARS_FIELDS.includes(fieldName)) {
+    // Only perform minimal sanitization to block XSS but preserve other characters
+    return xss(str, {
+      whiteList: {}, // No HTML tags allowed
+      stripIgnoreTag: true,
+      stripIgnoreTagBody: ['script', 'style'],
+      escapeHtml: function(html) {
+        // Custom escaper that preserves backslashes
+        return html
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#x27;');
+      }
+    });
+  }
+  
+  // First pass: Basic sanitization for other fields
   let sanitized = str
-    .replace(/[<>]/g, '') // Remove < and >
     .replace(/javascript:/gi, '') // Remove javascript: protocol
     .replace(/data:/gi, '') // Remove data: protocol
     .replace(/vbscript:/gi, '') // Remove vbscript: protocol
@@ -53,16 +80,39 @@ const sanitizeString = (str) => {
   return sanitized;
 };
 
+/**
+ * Validates input based on field-specific rules
+ * @param {string} value - The value to validate
+ * @param {string} field - The field name
+ * @returns {boolean} - Whether validation passed
+ */
 const validateInput = (value, field) => {
   if (!value) return true;
   
+  // Fields that should allow any characters
+  if (PRESERVE_SPECIAL_CHARS_FIELDS.includes(field)) {
+    // Just check length constraints instead of character constraints
+    const maxLengths = {
+      command: 150,
+      notes: 254,
+      filename: 100,
+      secrets: 150
+    };
+    
+    if (maxLengths[field] && value.length > maxLengths[field]) {
+      return false;
+    }
+    
+    return true;
+  }
+  
+  // For other fields, apply standard constraints
   const constraints = {
     internal_ip: /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$|^([0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}$/,
     external_ip: /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$|^([0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}$/,
     hostname: /^[a-zA-Z0-9][a-zA-Z0-9-_.]{0,73}[a-zA-Z0-9]$/,
     domain: /^[a-zA-Z0-9][a-zA-Z0-9-_.]{0,73}[a-zA-Z0-9]$/,
     username: /^[a-zA-Z0-9_-]{1,75}$/,
-    filename: /^[a-zA-Z0-9._-]{1,100}$/,
     status: /^[a-zA-Z0-9_-]{1,75}$/
   };
 
@@ -73,6 +123,11 @@ const validateInput = (value, field) => {
   return true;
 };
 
+/**
+ * Sanitizes an entire object with field-specific handling
+ * @param {object} obj - The object to sanitize
+ * @returns {object} - The sanitized object
+ */
 const sanitizeObject = (obj) => {
   if (typeof obj !== 'object' || obj === null) return {};
 
@@ -80,7 +135,8 @@ const sanitizeObject = (obj) => {
     const value = obj[key];
     
     if (typeof value === 'string') {
-      acc[key] = sanitizeString(value);
+      // Pass the field name for specialized handling
+      acc[key] = sanitizeString(value, key);
     } else if (Array.isArray(value)) {
       acc[key] = value.map(item => 
         typeof item === 'string' ? sanitizeString(item) : item
@@ -95,6 +151,11 @@ const sanitizeObject = (obj) => {
   }, {});
 };
 
+/**
+ * Sanitizes log data with specialized field handling
+ * @param {object} logData - The log data to sanitize
+ * @returns {object} - The sanitized log data
+ */
 const sanitizeLogData = (logData) => {
   if (!logData || typeof logData !== 'object') return {};
 
@@ -107,19 +168,24 @@ const sanitizeLogData = (logData) => {
     updated_at: logData.updated_at
   };
 
-  // Additional validation for specific fields
+  // Additional validation only for username field
   if (sanitizedData.username) {
     sanitizedData.username = sanitizedData.username.replace(/[^a-zA-Z0-9_-]/g, '');
   }
 
-  // Ensure command and notes don't exceed max length
-  if (sanitizedData.command && sanitizedData.command.length > 150) {
-    sanitizedData.command = sanitizedData.command.substring(0, 150);
-  }
-  // Updated notes length limit from 150 to 254 characters
-  if (sanitizedData.notes && sanitizedData.notes.length > 254) {
-    sanitizedData.notes = sanitizedData.notes.substring(0, 254);
-  }
+  // Log what we're processing to help with debugging
+  console.log('Sanitized log data:', {
+    original: {
+      command: logData.command ? `${logData.command.substring(0, 20)}${logData.command.length > 20 ? '...' : ''}` : null,
+      notes: logData.notes ? `${logData.notes.substring(0, 20)}${logData.notes.length > 20 ? '...' : ''}` : null,
+      filename: logData.filename
+    },
+    sanitized: {
+      command: sanitizedData.command ? `${sanitizedData.command.substring(0, 20)}${sanitizedData.command.length > 20 ? '...' : ''}` : null,
+      notes: sanitizedData.notes ? `${sanitizedData.notes.substring(0, 20)}${sanitizedData.notes.length > 20 ? '...' : ''}` : null,
+      filename: sanitizedData.filename
+    }
+  });
 
   return sanitizedData;
 };

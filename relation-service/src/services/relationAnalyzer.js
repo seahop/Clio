@@ -117,12 +117,25 @@ class RelationAnalyzer {
   static async analyzeUserCommandRelationsBatched(logs) {
     console.log('Analyzing user-command relations with parallel batch processing...');
     
+    // Debug incoming logs to see what we're working with
+    if (logs.length > 0) {
+      console.log('Sample log command for analysis:', 
+        logs[0].command ? logs[0].command.substring(0, 50) + (logs[0].command.length > 50 ? '...' : '') : 'none');
+    }
+    
     // Efficiently group data using lodash
     const userCommands = _.chain(logs)
       .filter(log => log.username && log.command)
-      .groupBy(log => `${log.username}:${log.command}`)
+      // Use a different separator that won't conflict with backslashes
+      // For example, using a special character like § that's unlikely to be in commands
+      .groupBy(log => `${log.username}§${log.command}`)
       .map((entries, key) => {
-        const [username, command] = key.split(':');
+        // Split using our special separator
+        const [username, command] = key.split('§');
+        
+        // Verify the command is intact
+        console.log(`Processing command for user ${username}: ${command.substring(0, 50)}${command.length > 50 ? '...' : ''}`);
+        
         // Find min and max timestamps in one pass
         const timestamps = _.map(entries, 'timestamp');
         
@@ -149,17 +162,20 @@ class RelationAnalyzer {
     `);
     
     // Create a set of existing username:command combinations for quick lookup
+    // Use the same special separator as above
     const existingUserCommandSet = new Set();
     existingRelations.rows.forEach(row => {
-      existingUserCommandSet.add(`${row.username}:${row.command}`);
+      existingUserCommandSet.add(`${row.username}§${row.command}`);
     });
     
     // Enhanced batch processor with internal parallelization
     const batchProcessor = async (commandBatch) => {
       // Process commands in parallel inside each batch for better performance
       await Promise.all(
-        commandBatch.map(data => 
-          RelationsModel.upsertRelation(
+        commandBatch.map(data => {
+          console.log(`Storing relation: ${data.username} → ${data.command.substring(0, 50)}${data.command.length > 50 ? '...' : ''}`);
+          
+          return RelationsModel.upsertRelation(
             'username',
             data.username,
             'command',
@@ -169,8 +185,8 @@ class RelationAnalyzer {
               timestamp: data.lastSeen,
               firstSeen: data.firstSeen
             }
-          )
-        )
+          );
+        })
       );
     };
     
@@ -195,7 +211,8 @@ class RelationAnalyzer {
     );
     
     // Handle removals for stale commands
-    const activeUserCommandKeys = userCommands.map(data => `${data.username}:${data.command}`);
+    // Use our special separator consistently
+    const activeUserCommandKeys = userCommands.map(data => `${data.username}§${data.command}`);
     const staleCommands = Array.from(existingUserCommandSet)
       .filter(key => !activeUserCommandKeys.includes(key));
     
@@ -205,12 +222,12 @@ class RelationAnalyzer {
       // Enhanced delete batch processor with parallelization
       const deleteBatchProcessor = async (deleteBatch) => {
         // Group deletes by username for more efficient query planning
-        const deletesByUsername = _.groupBy(deleteBatch, key => key.split(':')[0]);
+        const deletesByUsername = _.groupBy(deleteBatch, key => key.split('§')[0]);
         
         // Process each username group in parallel
         await Promise.all(
           Object.entries(deletesByUsername).map(async ([username, commands]) => {
-            const commandValues = commands.map(key => key.split(':')[1]);
+            const commandValues = commands.map(key => key.split('§')[1]);
             
             // Delete all commands for this username in one query
             await db.query(`
