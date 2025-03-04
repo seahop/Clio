@@ -1,4 +1,4 @@
-// components/RedTeamLogger.jsx
+// frontend/src/components/RedTeamLogger.jsx
 import React, { useState } from 'react';
 import { Network, File } from 'lucide-react';
 import LoggerHeader from './LoggerTable/LoggerHeader';

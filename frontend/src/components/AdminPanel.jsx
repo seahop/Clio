@@ -1,4 +1,4 @@
-// /components/AdminPanel.jsx
+// frontend/src/components/AdminPanel.jsx
 import React, { useState } from 'react';
 import { AlertCircle, Shield, Users } from 'lucide-react';
 

@@ -1,3 +1,4 @@
+// frontend/src/components/LoggerCardView.jsx
 import React, { useState } from 'react';
 import { Layout, Table, List, Plus } from 'lucide-react';
 import LogRowCard from './LogRowCard';

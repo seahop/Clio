@@ -1,3 +1,4 @@
+// frontend/src/components/UserCommandsViewer.jsx
 import React, { useState, useEffect } from 'react';
 import { User, Terminal, ChevronDown, ChevronRight, Clock } from 'lucide-react';
 

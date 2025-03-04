@@ -1,3 +1,4 @@
+// frontend/src/components/RelationViewer.jsx
 import React, { useState, useEffect } from 'react';
 import { Network, AlertCircle, User, ChevronDown, ChevronRight, Globe, Wifi, Server, RefreshCw } from 'lucide-react';
 import UserCommandsViewer from './UserCommandsViewer';

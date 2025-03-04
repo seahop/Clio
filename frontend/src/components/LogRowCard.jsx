@@ -1,3 +1,4 @@
+// frontend/src/components/LogRowCard.jsx
 import React, { useState } from 'react';
 import { ChevronRight, ChevronDown, Lock, Unlock, Trash2, Eye, EyeOff } from 'lucide-react';
 import { COLUMNS } from '../utils/constants';
