@@ -3,7 +3,7 @@
 <img src="./images/Clio_Logging_Platform_Logo.png" alt="Clio Logo" width="300"/>
 <p>
 
-A secure, collaborative logging system designed for red team operations and security assessments. This application provides real-time logging capabilities with features like row locking, user authentication, and audit trails.
+A secure, collaborative logging system designed for red team operations and security assessments. This application provides real-time logging capabilities with features like row locking, user authentication, and audit trails. Many bug fixes and features to come so please open issues as you find them.
 
 ## Features
 
@@ -89,7 +89,7 @@ The frontend serves as a secure gateway to both backend services via a proxy con
    cd Clio
    ```
 
-2. Generate environment variables and security keys using either Node.js or Python:
+2. Generate environment variables and security keys using Python:
 
    ```bash
    # Create and activate a virtual environment
@@ -100,11 +100,11 @@ The frontend serves as a secure gateway to both backend services via a proxy con
    pip install -r requirements.txt
    
    # Run the script
-   python generate-env.py
-   ```
-   or specify a custom domain:
-   ```bash
    python generate-env.py https://yourDomainOrIP.com:3000
+   ```
+   or default to localhost:
+   ```bash
+   python generate-env.py
    ```
 
    This will create:
