@@ -1,15 +1,11 @@
 // frontend/src/components/RedTeamLogger.jsx
 import React, { useState } from 'react';
-import { Network, File } from 'lucide-react';
-import LoggerHeader from './LoggerTable/LoggerHeader';
-import LoggerTableHeader from './LoggerTable/LoggerTableHeader';
-import LoggerRow from './LoggerTable/LoggerRow';
-import TablePagination from './LoggerTable/TablePagination';
-import AdminPanel from './AdminPanel';
+import { Network, File, Database, Users } from 'lucide-react';
+import LoggerCardView from './LoggerCardView';
 import RelationViewer from './RelationViewer';
 import FileStatusTracker from './FileStatusTracker';
-import LoggerCardView from './LoggerCardView';
-import { COLUMNS } from '../utils/constants';
+import ExportDatabasePanel from './ExportDatabasePanel';
+import SessionManagement from './SessionManagement';
 import { useLoggerOperations } from '../hooks/useLoggerOperations';
 
 const RedTeamLogger = ({ currentUser, csrfToken }) => {
@@ -72,6 +68,35 @@ const RedTeamLogger = ({ currentUser, csrfToken }) => {
               <File className="w-5 h-5" />
               <span className="inline">File Status</span>
             </button>
+            
+            {/* Admin-only buttons */}
+            {isAdmin && (
+              <>
+                <button
+                  onClick={() => setActiveView('export')}
+                  className={`px-4 py-2 rounded-md flex items-center gap-2 transition-colors duration-200 ${
+                    activeView === 'export' 
+                      ? 'bg-blue-600 text-white' 
+                      : 'bg-gray-700 text-white hover:bg-gray-600'
+                  }`}
+                >
+                  <Database className="w-5 h-5" />
+                  <span className="inline">Export</span>
+                </button>
+                
+                <button
+                  onClick={() => setActiveView('sessions')}
+                  className={`px-4 py-2 rounded-md flex items-center gap-2 transition-colors duration-200 ${
+                    activeView === 'sessions' 
+                      ? 'bg-blue-600 text-white' 
+                      : 'bg-gray-700 text-white hover:bg-gray-600'
+                  }`}
+                >
+                  <Users className="w-5 h-5" />
+                  <span className="inline">Sessions</span>
+                </button>
+              </>
+            )}
           </div>
         </div>
 
@@ -96,15 +121,24 @@ const RedTeamLogger = ({ currentUser, csrfToken }) => {
             <FileStatusTracker />
           </div>
         )}
+        
+        {/* Admin Views */}
+        {activeView === 'export' && isAdmin && (
+          <div className="w-full">
+            <div className="bg-gray-800 rounded-lg shadow-lg p-4">
+              <ExportDatabasePanel csrfToken={csrfToken} />
+            </div>
+          </div>
+        )}
+        
+        {activeView === 'sessions' && isAdmin && (
+          <div className="w-full">
+            <div className="bg-gray-800 rounded-lg shadow-lg p-4">
+              <SessionManagement csrfToken={csrfToken} />
+            </div>
+          </div>
+        )}
       </div>
-
-      {isAdmin && activeView === 'logs' && (
-        <div className="mt-6">
-          <AdminPanel
-            csrfToken={csrfToken}
-          />
-        </div>
-      )}
     </div>
   );
 };

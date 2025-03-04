@@ -46,6 +46,9 @@ services:
         source: ./certs
         target: /app/certs
         read_only: true
+      - type: bind
+        source: ./backend/exports
+        target: /app/exports
     env_file:
       - .env
     environment:
