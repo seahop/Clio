@@ -8,6 +8,7 @@ import TablePagination from './LoggerTable/TablePagination';
 import AdminPanel from './AdminPanel';
 import RelationViewer from './RelationViewer';
 import FileStatusTracker from './FileStatusTracker';
+import LoggerCardView from './LoggerCardView';
 import { COLUMNS } from '../utils/constants';
 import { useLoggerOperations } from '../hooks/useLoggerOperations';
 
@@ -75,49 +76,13 @@ const RedTeamLogger = ({ currentUser, csrfToken }) => {
         </div>
 
         {activeView === 'logs' && (
-          <div className="bg-gray-800 shadow-lg rounded-lg w-full">
-            <LoggerHeader 
-              isAdmin={isAdmin}
-              onAddRow={handlers.handleAddRow}
-            />
-            <div className="overflow-x-auto">
-              <table className="w-full border-collapse min-w-max">
-                <LoggerTableHeader 
-                  columns={COLUMNS}
-                  isAdmin={isAdmin}
-                />
-                <tbody>
-                  {logs.map(row => (
-                    <LoggerRow
-                      key={row.id}
-                      row={row}
-                      columns={COLUMNS}
-                      isAdmin={isAdmin}
-                      currentUser={currentUser.username}
-                      editingCell={tableState.editingCell}
-                      editingValue={tableState.editingValue}
-                      expandedCell={tableState.expandedCell}
-                      onCellClick={handlers.handleCellClick}
-                      onCellChange={handlers.handleCellChange}
-                      onCellBlur={handlers.handleCellBlur}
-                      onKeyDown={handlers.handleKeyDown}
-                      onExpand={handlers.handleExpand}
-                      onToggleLock={handlers.handleToggleLock}
-                      onDelete={handlers.handleDeleteRow}
-                    />
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <TablePagination
-              currentPage={tableState.currentPage}
-              totalPages={tableState.totalPages}
-              rowsPerPage={tableState.rowsPerPage}
-              totalRows={tableState.totalRows}
-              onPageChange={handlers.handlePageChange}
-              onRowsPerPageChange={handlers.handleRowsPerPageChange}
-            />
-          </div>
+          <LoggerCardView 
+            logs={logs}
+            isAdmin={isAdmin}
+            currentUser={currentUser.username}
+            tableState={tableState}
+            handlers={handlers}
+          />
         )}
 
         {activeView === 'relations' && (
