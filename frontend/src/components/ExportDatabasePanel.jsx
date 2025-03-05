@@ -1,6 +1,17 @@
-// frontend/src/components/ExportDatabasePanel.jsx
+// frontend/src/components/ExportDatabasePanel.jsx - Updated with evidence export
 import React, { useState, useEffect } from 'react';
-import { Download, CheckSquare, Square, Trash2, RefreshCw, FileText, AlertCircle } from 'lucide-react';
+import { 
+  Download, 
+  CheckSquare, 
+  Square, 
+  Trash2, 
+  RefreshCw, 
+  FileText, 
+  AlertCircle,
+  Image,
+  Database,
+  Archive
+} from 'lucide-react';
 
 const ExportDatabasePanel = ({ csrfToken }) => {
   const [loading, setLoading] = useState(false);
@@ -12,6 +23,8 @@ const ExportDatabasePanel = ({ csrfToken }) => {
   const [error, setError] = useState(null);
   const [exports, setExports] = useState([]);
   const [expandInstructions, setExpandInstructions] = useState(false);
+  const [exportMode, setExportMode] = useState('csv'); // 'csv' or 'evidence'
+  const [includeEvidence, setIncludeEvidence] = useState(true);
 
   useEffect(() => {
     fetchColumns();
@@ -102,14 +115,20 @@ const ExportDatabasePanel = ({ csrfToken }) => {
       setMessage(null);
       setError(null);
 
-      const response = await fetch('/api/export/csv', {
+      // Determine endpoint based on export mode
+      const endpoint = exportMode === 'evidence' ? '/api/export/evidence' : '/api/export/csv';
+
+      const response = await fetch(endpoint, {
         method: 'POST',
         credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
           'CSRF-Token': csrfToken
         },
-        body: JSON.stringify({ selectedColumns })
+        body: JSON.stringify({ 
+          selectedColumns,
+          includeEvidence: exportMode === 'evidence' ? includeEvidence : false
+        })
       });
 
       if (!response.ok) {
@@ -118,7 +137,13 @@ const ExportDatabasePanel = ({ csrfToken }) => {
       }
 
       const data = await response.json();
-      setMessage(`Export completed successfully! ${data.details.rowCount} rows exported to ${data.details.filePath}`);
+      
+      // Set specific message based on export type
+      if (exportMode === 'evidence') {
+        setMessage(`Evidence export completed successfully! Created ${data.details.filename} with ${data.details.logCount} logs and ${data.details.evidenceCount} evidence files.`);
+      } else {
+        setMessage(`CSV export completed successfully! ${data.details.rowCount} rows exported to ${data.details.filePath}`);
+      }
       
       // Refresh the exports list
       fetchExports();
@@ -163,8 +188,26 @@ const ExportDatabasePanel = ({ csrfToken }) => {
   };
 
   const formatDate = (dateString) => {
-    const date = new Date(dateString);
-    return date.toLocaleString();
+    try {
+      // Return a clear message for undefined/null dates
+      if (!dateString) return 'Unknown date';
+  
+      // Try to create a proper date object
+      const date = new Date(dateString);
+      
+      // Detect invalid dates (including epoch time around Jan 1, 1970)
+      if (isNaN(date.getTime()) || date.getFullYear() < 2020) {
+        // If we get a very old date or invalid date, just show the current time
+        return new Date().toLocaleString();
+      }
+      
+      // Otherwise return a properly formatted date
+      return date.toLocaleString();
+    } catch (error) {
+      console.error('Date formatting error:', error);
+      // Return current time as fallback
+      return new Date().toLocaleString();
+    }
   };
 
   return (
@@ -184,7 +227,7 @@ const ExportDatabasePanel = ({ csrfToken }) => {
       )}
 
       <div className="grid md:grid-cols-2 gap-6">
-        {/* Column Selection - No scrollbar */}
+        {/* Left panel - Column Selection */}
         <div className="bg-gray-700/50 p-4 rounded-md">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-lg font-semibold text-white">Select Columns</h3>
@@ -204,6 +247,55 @@ const ExportDatabasePanel = ({ csrfToken }) => {
             </div>
           </div>
           
+          {/* Export mode selection */}
+          <div className="mb-4 bg-gray-800/50 p-3 rounded-md">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm text-gray-300">Export Type:</span>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setExportMode('csv')}
+                  className={`px-3 py-1 rounded text-xs flex items-center gap-1 ${
+                    exportMode === 'csv' 
+                      ? 'bg-blue-600 text-white' 
+                      : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                  }`}
+                >
+                  <Database size={14} />
+                  CSV Only
+                </button>
+                <button
+                  onClick={() => setExportMode('evidence')}
+                  className={`px-3 py-1 rounded text-xs flex items-center gap-1 ${
+                    exportMode === 'evidence' 
+                      ? 'bg-blue-600 text-white' 
+                      : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                  }`}
+                >
+                  <Archive size={14} />
+                  With Evidence
+                </button>
+              </div>
+            </div>
+            
+            {exportMode === 'evidence' && (
+              <div className="mt-2 pt-2 border-t border-gray-700">
+                <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={includeEvidence}
+                    onChange={(e) => setIncludeEvidence(e.target.checked)}
+                    className="rounded border-gray-600 bg-gray-700 text-blue-500 focus:ring-blue-500"
+                  />
+                  Include evidence files in the export
+                </label>
+                <p className="text-xs text-gray-400 mt-1">
+                  Creates an HTML viewer and ZIP package with all logs and related evidence files
+                </p>
+              </div>
+            )}
+          </div>
+          
+          {/* Column selection */}
           {loadingColumns ? (
             <div className="flex justify-center items-center py-8">
               <RefreshCw className="animate-spin text-blue-400" />
@@ -249,8 +341,17 @@ const ExportDatabasePanel = ({ csrfToken }) => {
                 </>
               ) : (
                 <>
-                  <Download size={16} className="mr-2" />
-                  Export Selected Columns
+                  {exportMode === 'evidence' ? (
+                    <>
+                      <Archive size={16} className="mr-2" />
+                      Export with Evidence
+                    </>
+                  ) : (
+                    <>
+                      <Download size={16} className="mr-2" />
+                      Export Selected Columns
+                    </>
+                  )}
                 </>
               )}
             </button>
@@ -268,13 +369,16 @@ const ExportDatabasePanel = ({ csrfToken }) => {
               <div className="mt-2 p-3 bg-gray-800/50 rounded text-sm text-gray-300">
                 <p className="mb-2">This feature exports logs to CSV files on the server. The files are <strong>not</strong> downloaded to your browser.</p>
                 <p className="mb-2">Files are saved to the <code className="bg-gray-700 px-1 py-0.5 rounded">backend/exports</code> directory on the host system.</p>
+                {exportMode === 'evidence' && (
+                  <p className="mb-2">The evidence export creates a ZIP file containing all logs and related evidence files, along with an HTML viewer for easy browsing.</p>
+                )}
                 <p>Use care when selecting sensitive columns like "secrets" that may contain credentials.</p>
               </div>
             )}
           </div>
         </div>
         
-        {/* Existing Exports */}
+        {/* Right panel - Existing Exports */}
         <div className="bg-gray-700/50 p-4 rounded-md">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-lg font-semibold text-white flex items-center">
@@ -305,6 +409,7 @@ const ExportDatabasePanel = ({ csrfToken }) => {
               <table className="w-full text-sm text-left text-gray-300">
                 <thead className="text-xs text-gray-400 uppercase bg-gray-700/50">
                   <tr>
+                    <th className="px-3 py-2 w-6"></th>
                     <th className="px-3 py-2">Filename</th>
                     <th className="px-3 py-2">Size</th>
                     <th className="px-3 py-2">Created</th>
@@ -314,6 +419,13 @@ const ExportDatabasePanel = ({ csrfToken }) => {
                 <tbody>
                   {exports.map((file, index) => (
                     <tr key={file.name} className={`border-b border-gray-700 ${index % 2 === 0 ? 'bg-gray-800/30' : ''}`}>
+                      <td className="px-3 py-2">
+                        {file.type === 'evidence' ? (
+                          <Archive size={16} className="text-purple-400" title="Evidence Export" />
+                        ) : (
+                          <FileText size={16} className="text-blue-400" title="CSV Export" />
+                        )}
+                      </td>
                       <td className="px-3 py-2 font-medium text-white">
                         {file.name}
                       </td>
