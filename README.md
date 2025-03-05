@@ -225,7 +225,7 @@ docker-compose up
 ### Clearing old data
 ```bash
 docker-compose down
-docker volume rm clio_postgres_data clio_redis_data
+docker volume rm clio_postgres_data clio_redis_data clio_evidence_files
 ```
 
 ## License

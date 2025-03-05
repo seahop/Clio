@@ -12,7 +12,8 @@ const LoggerCardView = ({
   isAdmin,
   currentUser,
   tableState,
-  handlers
+  handlers,
+  csrfToken
 }) => {
   const [viewMode, setViewMode] = useState('card'); // 'card' or 'table'
   
@@ -81,6 +82,7 @@ const LoggerCardView = ({
                   onExpand={handlers.handleExpand}
                   onToggleLock={handlers.handleToggleLock}
                   onDelete={handlers.handleDeleteRow}
+                  csrfToken={csrfToken}
                 />
               ))}
             </div>

@@ -14,6 +14,7 @@ const logsRoutes = require('./routes/logs.routes');
 const exportRoutes = require('./routes/export.routes');
 const eventLogger = require('./lib/eventLogger');
 const sessionRoutes = require('./routes/session.routes');
+const evidenceRoutes = require('./routes/evidence.routes');
 const { errorMiddleware, notFoundMiddleware } = require('./middleware/error.middleware');
 const { csrfProtection, csrfTokenEndpoint } = require('./middleware/csrf.middleware');
 const db = require('./db');
@@ -153,6 +154,7 @@ app.use('/api/logs', logsRoutes);
 app.use('/api/log-access', require('./routes/logs-access.routes'));
 app.use('/api/export', exportRoutes);
 app.use('/api/sessions', sessionRoutes);
+app.use('/api/evidence', evidenceRoutes);
 
 // Error handling
 app.use(errorMiddleware);

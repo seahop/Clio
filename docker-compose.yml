@@ -49,6 +49,7 @@ services:
       - type: bind
         source: ./backend/exports
         target: /app/exports
+      - evidence_files:/app/evidence
     env_file:
       - .env
     environment:
@@ -193,6 +194,8 @@ volumes:
   redis_data:
     driver: local
   postgres_data:
+    driver: local
+  evidence_files:
     driver: local
 
 networks:

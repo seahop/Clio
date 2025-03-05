@@ -34,10 +34,31 @@ CREATE TABLE IF NOT EXISTS logs (
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Evidence files table
+CREATE TABLE IF NOT EXISTS evidence_files (
+    id SERIAL PRIMARY KEY,
+    log_id INTEGER NOT NULL REFERENCES logs(id) ON DELETE CASCADE,
+    filename VARCHAR(255) NOT NULL,
+    original_filename VARCHAR(255) NOT NULL,
+    file_type VARCHAR(100),
+    file_size INTEGER,
+    upload_date TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    uploaded_by VARCHAR(100),
+    description TEXT,
+    md5_hash VARCHAR(32),
+    filepath VARCHAR(255) NOT NULL,
+    metadata JSONB DEFAULT '{}'::jsonb
+);
+
 -- Create indexes
 CREATE INDEX IF NOT EXISTS idx_logs_timestamp ON logs(timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_logs_analyst ON logs(analyst);
 CREATE INDEX IF NOT EXISTS idx_logs_hostname ON logs(hostname);
+
+-- Create evidence index
+CREATE INDEX IF NOT EXISTS idx_evidence_log_id ON evidence_files(log_id);
+CREATE INDEX IF NOT EXISTS idx_evidence_uploaded_by ON evidence_files(uploaded_by);
+CREATE INDEX IF NOT EXISTS idx_evidence_upload_date ON evidence_files(upload_date);
 
 -- Create updated_at trigger function
 CREATE OR REPLACE FUNCTION update_updated_at_column()

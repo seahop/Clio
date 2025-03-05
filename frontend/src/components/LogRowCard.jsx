@@ -1,7 +1,8 @@
 // frontend/src/components/LogRowCard.jsx
 import React, { useState } from 'react';
-import { ChevronRight, ChevronDown, Lock, Unlock, Trash2, Eye, EyeOff } from 'lucide-react';
+import { ChevronRight, ChevronDown, Lock, Unlock, Trash2, Eye, EyeOff, FileText } from 'lucide-react';
 import { COLUMNS } from '../utils/constants';
+import EvidenceTab from './EvidenceTab';
 
 // Helper function to get status color class
 const getStatusColorClass = (status) => {
@@ -32,10 +33,12 @@ const LogRowCard = ({
   onKeyDown,
   onExpand,
   onToggleLock,
-  onDelete
+  onDelete,
+  csrfToken
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [showSecrets, setShowSecrets] = useState(false);
+  const [showEvidenceTab, setShowEvidenceTab] = useState(false);
   
   // Row is only editable if it's not locked
   const canEdit = !row.locked;
@@ -182,6 +185,21 @@ const LogRowCard = ({
               <Lock size={16} className="text-red-400" /> : 
               <Unlock size={16} className="text-green-400" />
             }
+          </button>
+          
+          {/* Evidence button */}
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setIsClickingCell(true);
+              setShowEvidenceTab(!showEvidenceTab);
+            }}
+            className={`flex-shrink-0 p-1 rounded hover:bg-gray-600 transition-colors ${
+              showEvidenceTab ? 'text-blue-400' : 'text-gray-400'
+            }`}
+            title="Toggle evidence"
+          >
+            <FileText size={16} />
           </button>
           
           {/* Primary Info */}
@@ -360,6 +378,18 @@ const LogRowCard = ({
               </div>
             </div>
           </div>
+          
+          {/* Evidence Tab */}
+          {showEvidenceTab && (
+            <div className="mt-4 pt-4 border-t border-gray-700">
+              <EvidenceTab 
+                logId={row.id}
+                csrfToken={csrfToken}
+                isAdmin={isAdmin}
+                currentUser={currentUser}
+              />
+            </div>
+          )}
         </div>
       )}
     </div>

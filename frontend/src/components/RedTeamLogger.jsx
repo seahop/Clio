@@ -107,18 +107,19 @@ const RedTeamLogger = ({ currentUser, csrfToken }) => {
             currentUser={currentUser.username}
             tableState={tableState}
             handlers={handlers}
+            csrfToken={csrfToken}
           />
         )}
 
         {activeView === 'relations' && (
           <div className="w-full">
-            <RelationViewer />
+            <RelationViewer csrfToken={csrfToken} />
           </div>
         )}
         
         {activeView === 'files' && (
           <div className="w-full">
-            <FileStatusTracker />
+            <FileStatusTracker csrfToken={csrfToken} />
           </div>
         )}
         
