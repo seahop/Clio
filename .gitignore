@@ -5,6 +5,7 @@ certs/*
 package-lock.json
 node_modules
 backend/exports/logs*
+backend/exports/data_*
 backend/data/*.json
 backend/data/logs.json
 backend/data/auth_logs.json
