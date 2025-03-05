@@ -1,4 +1,5 @@
 // backend/controllers/auth.controller.js
+const jwt = require('jsonwebtoken');
 const AuthService = require('../services/auth.service');
 const PasswordService = require('../services/password.service');
 const authLogger = require('../utils/auth-logger');
@@ -6,6 +7,7 @@ const eventLogger = require('../lib/eventLogger');
 const security = require('../config/security');
 const { SESSION_OPTIONS } = require('../config/constants');
 const { createJwtToken, revokeJwtToken, revokeAllTokens } = require('../middleware/jwt.middleware');
+const { redisClient } = require('../lib/redis'); 
 
 const loginUser = async (req, res) => {
   const { username, password } = req.body;
@@ -183,19 +185,46 @@ const changePassword = async (req, res) => {
 const logoutUser = async (req, res) => {
   try {
     const token = req.cookies.auth_token;
+    const username = req.user.username;
     
-    // Revoke the token
+    // Get the JWT ID from the token
+    let tokenId = null;
+    try {
+      const decoded = jwt.decode(token);
+      if (decoded && decoded.jti) {
+        tokenId = decoded.jti;
+      }
+    } catch (error) {
+      console.error('Error decoding token during logout:', error);
+    }
+    
+    // Revoke the specific token
     await revokeJwtToken(token);
-
+    
+    // Also remove token from user's tokens set if we have the token ID
+    if (tokenId && username) {
+      try {
+        await redisClient.sRem(`user:${username}:tokens`, tokenId);
+        
+        // Remove any refreshed token references
+        await redisClient.del(`jwt:refreshed:${tokenId}`);
+      } catch (error) {
+        console.error('Error removing token from user set:', error);
+      }
+    }
+    
     // Log logout event
     await eventLogger.logSecurityEvent('logout', req.user.username, {
       ip: req.ip,
       userAgent: req.get('User-Agent'),
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      tokenId: tokenId ? tokenId.substring(0, 8) : 'unknown' // Log only first 8 chars for security
     });
 
-    // Clear the cookie
+    // Clear all cookies, not just auth_token
     res.clearCookie('auth_token', SESSION_OPTIONS);
+    res.clearCookie('_csrf');
+    
     res.json({ message: 'Logged out successfully' });
   } catch (error) {
     console.error('Logout error:', error);
@@ -206,6 +235,10 @@ const logoutUser = async (req, res) => {
       userAgent: req.get('User-Agent')
     });
 
+    // Clear cookies even if there's an error
+    res.clearCookie('auth_token', SESSION_OPTIONS);
+    res.clearCookie('_csrf');
+    
     res.status(500).json({ error: 'Logout failed' });
   }
 };

@@ -1,9 +1,11 @@
 // backend/middleware/jwt.middleware.js
+const jwt = require('jsonwebtoken'); 
 const JwtHandler = require('../lib/jwtHandler');
 const security = require('../config/security');
 const { SESSION_OPTIONS } = require('../config/constants');
 const eventLogger = require('../lib/eventLogger');
 const crypto = require('crypto');
+const { redisClient } = require('../lib/redis');
 
 // Initialize JWT handler
 const jwtHandler = new JwtHandler(security.JWT_SECRET, security.SERVER_INSTANCE_ID);
@@ -115,12 +117,44 @@ const createJwtToken = async (user, options = {}) => {
  */
 const revokeJwtToken = async (token) => {
   try {
-    const decoded = await jwtHandler.verifyToken(token);
-    if (!decoded) {
+    // Decode the token to get the JWT ID and username
+    let decoded = null;
+    try {
+      decoded = jwt.decode(token);
+    } catch (error) {
+      console.error('Error decoding token during revocation:', error);
       return false;
     }
     
-    return await jwtHandler.revokeToken(decoded.jti);
+    if (!decoded || !decoded.jti) {
+      console.error('Invalid token format for revocation');
+      return false;
+    }
+    
+    const tokenId = decoded.jti;
+    const username = decoded.username;
+    
+    // Get token data before deletion for logging
+    const tokenData = await redisClient.get(`jwt:${tokenId}`);
+    
+    // Delete the token from Redis
+    await redisClient.del(`jwt:${tokenId}`);
+    
+    // Delete any refreshed token references
+    await redisClient.del(`jwt:refreshed:${tokenId}`);
+    
+    // If we have username info, remove from user's tokens set
+    if (username) {
+      await redisClient.sRem(`user:${username}:tokens`, tokenId);
+    }
+    
+    // Log the token revocation
+    await eventLogger.logSecurityEvent('token_revoke', username || 'unknown', {
+      jti: tokenId.substring(0, 8),
+      manual: true
+    });
+    
+    return true;
   } catch (error) {
     console.error('Token revocation error:', error);
     return false;

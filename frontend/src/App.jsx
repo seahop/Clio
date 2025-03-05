@@ -74,6 +74,41 @@ function App() {
     localStorage.setItem('user', JSON.stringify(userData));
   };
 
+  const handleLogout = async () => {
+    try {
+      console.log('Attempting logout...');
+      const response = await fetch(`/api/auth/logout`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'CSRF-Token': csrfToken
+        },
+        credentials: 'include',
+        body: JSON.stringify({}) // We don't need userId since we're revoking all
+      });
+      console.log('Logout response:', response.status);
+      
+      // Clear all application storage
+      localStorage.removeItem('user');
+      localStorage.removeItem('passwordChangeRequired');
+      
+      // Clear any other application state
+      sessionStorage.clear();
+      
+      // Force clear any cached auth state
+      setUser(null);
+      
+      // Force reload the page to reset all application state
+      window.location.href = '/';
+    } catch (error) {
+      console.error('Logout failed:', error);
+      // Clear storage and reload anyway for safety
+      localStorage.clear();
+      sessionStorage.clear();
+      window.location.href = '/';
+    }
+  };
+
   // Fetch CSRF token function - moved to a separate function to enable reuse
   const fetchCsrfToken = useCallback(async () => {
     console.log('Fetching CSRF token...');
@@ -316,26 +351,7 @@ function App() {
                     </span>
                   )}
                   <button
-                    onClick={async () => {
-                      try {
-                        console.log('Attempting logout...');
-                        const response = await fetch(`/api/auth/logout`, {
-                          method: 'POST',
-                          headers: {
-                            'Content-Type': 'application/json',
-                            'CSRF-Token': csrfToken
-                          },
-                          credentials: 'include',
-                          body: JSON.stringify({}) // We don't need userId since we're revoking all
-                        });
-                        console.log('Logout response:', response.status);
-                        localStorage.removeItem('user');
-                        localStorage.removeItem('passwordChangeRequired');
-                        setUser(null);
-                      } catch (error) {
-                        console.error('Logout failed:', error);
-                      }
-                    }}
+                    onClick={handleLogout}
                     className="px-4 py-2 bg-gray-700 text-gray-300 rounded-md hover:bg-gray-600"
                   >
                     Logout
