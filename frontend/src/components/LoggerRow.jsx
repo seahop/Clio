@@ -1,8 +1,9 @@
 // components/LoggerTable/LoggerRow.jsx
 import React, { useState } from 'react';
-import { Lock, Unlock, Trash2, FileText } from 'lucide-react';
+import { Lock, Unlock, Trash2 } from 'lucide-react';
 import LoggerCell from './LoggerCell';
 import EvidenceTab from '../EvidenceTab';
+import EvidenceToggle from '../EvidenceToggle';
 
 const LoggerRow = ({
     row,
@@ -43,19 +44,12 @@ const LoggerRow = ({
               }
             </button>
             
-            {/* Add evidence button */}
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                setShowEvidencePanel(!showEvidencePanel);
-              }}
-              className={`p-1 rounded hover:bg-gray-700 transition-colors duration-200 ${
-                showEvidencePanel ? 'text-blue-400' : 'text-gray-400'
-              }`}
-              title="Toggle evidence panel"
-            >
-              <FileText size={16} />
-            </button>
+            {/* Add evidence toggle button */}
+            <EvidenceToggle 
+              isActive={showEvidencePanel}
+              onToggle={() => setShowEvidencePanel(!showEvidencePanel)}
+              size="medium"
+            />
           </td>
           {columns.map(col => {
             // Determine if this cell should be editable
@@ -109,21 +103,23 @@ const LoggerRow = ({
           )}
         </tr>
         
-        {/* Evidence Panel Row - shown when evidence button is clicked */}
-        {showEvidencePanel && (
-          <tr className="bg-gray-800">
-            <td colSpan={columns.length + (isAdmin ? 2 : 1)} className="p-0 border border-gray-600">
-              <div className="p-4 bg-gray-800 border-t border-gray-700">
-                <EvidenceTab 
-                  logId={row.id}
-                  csrfToken={csrfToken}
-                  isAdmin={isAdmin}
-                  currentUser={currentUser}
-                />
-              </div>
-            </td>
-          </tr>
-        )}
+        {/* Evidence Panel Row - with smooth transition */}
+        <tr 
+          className={`evidence-row ${showEvidencePanel ? 'expanded' : 'collapsed'} transition-all duration-300 ease-in-out`}
+          style={{ display: showEvidencePanel ? 'table-row' : 'none' }}
+        >
+          <td colSpan={columns.length + (isAdmin ? 2 : 1)} className="p-0 border border-gray-600">
+            <div className="p-4 bg-gray-800 border-t border-gray-700 evidence-panel">
+              <EvidenceTab 
+                logId={row.id}
+                csrfToken={csrfToken}
+                isAdmin={isAdmin}
+                currentUser={currentUser}
+                isTableView={true}
+              />
+            </div>
+          </td>
+        </tr>
       </>
     );
   };

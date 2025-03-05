@@ -113,6 +113,7 @@ const LoggerCardView = ({
                   onExpand={handlers.handleExpand}
                   onToggleLock={handlers.handleToggleLock}
                   onDelete={handlers.handleDeleteRow}
+                  csrfToken={csrfToken}
                 />
               ))}
             </tbody>
