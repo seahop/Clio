@@ -33,42 +33,42 @@ const FileStatusTracker = () => {
   // Status definitions with icons and colors
   const statusConfig = {
     'ON_DISK': { 
-      icon: <HardDrive className="w-5 h-5" />, 
+      icon: <HardDrive className="w-5 h-5 text-yellow-300" />, 
       color: 'bg-yellow-600/20 text-yellow-300',
       description: 'File is still on the target system'
     },
     'IN_MEMORY': { 
-      icon: <MemoryStick className="w-5 h-5" />, 
+      icon: <MemoryStick className="w-5 h-5 text-blue-300" />, 
       color: 'bg-blue-600/20 text-blue-300',
       description: 'Running only in memory'
     },
     'ENCRYPTED': { 
-      icon: <Lock className="w-5 h-5" />, 
+      icon: <Lock className="w-5 h-5 text-purple-300" />, 
       color: 'bg-purple-600/20 text-purple-300',
       description: 'File is present but encrypted'
     },
     'REMOVED': { 
-      icon: <FileX className="w-5 h-5" />, 
+      icon: <FileX className="w-5 h-5 text-red-300" />, 
       color: 'bg-red-600/20 text-red-300',
       description: 'File has been deleted'
     },
     'CLEANED': { 
-      icon: <FileCheck className="w-5 h-5" />, 
+      icon: <FileCheck className="w-5 h-5 text-green-300" />, 
       color: 'bg-green-600/20 text-green-300',
       description: 'File and any traces have been removed'
     },
     'DORMANT': { 
-      icon: <File className="w-5 h-5" />, 
+      icon: <File className="w-5 h-5 text-gray-300" />, 
       color: 'bg-gray-600/20 text-gray-300',
       description: 'Inactive but still present'
     },
     'DETECTED': { 
-      icon: <Shield className="w-5 h-5" />, 
+      icon: <Shield className="w-5 h-5 text-orange-300" />, 
       color: 'bg-orange-600/20 text-orange-300',
       description: 'AV/EDR has flagged the file'
     },
     'UNKNOWN': { 
-      icon: <FileWarning className="w-5 h-5" />, 
+      icon: <FileWarning className="w-5 h-5 text-gray-300" />, 
       color: 'bg-gray-600/20 text-gray-300',
       description: 'Status needs verification'
     }
