@@ -10,9 +10,10 @@ const { formatFileSize } = require('../../utils/export/formatter');
  * @param {Array} evidenceManifest - Evidence files manifest
  * @param {Array} selectedColumns - Selected columns to display
  * @param {Object} relationData - Relation data
+ * @param {Boolean} includeHashes - Whether to include hash information
  * @returns {String} Path to the created HTML file
  */
-const createHtmlReport = async (exportDir, logs, evidenceManifest, selectedColumns, relationData = null) => {
+const createHtmlReport = async (exportDir, logs, evidenceManifest, selectedColumns, relationData = null, includeHashes = true) => {
   try {
     // Group evidence by log ID for easier lookup
     const evidenceByLogId = evidenceManifest.reduce((acc, evidence) => {
@@ -375,6 +376,39 @@ const createHtmlReport = async (exportDir, logs, evidenceManifest, selectedColum
           margin-left: 8px;
           font-size: 12px;
         }
+        .hash-info {
+          margin-top: 10px;
+          border-top: 1px dotted #ddd;
+          padding-top: 10px;
+        }
+        .hash-container {
+          background-color: #f1f1f1;
+          padding: 8px;
+          border-radius: 5px;
+          margin-top: 5px;
+        }
+        .hash-algorithm {
+          font-weight: bold;
+          color: #9b59b6;
+          font-size: 13px;
+          margin-bottom: 3px;
+        }
+        .hash-value {
+          font-family: monospace;
+          word-break: break-all;
+          font-size: 12px;
+          color: #333;
+          background: #e8e8e8;
+          padding: 5px;
+          border-radius: 3px;
+          max-width: 100%;
+          overflow-x: auto;
+        }
+        .hash-section {
+          margin-top: 15px;
+          border-top: 1px dashed #ccc;
+          padding-top: 15px;
+        }
       </style>
     </head>
     <body>
@@ -389,6 +423,7 @@ const createHtmlReport = async (exportDir, logs, evidenceManifest, selectedColum
           <li>Total Logs: ${logs.length}</li>
           <li>Total Evidence Files: ${evidenceManifest.length}</li>
           <li>Logs with Evidence: ${Object.keys(evidenceByLogId).length}</li>
+          ${includeHashes ? '<li>Hash information included</li>' : ''}
           ${relationData ? `<li>Total Relations: ${relationStats.totalRelations}</li>` : ''}
           ${relationData ? `<li>User Commands: ${relationStats.userCommands} (from ${relationStats.uniqueUsers} users)</li>` : ''}
         </ul>
@@ -399,21 +434,19 @@ const createHtmlReport = async (exportDir, logs, evidenceManifest, selectedColum
           <button class="tab-button active" onclick="openTab(event, 'tab-logs')">Logs View</button>
           <button class="tab-button" onclick="openTab(event, 'tab-table')">Table View</button>
           <button class="tab-button" onclick="openTab(event, 'tab-evidence')">Evidence Gallery</button>
+          ${includeHashes ? `<button class="tab-button" onclick="openTab(event, 'tab-hashes')">Hash Information</button>` : ''}
           ${relationData ? `<button class="tab-button" onclick="openTab(event, 'tab-relations')">Relations</button>` : ''}
           ${relationData && relationData.userCommands ? `<button class="tab-button" onclick="openTab(event, 'tab-commands')">User Commands</button>` : ''}
         </div>
         
         <div id="tab-logs" class="tab-content active">
-          <h2>Logs with Evidence</h2>
+          <h2>All Logs</h2>
     `;
     
     // Add each log entry
     logs.forEach(log => {
       const hasEvidence = evidenceByLogId[log.id] && evidenceByLogId[log.id].length > 0;
       const evidenceCount = hasEvidence ? evidenceByLogId[log.id].length : 0;
-      
-      // Skip logs without evidence in the card view
-      if (!hasEvidence) return;
       
       const logDate = log.timestamp ? new Date(log.timestamp).toLocaleString() : 'Unknown Date';
       let statusClass = 'status-unknown';
@@ -443,6 +476,11 @@ const createHtmlReport = async (exportDir, logs, evidenceManifest, selectedColum
             displayValue = new Date(displayValue).toLocaleString();
           }
           
+          // Skip hash fields here as we'll display them in a separate section
+          if ((column === 'hash_algorithm' || column === 'hash_value') && includeHashes) {
+            return;
+          }
+          
           htmlContent += `
             <div class="log-field">
               <div class="field-name">${column}:</div>
@@ -455,6 +493,19 @@ const createHtmlReport = async (exportDir, logs, evidenceManifest, selectedColum
       htmlContent += `
           </div>
       `;
+      
+      // Add hash information if requested and available
+      if (includeHashes && (log.hash_algorithm || log.hash_value)) {
+        htmlContent += `
+          <div class="hash-info">
+            <div class="field-name">Hash Information:</div>
+            <div class="hash-container">
+              ${log.hash_algorithm ? `<div class="hash-algorithm">Algorithm: ${log.hash_algorithm}</div>` : ''}
+              ${log.hash_value ? `<div class="hash-value">${log.hash_value}</div>` : ''}
+            </div>
+          </div>
+        `;
+      }
       
       // Add evidence section if there is any
       if (hasEvidence) {
@@ -522,7 +573,8 @@ const createHtmlReport = async (exportDir, logs, evidenceManifest, selectedColum
             <thead>
               <tr>
                 <th>ID</th>
-                ${selectedColumns.map(col => `<th>${col}</th>`).join('')}
+                ${selectedColumns.filter(col => col !== 'hash_algorithm' && col !== 'hash_value' || !includeHashes).map(col => `<th>${col}</th>`).join('')}
+                ${includeHashes ? '<th>Hash Information</th>' : ''}
                 <th>Evidence</th>
               </tr>
             </thead>
@@ -539,6 +591,11 @@ const createHtmlReport = async (exportDir, logs, evidenceManifest, selectedColum
       `;
       
       selectedColumns.forEach(column => {
+        // Skip hash columns if they'll be displayed in their own column
+        if ((column === 'hash_algorithm' || column === 'hash_value') && includeHashes) {
+          return;
+        }
+        
         let displayValue = log[column] !== undefined && log[column] !== null ? log[column] : '';
         
         // Format timestamp
@@ -554,6 +611,20 @@ const createHtmlReport = async (exportDir, logs, evidenceManifest, selectedColum
         
         htmlContent += `<td>${displayValue}</td>`;
       });
+      
+      // Add hash information column if requested
+      if (includeHashes) {
+        htmlContent += `
+          <td>
+            ${log.hash_algorithm || log.hash_value ? `
+              <div>
+                ${log.hash_algorithm ? `<div style="font-weight:bold;color:#9b59b6">${log.hash_algorithm}</div>` : ''}
+                ${log.hash_value ? `<div style="font-family:monospace;font-size:11px;word-break:break-all">${log.hash_value}</div>` : ''}
+              </div>
+            ` : '-'}
+          </td>
+        `;
+      }
       
       htmlContent += `
           <td>${evidenceCount > 0 ? `<a href="#log-${log.id}">${evidenceCount} files</a>` : 'None'}</td>
@@ -617,6 +688,68 @@ const createHtmlReport = async (exportDir, logs, evidenceManifest, selectedColum
           </div>
         </div>
     `;
+    
+    // Add hash information tab if requested
+    if (includeHashes) {
+      htmlContent += `
+        <div id="tab-hashes" class="tab-content">
+          <h2>File Hash Information</h2>
+          
+          <div class="export-info">
+            <p>This section shows hash information for files mentioned in the logs.</p>
+          </div>
+          
+          <table>
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Filename</th>
+                <th>Algorithm</th>
+                <th>Hash Value</th>
+                <th>Status</th>
+                <th>Last Updated</th>
+              </tr>
+            </thead>
+            <tbody>
+      `;
+      
+      // Filter logs with hash information
+      const logsWithHashes = logs.filter(log => log.hash_algorithm || log.hash_value);
+      
+      if (logsWithHashes.length === 0) {
+        htmlContent += `
+          <tr>
+            <td colspan="6" style="text-align:center">No hash information found in the logs</td>
+          </tr>
+        `;
+      } else {
+        logsWithHashes.forEach(log => {
+          const logDate = log.timestamp ? new Date(log.timestamp).toLocaleString() : 'Unknown Date';
+          let statusClass = 'status-unknown';
+          
+          if (log.status) {
+            statusClass = `status-${log.status.toLowerCase().replace('_', '-')}`;
+          }
+          
+          htmlContent += `
+            <tr>
+              <td><a href="#log-${log.id}">${log.id}</a></td>
+              <td>${log.filename || '-'}</td>
+              <td>${log.hash_algorithm || '-'}</td>
+              <td style="font-family:monospace;word-break:break-all">${log.hash_value || '-'}</td>
+              <td>${log.status ? `<span class="status-indicator ${statusClass}">${log.status}</span>` : '-'}</td>
+              <td>${logDate}</td>
+            </tr>
+          `;
+        });
+      }
+      
+      htmlContent += `
+            </tbody>
+          </table>
+        </div>
+      `;
+    }
     
     // Add relations tab if relation data is available
     if (relationData) {

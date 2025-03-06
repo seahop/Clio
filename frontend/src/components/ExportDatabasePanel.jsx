@@ -11,7 +11,8 @@ import {
   Image,
   Database,
   Archive,
-  Network
+  Network,
+  Lock
 } from 'lucide-react';
 
 const ExportDatabasePanel = ({ csrfToken }) => {
@@ -27,6 +28,7 @@ const ExportDatabasePanel = ({ csrfToken }) => {
   const [exportMode, setExportMode] = useState('csv'); // 'csv' or 'evidence'
   const [includeEvidence, setIncludeEvidence] = useState(true);
   const [includeRelations, setIncludeRelations] = useState(true); // New state for relations toggle
+  const [includeHashes, setIncludeHashes] = useState(true);
 
   useEffect(() => {
     fetchColumns();
@@ -111,15 +113,27 @@ const ExportDatabasePanel = ({ csrfToken }) => {
       setError('Please select at least one column to export');
       return;
     }
-
+  
     try {
       setLoading(true);
       setMessage(null);
       setError(null);
-
+  
       // Determine endpoint based on export mode
       const endpoint = exportMode === 'evidence' ? '/api/export/evidence' : '/api/export/csv';
-
+  
+      // Make sure hash columns are included if the hash option is selected
+      let columnsToExport = [...selectedColumns];
+      if (exportMode === 'evidence' && includeHashes) {
+        // Add hash columns if they're not already selected
+        if (!columnsToExport.includes('hash_algorithm')) {
+          columnsToExport.push('hash_algorithm');
+        }
+        if (!columnsToExport.includes('hash_value')) {
+          columnsToExport.push('hash_value');
+        }
+      }
+  
       const response = await fetch(endpoint, {
         method: 'POST',
         credentials: 'include',
@@ -128,17 +142,18 @@ const ExportDatabasePanel = ({ csrfToken }) => {
           'CSRF-Token': csrfToken
         },
         body: JSON.stringify({ 
-          selectedColumns,
+          selectedColumns: columnsToExport,
           includeEvidence: exportMode === 'evidence' ? includeEvidence : false,
-          includeRelations: exportMode === 'evidence' ? includeRelations : false // Add relations parameter
+          includeRelations: exportMode === 'evidence' ? includeRelations : false,
+          includeHashes: exportMode === 'evidence' ? includeHashes : false
         })
       });
-
+  
       if (!response.ok) {
         const errorData = await response.json();
         throw new Error(errorData.error || 'Export failed');
       }
-
+  
       const data = await response.json();
       
       // Set specific message based on export type
@@ -146,6 +161,9 @@ const ExportDatabasePanel = ({ csrfToken }) => {
         let successMessage = `Evidence export completed successfully! Created ${data.details.filename} with ${data.details.logCount} logs and ${data.details.evidenceCount} evidence files.`;
         if (data.details.includesRelations) {
           successMessage += ' Relations data included.';
+        }
+        if (data.details.includesHashes) {
+          successMessage += ' Hash information included.';
         }
         setMessage(successMessage);
       } else {
@@ -296,7 +314,21 @@ const ExportDatabasePanel = ({ csrfToken }) => {
                   Include evidence files in the export
                 </label>
                 
-                {/* New relation data toggle */}
+                {/* New checkbox for hash information */}
+                <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer mb-2">
+                  <input
+                    type="checkbox"
+                    checked={includeHashes}
+                    onChange={(e) => setIncludeHashes(e.target.checked)}
+                    className="rounded border-gray-600 bg-gray-700 text-blue-500 focus:ring-blue-500"
+                  />
+                  <div className="flex items-center gap-1">
+                    <Lock size={14} className="text-purple-400" />
+                    Include hash information in the export
+                  </div>
+                </label>
+                
+                {/* Existing relations checkbox */}
                 <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
                   <input
                     type="checkbox"
@@ -311,7 +343,7 @@ const ExportDatabasePanel = ({ csrfToken }) => {
                 </label>
 
                 <p className="text-xs text-gray-400 mt-2">
-                  Creates an HTML viewer and ZIP package with all logs, evidence files, and relation data
+                  Creates an HTML viewer and ZIP package with all logs, evidence files, and optional relation data
                 </p>
               </div>
             )}

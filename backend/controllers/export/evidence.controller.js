@@ -23,7 +23,12 @@ const httpsAgent = new https.Agent({
 // Export logs with evidence
 const exportEvidence = async (req, res) => {
   try {
-    const { selectedColumns = [], includeEvidence = true, includeRelations = true } = req.body;
+    const { 
+      selectedColumns = [], 
+      includeEvidence = true, 
+      includeRelations = true,
+      includeHashes = true 
+    } = req.body;
     
     if (!selectedColumns || !selectedColumns.length) {
       return res.status(400).json({ error: 'No columns selected for export' });
@@ -50,8 +55,20 @@ const exportEvidence = async (req, res) => {
       await fs.mkdir(relationsDir, { recursive: true });
     }
 
+    // Make sure hash columns are included if requested
+    let columnsToExport = [...selectedColumns];
+    if (includeHashes) {
+      // Add hash columns if they're not already selected
+      if (!columnsToExport.includes('hash_algorithm')) {
+        columnsToExport.push('hash_algorithm');
+      }
+      if (!columnsToExport.includes('hash_value')) {
+        columnsToExport.push('hash_value');
+      }
+    }
+
     // 1. Export logs to JSON with IDs to allow evidence correlation
-    const logsQuery = `SELECT id, ${selectedColumns.join(', ')} FROM logs ORDER BY timestamp DESC`;
+    const logsQuery = `SELECT id, ${columnsToExport.join(', ')} FROM logs ORDER BY timestamp DESC`;
     const logsResult = await db.query(logsQuery);
     
     // 2. Get all evidence files if requested
@@ -82,7 +99,8 @@ const exportEvidence = async (req, res) => {
           logs: logsResult.rows,
           totalLogs: logsResult.rows.length,
           logsWithEvidence: logsWithEvidenceCount,
-          totalEvidenceFiles: evidenceFiles.length
+          totalEvidenceFiles: evidenceFiles.length,
+          includesHashes: includeHashes
         }, 
         null, 
         2
@@ -91,7 +109,7 @@ const exportEvidence = async (req, res) => {
     
     // 4. Create CSV version too using the evidence service
     const csvFilePath = path.join(exportPackageDir, 'logs.csv');
-    const csvContent = await evidenceService.generateCsvFromLogs(logsResult.rows, ['id', ...selectedColumns]);
+    const csvContent = await evidenceService.generateCsvFromLogs(logsResult.rows, ['id', ...columnsToExport]);
     await fs.writeFile(csvFilePath, csvContent);
     
     // 5. Copy evidence files and create manifest
@@ -208,8 +226,9 @@ const exportEvidence = async (req, res) => {
       exportPackageDir, 
       logsResult.rows, 
       evidenceManifest, 
-      selectedColumns,
-      relationData  // Pass the relation data to the HTML report service
+      columnsToExport,
+      relationData,
+      includeHashes
     );
     
     // 8. Create a ZIP archive of the entire directory
@@ -238,10 +257,11 @@ const exportEvidence = async (req, res) => {
     // 10. Log the export event
     await eventLogger.logAuditEvent('evidence_export', req.user.username, {
       exportId,
-      selectedColumns,
+      selectedColumns: columnsToExport,
       logCount: logsResult.rows.length,
       evidenceCount: evidenceManifest.length,
       includesRelations: includeRelations,
+      includesHashes: includeHashes,
       timestamp: new Date().toISOString()
     });
     
@@ -256,6 +276,7 @@ const exportEvidence = async (req, res) => {
         evidenceCount: evidenceManifest.length,
         logsWithEvidenceCount,
         includesRelations: includeRelations,
+        includesHashes: includeHashes,
         timestamp: new Date().toISOString()
       }
     });
