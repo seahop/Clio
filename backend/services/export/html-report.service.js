@@ -771,7 +771,9 @@ const createHtmlReport = async (exportDir, logs, evidenceManifest, selectedColum
           
           commandsByUser[cmd.username].push({
             command: cmd.command,
-            timestamp: cmd.timestamp || cmd.lastSeen
+            first_seen: cmd.first_seen,
+            last_seen: cmd.last_seen,
+            timestamp: cmd.timestamp || cmd.metadata?.timestamp
           });
         });
         
@@ -801,7 +803,7 @@ const createHtmlReport = async (exportDir, logs, evidenceManifest, selectedColum
               <div class="user-command-item">
                 <code class="user-command-code">${cmd.command}</code>
                 <div class="user-command-time">
-                  ${cmd.timestamp ? new Date(cmd.timestamp).toLocaleString() : 'Unknown time'}
+                    ${cmd.last_seen ? new Date(cmd.last_seen).toLocaleString() : (cmd.first_seen ? new Date(cmd.first_seen).toLocaleString() : 'Unknown time')}
                 </div>
               </div>
             `;
