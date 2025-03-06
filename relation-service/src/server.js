@@ -257,19 +257,19 @@ const httpsOptions = {
 const server = https.createServer(httpsOptions, app);
 
 // Improved cron scheduling for relation analysis
-// Use a staggered schedule to reduce peak load
+// User commands analysis - runs every 10 minutes
 cron.schedule('*/10 * * * *', async () => {
   console.log('Running scheduled relation analysis (user commands)...');
   try {
-    // Perform targeted analysis for better performance
-    // Only analyze user commands in this job
-    await RelationAnalyzer.analyzeUserCommandRelationsBatched([]);
+    // Use the singleton instance with specific analyzer types
+    await RelationAnalyzer.analyzeSpecificLogs([], { types: ['user'] });
     console.log('Scheduled user command analysis completed successfully');
   } catch (error) {
     console.error('Error in scheduled user command analysis:', error);
   }
 });
 
+// IP and hostname analysis - runs at 5, 25, and 45 minutes past the hour
 cron.schedule('5,25,45 * * * *', async () => {
   console.log('Running scheduled relation analysis (IP/hostname)...');
   try {
@@ -281,10 +281,10 @@ cron.schedule('5,25,45 * * * *', async () => {
       LIMIT 1000
     `);
     
-    await Promise.all([
-      RelationAnalyzer.analyzeIPRelationsBatched(logs.rows),
-      RelationAnalyzer.analyzeHostnameRelationsBatched(logs.rows)
-    ]);
+    // Use analyzeSpecificLogs with multiple types
+    await RelationAnalyzer.analyzeSpecificLogs(logs.rows, { 
+      types: ['ip', 'hostname'] 
+    });
     
     console.log('Scheduled IP/hostname analysis completed successfully');
   } catch (error) {
@@ -292,6 +292,7 @@ cron.schedule('5,25,45 * * * *', async () => {
   }
 });
 
+// Domain and file status analysis - runs at 10 and 40 minutes past the hour
 cron.schedule('10,40 * * * *', async () => {
   console.log('Running scheduled relation analysis (domain/files)...');
   try {
@@ -303,11 +304,10 @@ cron.schedule('10,40 * * * *', async () => {
       LIMIT 1000
     `);
     
-    await Promise.all([
-      RelationAnalyzer.analyzeDomainRelationsBatched(logs.rows),
-      // This is the wrong function name - fix it to use the correct one:
-      RelationAnalyzer.processFileStatusesWithParallel(logs.rows)
-    ]);
+    // Use analyzeSpecificLogs with domain and file types
+    await RelationAnalyzer.analyzeSpecificLogs(logs.rows, { 
+      types: ['domain', 'file'] 
+    });
     
     console.log('Scheduled domain/files analysis completed successfully');
   } catch (error) {
@@ -315,7 +315,8 @@ cron.schedule('10,40 * * * *', async () => {
   }
 });
 
-// Flush any pending batches periodically
+// Flush pending batches - runs every 2 minutes
+// This can stay the same since you're still using the batchService directly
 cron.schedule('*/2 * * * *', async () => {
   try {
     await batchService.flushAllBatches();
