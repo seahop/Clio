@@ -9,9 +9,10 @@ const { formatFileSize } = require('../../utils/export/formatter');
  * @param {Array} logs - Logs data
  * @param {Array} evidenceManifest - Evidence files manifest
  * @param {Array} selectedColumns - Selected columns to display
+ * @param {Object} relationData - Relation data
  * @returns {String} Path to the created HTML file
  */
-const createHtmlReport = async (exportDir, logs, evidenceManifest, selectedColumns) => {
+const createHtmlReport = async (exportDir, logs, evidenceManifest, selectedColumns, relationData = null) => {
   try {
     // Group evidence by log ID for easier lookup
     const evidenceByLogId = evidenceManifest.reduce((acc, evidence) => {
@@ -21,6 +22,34 @@ const createHtmlReport = async (exportDir, logs, evidenceManifest, selectedColum
       acc[evidence.log_id].push(evidence);
       return acc;
     }, {});
+    
+    // Prepare relation statistics if relations are available
+    let relationStats = null;
+    if (relationData) {
+      relationStats = {
+        ipRelations: relationData.ip ? relationData.ip.length : 0,
+        hostnameRelations: relationData.hostname ? relationData.hostname.length : 0,
+        domainRelations: relationData.domain ? relationData.domain.length : 0,
+        userCommands: relationData.userCommands ? relationData.userCommands.length : 0,
+        totalRelations: 0
+      };
+      
+      relationStats.totalRelations = 
+        relationStats.ipRelations + 
+        relationStats.hostnameRelations + 
+        relationStats.domainRelations;
+        
+      // Count unique usernames with commands
+      const usersWithCommands = new Set();
+      if (relationData.userCommands) {
+        relationData.userCommands.forEach(cmd => {
+          if (cmd.username) {
+            usersWithCommands.add(cmd.username);
+          }
+        });
+      }
+      relationStats.uniqueUsers = usersWithCommands.size;
+    }
     
     // Create HTML content with header styles
     let htmlContent = `
@@ -165,6 +194,7 @@ const createHtmlReport = async (exportDir, logs, evidenceManifest, selectedColum
           display: flex;
           border-bottom: 1px solid #ddd;
           margin-bottom: 15px;
+          flex-wrap: wrap;
         }
         .tab-button {
           padding: 8px 16px;
@@ -174,6 +204,7 @@ const createHtmlReport = async (exportDir, logs, evidenceManifest, selectedColum
           cursor: pointer;
           font-weight: bold;
           color: #7f8c8d;
+          margin-bottom: -1px;
         }
         .tab-button.active {
           border-bottom-color: #3498db;
@@ -225,6 +256,125 @@ const createHtmlReport = async (exportDir, logs, evidenceManifest, selectedColum
         .btn-view:hover {
           background-color: #2980b9;
         }
+        .relation-container {
+          background-color: white;
+          border: 1px solid #ddd;
+          border-radius: 5px;
+          padding: 15px;
+          margin-bottom: 20px;
+          box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .relation-header {
+          font-size: 16px;
+          font-weight: bold;
+          color: #2c3e50;
+          margin-bottom: 10px;
+          padding-bottom: 10px;
+          border-bottom: 1px solid #eee;
+          display: flex;
+          align-items: center;
+        }
+        .relation-icon {
+          width: 24px;
+          height: 24px;
+          margin-right: 10px;
+          background-color: #3498db;
+          color: white;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          border-radius: 50%;
+          font-weight: bold;
+        }
+        .relation-ip .relation-icon { background-color: #3498db; }
+        .relation-hostname .relation-icon { background-color: #2ecc71; }
+        .relation-domain .relation-icon { background-color: #9b59b6; }
+        .relation-user .relation-icon { background-color: #e74c3c; }
+        .relation-connections {
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+          gap: 10px;
+        }
+        .relation-connection {
+          background-color: #f9f9f9;
+          border: 1px solid #eee;
+          border-radius: 3px;
+          padding: 8px;
+          position: relative;
+        }
+        .relation-target {
+          font-family: monospace;
+          word-break: break-all;
+          margin-bottom: 5px;
+        }
+        .relation-metadata {
+          font-size: 11px;
+          color: #7f8c8d;
+        }
+        .relation-strength {
+          position: absolute;
+          top: 8px;
+          right: 8px;
+          background-color: #3498db;
+          color: white;
+          border-radius: 10px;
+          padding: 2px 6px;
+          font-size: 10px;
+          font-weight: bold;
+        }
+        .user-commands {
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+          gap: 15px;
+        }
+        .user-command-group {
+          background-color: #f9f9f9;
+          border: 1px solid #eee;
+          border-radius: 5px;
+          overflow: hidden;
+        }
+        .user-command-header {
+          background-color: #ecf0f1;
+          padding: 8px 12px;
+          font-weight: bold;
+          border-bottom: 1px solid #ddd;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+        }
+        .user-command-list {
+          max-height: 400px;
+          overflow-y: auto;
+        }
+        .user-command-item {
+          padding: 8px 12px;
+          border-bottom: 1px solid #eee;
+        }
+        .user-command-item:last-child {
+          border-bottom: none;
+        }
+        .user-command-code {
+          font-family: monospace;
+          background-color: #f1f1f1;
+          padding: 4px 6px;
+          border-radius: 3px;
+          margin-bottom: 4px;
+          display: block;
+          white-space: pre-wrap;
+          word-break: break-all;
+        }
+        .user-command-time {
+          font-size: 11px;
+          color: #7f8c8d;
+        }
+        .relation-count {
+          display: inline-block;
+          background-color: rgba(0,0,0,0.1);
+          border-radius: 10px;
+          padding: 0 8px;
+          margin-left: 8px;
+          font-size: 12px;
+        }
       </style>
     </head>
     <body>
@@ -239,6 +389,8 @@ const createHtmlReport = async (exportDir, logs, evidenceManifest, selectedColum
           <li>Total Logs: ${logs.length}</li>
           <li>Total Evidence Files: ${evidenceManifest.length}</li>
           <li>Logs with Evidence: ${Object.keys(evidenceByLogId).length}</li>
+          ${relationData ? `<li>Total Relations: ${relationStats.totalRelations}</li>` : ''}
+          ${relationData ? `<li>User Commands: ${relationStats.userCommands} (from ${relationStats.uniqueUsers} users)</li>` : ''}
         </ul>
       </div>
       
@@ -247,6 +399,8 @@ const createHtmlReport = async (exportDir, logs, evidenceManifest, selectedColum
           <button class="tab-button active" onclick="openTab(event, 'tab-logs')">Logs View</button>
           <button class="tab-button" onclick="openTab(event, 'tab-table')">Table View</button>
           <button class="tab-button" onclick="openTab(event, 'tab-evidence')">Evidence Gallery</button>
+          ${relationData ? `<button class="tab-button" onclick="openTab(event, 'tab-relations')">Relations</button>` : ''}
+          ${relationData && relationData.userCommands ? `<button class="tab-button" onclick="openTab(event, 'tab-commands')">User Commands</button>` : ''}
         </div>
         
         <div id="tab-logs" class="tab-content active">
@@ -459,10 +613,215 @@ const createHtmlReport = async (exportDir, logs, evidenceManifest, selectedColum
       `;
     });
     
-    // Close the HTML
     htmlContent += `
           </div>
         </div>
+    `;
+    
+    // Add relations tab if relation data is available
+    if (relationData) {
+      htmlContent += `
+        <div id="tab-relations" class="tab-content">
+          <h2>Relations Data</h2>
+          
+          <div class="export-info">
+            <p>This section shows the relationships between different entities discovered in the logs. 
+            Relations are grouped by type and show the connections between various network components.</p>
+          </div>
+          
+          <!-- IP Relations -->
+          <h3>IP Relations (${relationData.ip ? relationData.ip.length : 0})</h3>
+          <div class="relation-containers">
+      `;
+      
+      // Add IP relations
+      if (relationData.ip && relationData.ip.length > 0) {
+        relationData.ip.forEach(relation => {
+          htmlContent += `
+            <div class="relation-container relation-ip">
+              <div class="relation-header">
+                <div class="relation-icon">IP</div>
+                <div>${relation.source} <span class="relation-count">${relation.related.length} connections</span></div>
+              </div>
+              
+              <div class="relation-connections">
+          `;
+          
+          relation.related.forEach(connection => {
+            htmlContent += `
+              <div class="relation-connection">
+                <div class="relation-target">${connection.target}</div>
+                <div class="relation-metadata">Last seen: ${new Date(connection.lastSeen).toLocaleString()}</div>
+                <div class="relation-strength">${Math.round(connection.strength || 0)}</div>
+              </div>
+            `;
+          });
+          
+          htmlContent += `
+              </div>
+            </div>
+          `;
+        });
+      } else {
+        htmlContent += `<p>No IP relations found</p>`;
+      }
+      
+      // Add hostname relations
+      htmlContent += `
+          </div>
+          
+          <h3>Hostname Relations (${relationData.hostname ? relationData.hostname.length : 0})</h3>
+          <div class="relation-containers">
+      `;
+      
+      if (relationData.hostname && relationData.hostname.length > 0) {
+        relationData.hostname.forEach(relation => {
+          htmlContent += `
+            <div class="relation-container relation-hostname">
+              <div class="relation-header">
+                <div class="relation-icon">H</div>
+                <div>${relation.source} <span class="relation-count">${relation.related.length} connections</span></div>
+              </div>
+              
+              <div class="relation-connections">
+          `;
+          
+          relation.related.forEach(connection => {
+            htmlContent += `
+              <div class="relation-connection">
+                <div class="relation-target">${connection.target}</div>
+                <div class="relation-metadata">Last seen: ${new Date(connection.lastSeen).toLocaleString()}</div>
+                <div class="relation-strength">${Math.round(connection.strength || 0)}</div>
+              </div>
+            `;
+          });
+          
+          htmlContent += `
+              </div>
+            </div>
+          `;
+        });
+      } else {
+        htmlContent += `<p>No hostname relations found</p>`;
+      }
+      
+      // Add domain relations
+      htmlContent += `
+          </div>
+          
+          <h3>Domain Relations (${relationData.domain ? relationData.domain.length : 0})</h3>
+          <div class="relation-containers">
+      `;
+      
+      if (relationData.domain && relationData.domain.length > 0) {
+        relationData.domain.forEach(relation => {
+          htmlContent += `
+            <div class="relation-container relation-domain">
+              <div class="relation-header">
+                <div class="relation-icon">D</div>
+                <div>${relation.source} <span class="relation-count">${relation.related.length} connections</span></div>
+              </div>
+              
+              <div class="relation-connections">
+          `;
+          
+          relation.related.forEach(connection => {
+            htmlContent += `
+              <div class="relation-connection">
+                <div class="relation-target">${connection.target}</div>
+                <div class="relation-metadata">Last seen: ${new Date(connection.lastSeen).toLocaleString()}</div>
+                <div class="relation-strength">${Math.round(connection.strength || 0)}</div>
+              </div>
+            `;
+          });
+          
+          htmlContent += `
+              </div>
+            </div>
+          `;
+        });
+      } else {
+        htmlContent += `<p>No domain relations found</p>`;
+      }
+      
+      htmlContent += `
+          </div>
+        </div>
+      `;
+      
+      // Add user commands tab if available
+      if (relationData.userCommands && relationData.userCommands.length > 0) {
+        htmlContent += `
+          <div id="tab-commands" class="tab-content">
+            <h2>User Command History</h2>
+            
+            <div class="export-info">
+              <p>This section shows all commands executed by users, organized by username.</p>
+            </div>
+        `;
+        
+        // Group commands by username
+        const commandsByUser = {};
+        relationData.userCommands.forEach(cmd => {
+          if (!cmd.username || !cmd.command) return;
+          
+          if (!commandsByUser[cmd.username]) {
+            commandsByUser[cmd.username] = [];
+          }
+          
+          commandsByUser[cmd.username].push({
+            command: cmd.command,
+            timestamp: cmd.timestamp || cmd.lastSeen
+          });
+        });
+        
+        // Sort users
+        const usernames = Object.keys(commandsByUser).sort();
+        
+        htmlContent += `<div class="user-commands">`;
+        
+        usernames.forEach(username => {
+          const commands = commandsByUser[username];
+          
+          // Sort commands by timestamp (newest first)
+          commands.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+          
+          htmlContent += `
+            <div class="user-command-group">
+              <div class="user-command-header">
+                <div>${username}</div>
+                <div class="relation-count">${commands.length} commands</div>
+              </div>
+              
+              <div class="user-command-list">
+          `;
+          
+          commands.forEach(cmd => {
+            htmlContent += `
+              <div class="user-command-item">
+                <code class="user-command-code">${cmd.command}</code>
+                <div class="user-command-time">
+                  ${cmd.timestamp ? new Date(cmd.timestamp).toLocaleString() : 'Unknown time'}
+                </div>
+              </div>
+            `;
+          });
+          
+          htmlContent += `
+              </div>
+            </div>
+          `;
+        });
+        
+        htmlContent += `
+            </div>
+          </div>
+        `;
+      }
+    }
+    
+    // Close the HTML
+    htmlContent += `
       </div>
       
       <script>

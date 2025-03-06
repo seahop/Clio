@@ -1,4 +1,4 @@
-// frontend/src/components/ExportDatabasePanel.jsx - Updated with evidence export
+// frontend/src/components/ExportDatabasePanel.jsx
 import React, { useState, useEffect } from 'react';
 import { 
   Download, 
@@ -10,7 +10,8 @@ import {
   AlertCircle,
   Image,
   Database,
-  Archive
+  Archive,
+  Network
 } from 'lucide-react';
 
 const ExportDatabasePanel = ({ csrfToken }) => {
@@ -25,6 +26,7 @@ const ExportDatabasePanel = ({ csrfToken }) => {
   const [expandInstructions, setExpandInstructions] = useState(false);
   const [exportMode, setExportMode] = useState('csv'); // 'csv' or 'evidence'
   const [includeEvidence, setIncludeEvidence] = useState(true);
+  const [includeRelations, setIncludeRelations] = useState(true); // New state for relations toggle
 
   useEffect(() => {
     fetchColumns();
@@ -127,7 +129,8 @@ const ExportDatabasePanel = ({ csrfToken }) => {
         },
         body: JSON.stringify({ 
           selectedColumns,
-          includeEvidence: exportMode === 'evidence' ? includeEvidence : false
+          includeEvidence: exportMode === 'evidence' ? includeEvidence : false,
+          includeRelations: exportMode === 'evidence' ? includeRelations : false // Add relations parameter
         })
       });
 
@@ -140,7 +143,11 @@ const ExportDatabasePanel = ({ csrfToken }) => {
       
       // Set specific message based on export type
       if (exportMode === 'evidence') {
-        setMessage(`Evidence export completed successfully! Created ${data.details.filename} with ${data.details.logCount} logs and ${data.details.evidenceCount} evidence files.`);
+        let successMessage = `Evidence export completed successfully! Created ${data.details.filename} with ${data.details.logCount} logs and ${data.details.evidenceCount} evidence files.`;
+        if (data.details.includesRelations) {
+          successMessage += ' Relations data included.';
+        }
+        setMessage(successMessage);
       } else {
         setMessage(`CSV export completed successfully! ${data.details.rowCount} rows exported to ${data.details.filePath}`);
       }
@@ -279,7 +286,7 @@ const ExportDatabasePanel = ({ csrfToken }) => {
             
             {exportMode === 'evidence' && (
               <div className="mt-2 pt-2 border-t border-gray-700">
-                <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
+                <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer mb-2">
                   <input
                     type="checkbox"
                     checked={includeEvidence}
@@ -288,8 +295,23 @@ const ExportDatabasePanel = ({ csrfToken }) => {
                   />
                   Include evidence files in the export
                 </label>
-                <p className="text-xs text-gray-400 mt-1">
-                  Creates an HTML viewer and ZIP package with all logs and related evidence files
+                
+                {/* New relation data toggle */}
+                <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={includeRelations}
+                    onChange={(e) => setIncludeRelations(e.target.checked)}
+                    className="rounded border-gray-600 bg-gray-700 text-blue-500 focus:ring-blue-500"
+                  />
+                  <div className="flex items-center gap-1">
+                    <Network size={14} className="text-blue-400" />
+                    Include relation data in the export
+                  </div>
+                </label>
+
+                <p className="text-xs text-gray-400 mt-2">
+                  Creates an HTML viewer and ZIP package with all logs, evidence files, and relation data
                 </p>
               </div>
             )}
@@ -345,6 +367,7 @@ const ExportDatabasePanel = ({ csrfToken }) => {
                     <>
                       <Archive size={16} className="mr-2" />
                       Export with Evidence
+                      {includeRelations && <Network size={14} className="ml-2" />}
                     </>
                   ) : (
                     <>
@@ -370,7 +393,12 @@ const ExportDatabasePanel = ({ csrfToken }) => {
                 <p className="mb-2">This feature exports logs to CSV files on the server. The files are <strong>not</strong> downloaded to your browser.</p>
                 <p className="mb-2">Files are saved to the <code className="bg-gray-700 px-1 py-0.5 rounded">backend/exports</code> directory on the host system.</p>
                 {exportMode === 'evidence' && (
-                  <p className="mb-2">The evidence export creates a ZIP file containing all logs and related evidence files, along with an HTML viewer for easy browsing.</p>
+                  <>
+                    <p className="mb-2">The evidence export creates a ZIP file containing all logs and related evidence files, along with an HTML viewer for easy browsing.</p>
+                    {includeRelations && (
+                      <p className="mb-2">Including relation data will add network relationships, user commands, and other correlation data from the relation service to your export.</p>
+                    )}
+                  </>
                 )}
                 <p>Use care when selecting sensitive columns like "secrets" that may contain credentials.</p>
               </div>

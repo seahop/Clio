@@ -6,6 +6,8 @@ const archiver = require('archiver');
 const { promisify } = require('util');
 const stream = require('stream');
 const pipeline = promisify(stream.pipeline);
+const https = require('https');
+const fetch = require('node-fetch');
 
 const db = require('../../db');
 const EvidenceModel = require('../../models/evidence');
@@ -13,10 +15,15 @@ const eventLogger = require('../../lib/eventLogger');
 const evidenceService = require('../../services/export/evidence.service');
 const htmlReportService = require('../../services/export/html-report.service');
 
+// Create HTTPS agent that allows self-signed certificates
+const httpsAgent = new https.Agent({
+  rejectUnauthorized: false
+});
+
 // Export logs with evidence
 const exportEvidence = async (req, res) => {
   try {
-    const { selectedColumns = [], includeEvidence = true } = req.body;
+    const { selectedColumns = [], includeEvidence = true, includeRelations = true } = req.body;
     
     if (!selectedColumns || !selectedColumns.length) {
       return res.status(400).json({ error: 'No columns selected for export' });
@@ -30,6 +37,7 @@ const exportEvidence = async (req, res) => {
     const exportDir = path.join(__dirname, '../../exports');
     const exportPackageDir = path.join(exportDir, `evidence_export_${exportId}`);
     const evidenceDir = path.join(exportPackageDir, 'evidence');
+    const relationsDir = path.join(exportPackageDir, 'relations');
     const zipFilename = `evidence_export_${timestamp}.zip`;
     const zipFilePath = path.join(exportDir, zipFilename);
     
@@ -37,6 +45,10 @@ const exportEvidence = async (req, res) => {
     await fs.mkdir(exportDir, { recursive: true });
     await fs.mkdir(exportPackageDir, { recursive: true });
     await fs.mkdir(evidenceDir, { recursive: true });
+    
+    if (includeRelations) {
+      await fs.mkdir(relationsDir, { recursive: true });
+    }
 
     // 1. Export logs to JSON with IDs to allow evidence correlation
     const logsQuery = `SELECT id, ${selectedColumns.join(', ')} FROM logs ORDER BY timestamp DESC`;
@@ -88,15 +100,119 @@ const exportEvidence = async (req, res) => {
       evidenceDir
     );
     
-    // 6. Create an HTML report for easy viewing
+    // 6. Fetch and save relation data if requested
+    let relationData = null;
+    let userCommandData = null;
+    
+    if (includeRelations) {
+      try {
+        // Get the auth token from request cookies
+        const token = req.cookies?.auth_token;
+        
+        // Fetch IP relations
+        const ipRelationsResponse = await fetch('https://relation-service:3002/api/relations/ip', {
+          headers: {
+            'Cookie': `auth_token=${token}`,
+            'Accept': 'application/json'
+          },
+          agent: httpsAgent
+        });
+        
+        if (!ipRelationsResponse.ok) {
+          throw new Error(`Failed to fetch IP relations: ${ipRelationsResponse.status}`);
+        }
+        
+        const ipRelations = await ipRelationsResponse.json();
+        await fs.writeFile(
+          path.join(relationsDir, 'ip_relations.json'),
+          JSON.stringify(ipRelations, null, 2)
+        );
+        
+        // Fetch hostname relations
+        const hostnameRelationsResponse = await fetch('https://relation-service:3002/api/relations/hostname', {
+          headers: {
+            'Cookie': `auth_token=${token}`,
+            'Accept': 'application/json'
+          },
+          agent: httpsAgent
+        });
+        
+        if (!hostnameRelationsResponse.ok) {
+          throw new Error(`Failed to fetch hostname relations: ${hostnameRelationsResponse.status}`);
+        }
+        
+        const hostnameRelations = await hostnameRelationsResponse.json();
+        await fs.writeFile(
+          path.join(relationsDir, 'hostname_relations.json'),
+          JSON.stringify(hostnameRelations, null, 2)
+        );
+        
+        // Fetch domain relations
+        const domainRelationsResponse = await fetch('https://relation-service:3002/api/relations/domain', {
+          headers: {
+            'Cookie': `auth_token=${token}`,
+            'Accept': 'application/json'
+          },
+          agent: httpsAgent
+        });
+        
+        if (!domainRelationsResponse.ok) {
+          throw new Error(`Failed to fetch domain relations: ${domainRelationsResponse.status}`);
+        }
+        
+        const domainRelations = await domainRelationsResponse.json();
+        await fs.writeFile(
+          path.join(relationsDir, 'domain_relations.json'),
+          JSON.stringify(domainRelations, null, 2)
+        );
+        
+        // Fetch user command relations
+        const userCommandsResponse = await fetch('https://relation-service:3002/api/relations/user', {
+          headers: {
+            'Cookie': `auth_token=${token}`,
+            'Accept': 'application/json'
+          },
+          agent: httpsAgent
+        });
+        
+        if (!userCommandsResponse.ok) {
+          throw new Error(`Failed to fetch user commands: ${userCommandsResponse.status}`);
+        }
+        
+        userCommandData = await userCommandsResponse.json();
+        await fs.writeFile(
+          path.join(relationsDir, 'user_commands.json'),
+          JSON.stringify(userCommandData, null, 2)
+        );
+        
+        // Create a combined relations file for easier access
+        relationData = {
+          ip: ipRelations,
+          hostname: hostnameRelations,
+          domain: domainRelations,
+          userCommands: userCommandData
+        };
+        
+        await fs.writeFile(
+          path.join(relationsDir, 'relations.json'),
+          JSON.stringify(relationData, null, 2)
+        );
+      } catch (error) {
+        console.error('Error fetching relation data:', error);
+        // Continue without relation data rather than failing the whole export
+      }
+    }
+    
+    // 7. Create an HTML report for easy viewing
     await htmlReportService.createHtmlReport(
       exportPackageDir, 
       logsResult.rows, 
       evidenceManifest, 
-      selectedColumns
+      selectedColumns,
+      relationData  // Pass the relation data to the HTML report service
     );
     
-    // 7. Create a ZIP archive of the entire directory
+    // 8. Create a ZIP archive of the entire directory
     const output = createWriteStream(zipFilePath);
     const archive = archiver('zip', {
       zlib: { level: 9 } // Maximum compression
@@ -110,7 +226,7 @@ const exportEvidence = async (req, res) => {
     archive.directory(exportPackageDir, false);
     await archive.finalize();
     
-    // 8. Clean up the temporary export directory
+    // 9. Clean up the temporary export directory
     setTimeout(async () => {
       try {
         await fs.rm(exportPackageDir, { recursive: true, force: true });
@@ -119,16 +235,17 @@ const exportEvidence = async (req, res) => {
       }
     }, 5000); // Wait 5 seconds before cleanup
     
-    // 9. Log the export event
+    // 10. Log the export event
     await eventLogger.logAuditEvent('evidence_export', req.user.username, {
       exportId,
       selectedColumns,
       logCount: logsResult.rows.length,
       evidenceCount: evidenceManifest.length,
+      includesRelations: includeRelations,
       timestamp: new Date().toISOString()
     });
     
-    // 10. Return success response
+    // 11. Return success response
     res.json({
       success: true,
       message: 'Evidence export completed successfully',
@@ -138,6 +255,7 @@ const exportEvidence = async (req, res) => {
         logCount: logsResult.rows.length,
         evidenceCount: evidenceManifest.length,
         logsWithEvidenceCount,
+        includesRelations: includeRelations,
         timestamp: new Date().toISOString()
       }
     });
