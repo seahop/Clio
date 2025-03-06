@@ -57,6 +57,8 @@ class FileStatusService {
             external_ip: log.external_ip,
             username: log.username,
             analyst: log.analyst,
+            hash_algorithm: log.hash_algorithm,
+            hash_value: log.hash_value,
             timestamp: log.timestamp || new Date(),
             metadata: {
               domain: log.domain,
@@ -78,6 +80,8 @@ class FileStatusService {
             command: log.command,
             // Handle the secrets field properly - redact it when storing
             secrets: log.secrets ? '[REDACTED]' : null,
+            hash_algorithm: log.hash_algorithm,
+            hash_value: log.hash_value,
             timestamp: log.timestamp || new Date()
           };
           

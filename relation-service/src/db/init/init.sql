@@ -11,6 +11,8 @@ CREATE TABLE IF NOT EXISTS logs (
     notes TEXT CHECK (LENGTH(notes) <= 254),
     filename VARCHAR(100),
     status VARCHAR(75),
+    hash_algorithm VARCHAR(50),
+    hash_value VARCHAR(128),
     analyst VARCHAR(100),
     locked BOOLEAN DEFAULT FALSE,
     locked_by VARCHAR(75),
@@ -68,6 +70,7 @@ CREATE INDEX IF NOT EXISTS idx_logs_timestamp ON logs(timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_logs_analyst ON logs(analyst);
 CREATE INDEX IF NOT EXISTS idx_logs_hostname ON logs(hostname);
 CREATE INDEX IF NOT EXISTS idx_logs_command ON logs(command);
+CREATE INDEX IF NOT EXISTS idx_logs_hash_value ON logs(hash_value);
 
 -- Create indexes for log relationships
 CREATE INDEX IF NOT EXISTS idx_relationships_source ON log_relationships(source_id);
@@ -138,6 +141,8 @@ CREATE TABLE IF NOT EXISTS file_status (
     id SERIAL PRIMARY KEY,
     filename VARCHAR(100) NOT NULL,
     status VARCHAR(50) NOT NULL,
+    hash_algorithm VARCHAR(50),
+    hash_value VARCHAR(128),
     hostname VARCHAR(75),
     internal_ip VARCHAR(45),
     external_ip VARCHAR(45),
@@ -153,6 +158,7 @@ CREATE INDEX IF NOT EXISTS idx_file_status_filename ON file_status(filename);
 CREATE INDEX IF NOT EXISTS idx_file_status_status ON file_status(status);
 CREATE INDEX IF NOT EXISTS idx_file_status_hostname ON file_status(hostname);
 CREATE INDEX IF NOT EXISTS idx_file_status_last_seen ON file_status(last_seen);
+CREATE INDEX IF NOT EXISTS idx_file_status_hash_value ON file_status(hash_value);
 
 -- Add file status history table
 CREATE TABLE IF NOT EXISTS file_status_history (
@@ -160,6 +166,8 @@ CREATE TABLE IF NOT EXISTS file_status_history (
   filename VARCHAR(100) NOT NULL,
   status VARCHAR(50) NOT NULL,
   previous_status VARCHAR(50),
+  hash_algorithm VARCHAR(50),
+  hash_value VARCHAR(128),
   hostname VARCHAR(75),
   internal_ip VARCHAR(45),
   external_ip VARCHAR(45),

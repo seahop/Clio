@@ -110,8 +110,31 @@ const LogRowCard = ({
       );
     }
     
-    // Use textarea for notes and command fields
-    if (field === 'notes' || field === 'command' || field === 'secrets') {
+    // Add hash algorithm dropdown
+    if (field === 'hash_algorithm') {
+      const hashAlgorithmOptions = [
+        'MD5', 'SHA1', 'SHA256', 'SHA512', 'BLAKE2', 
+        'RIPEMD160', 'CRC32', 'SHA3', 'OTHER'
+      ];
+      
+      return (
+        <select
+          value={editingValue || ''}
+          onChange={onCellChange}
+          onBlur={(e) => onCellBlur(e, parseInt(row.id), field)}
+          className="w-full p-1 border rounded bg-gray-700 text-white border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <option value="">Select an algorithm</option>
+          {hashAlgorithmOptions.map(option => (
+            <option key={option} value={option}>{option}</option>
+          ))}
+        </select>
+      );
+    }
+    
+    // Use textarea for notes, command, secrets, and hash_value fields
+    if (field === 'notes' || field === 'command' || field === 'secrets' || field === 'hash_value') {
       return (
         <textarea
           value={editingValue || ''}
@@ -146,8 +169,8 @@ const LogRowCard = ({
   // Sort columns into logical groups
   const columnGroups = {
     primary: ['timestamp', 'internal_ip', 'external_ip', 'hostname', 'domain'],
-    content: ['username', 'command', 'notes', 'filename'],
-    meta: ['status', 'analyst', 'secrets']
+    content: ['username', 'command', 'notes', 'secrets'],  // Moved secrets here
+    status: ['filename', 'hash_algorithm', 'hash_value', 'status', 'analyst']  // Combined status and hash fields
   };
 
   return (
@@ -269,126 +292,128 @@ const LogRowCard = ({
         <div className="p-4 border-t border-gray-700">
           {/* Main section - Three column layout on larger screens */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-            {/* Network section */}
-            <div className="bg-gray-700/50 p-4 rounded-lg">
-              <h3 className="text-sm font-medium text-white mb-3">Network Information</h3>
-              <div className="space-y-3">
-                {columnGroups.primary.map(field => {
-                  // Skip timestamp as it's already in the header
-                  if (field === 'timestamp') return null;
-                  
-                  const column = COLUMNS.find(col => col.field === field);
-                  const isEditing = editingCell?.rowId === row.id && editingCell?.field === field;
-                  
-                  return (
-                    <div key={field} className="group">
-                      <div className="text-xs text-blue-200 mb-1">{column.header}:</div>
-                      <div 
-                        className={`${isFieldEditable(field) ? 'cursor-pointer hover:bg-gray-600/50' : ''} p-1 rounded`}
-                        onClick={(e) => {
-                          if (isFieldEditable(field)) {
-                            e.stopPropagation(); // Stop event from bubbling up to the parent
-                            setIsClickingCell(true);
-                            onCellClick(row.id, field);
-                          }
-                        }}
-                      >
-                        {isEditing ? 
-                          renderEditField(field, row[field]) : 
-                          renderFieldValue(field, row[field])}
-                      </div>
+          {/* Network section */}
+          <div className="bg-gray-700/50 p-4 rounded-lg">
+            <h3 className="text-sm font-medium text-white mb-3">Network Information</h3>
+            <div className="space-y-3">
+              {columnGroups.primary.map(field => {
+                // Skip timestamp as it's already in the header
+                if (field === 'timestamp') return null;
+                
+                const column = COLUMNS.find(col => col.field === field);
+                const isEditing = editingCell?.rowId === row.id && editingCell?.field === field;
+                
+                return (
+                  <div key={field} className="group">
+                    <div className="text-xs text-blue-200 mb-1">{column.header}:</div>
+                    <div 
+                      className={`${isFieldEditable(field) ? 'cursor-pointer hover:bg-gray-600/50' : ''} p-1 rounded`}
+                      onClick={(e) => {
+                        if (isFieldEditable(field)) {
+                          e.stopPropagation(); // Stop event from bubbling up to the parent
+                          setIsClickingCell(true);
+                          onCellClick(row.id, field);
+                        }
+                      }}
+                    >
+                      {isEditing ? 
+                        renderEditField(field, row[field]) : 
+                        renderFieldValue(field, row[field])}
                     </div>
-                  );
-                })}
-              </div>
-            </div>
-            
-            {/* Content section */}
-            <div className="bg-gray-700/50 p-4 rounded-lg">
-              <h3 className="text-sm font-medium text-white mb-3">Command Information</h3>
-              <div className="space-y-3">
-                {columnGroups.content.map(field => {
-                  const column = COLUMNS.find(col => col.field === field);
-                  const isEditing = editingCell?.rowId === row.id && editingCell?.field === field;
-                  
-                  return (
-                    <div key={field} className="group">
-                      <div className="text-xs text-blue-200 mb-1">{column.header}:</div>
-                      <div 
-                        className={`${isFieldEditable(field) ? 'cursor-pointer hover:bg-gray-600/50' : ''} p-1 rounded`}
-                        onClick={(e) => {
-                          if (isFieldEditable(field)) {
-                            e.stopPropagation(); // Stop event from bubbling up to the parent
-                            setIsClickingCell(true);
-                            onCellClick(row.id, field);
-                          }
-                        }}
-                      >
-                        {isEditing ? 
-                          renderEditField(field, row[field]) : 
-                          renderFieldValue(field, row[field])}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-            
-            {/* Meta section */}
-            <div className="bg-gray-700/50 p-4 rounded-lg">
-              <h3 className="text-sm font-medium text-white mb-3">Status Information</h3>
-              <div className="space-y-3">
-                {columnGroups.meta.map(field => {
-                  const column = COLUMNS.find(col => col.field === field);
-                  const isEditing = editingCell?.rowId === row.id && editingCell?.field === field;
-                  
-                  return (
-                    <div key={field} className="group">
-                      <div className="text-xs text-blue-200 mb-1">{column.header}:</div>
-                      <div 
-                        className={`${isFieldEditable(field) ? 'cursor-pointer hover:bg-gray-600/50' : ''} p-1 rounded`}
-                        onClick={(e) => {
-                          if (isFieldEditable(field)) {
-                            e.stopPropagation(); // Stop event from bubbling up to the parent
-                            setIsClickingCell(true);
-                            onCellClick(row.id, field);
-                          }
-                        }}
-                      >
-                        {isEditing ? 
-                          renderEditField(field, row[field]) : 
-                          renderFieldValue(field, row[field])}
-                        
-                        {field === 'secrets' && row[field] && !isEditing && (
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setShowSecrets(!showSecrets);
-                            }}
-                            className="ml-2 p-1 text-gray-400 hover:text-gray-200 transition-colors"
-                            title={showSecrets ? "Hide secrets" : "Show secrets"}
-                          >
-                            {showSecrets ? <EyeOff size={16} /> : <Eye size={16} />}
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
           
-          {/* Evidence Tab */}
-          {showEvidenceTab && (
-            <div className="mt-4 pt-4 border-t border-gray-700">
-              <EvidenceTab 
-                logId={row.id}
-                csrfToken={csrfToken}
-                isAdmin={isAdmin}
-                currentUser={currentUser}
-              />
+          {/* Content section - Now with secrets */}
+          <div className="bg-gray-700/50 p-4 rounded-lg">
+            <h3 className="text-sm font-medium text-white mb-3">Command Information</h3>
+            <div className="space-y-3">
+              {/* Manually specify the fields to ensure the right order */}
+              {['username', 'command', 'notes', 'secrets'].map(field => {
+                const column = COLUMNS.find(col => col.field === field);
+                const isEditing = editingCell?.rowId === row.id && editingCell?.field === field;
+                
+                return (
+                  <div key={field} className="group">
+                    <div className="text-xs text-blue-200 mb-1">{column.header}:</div>
+                    <div 
+                      className={`${isFieldEditable(field) ? 'cursor-pointer hover:bg-gray-600/50' : ''} p-1 rounded`}
+                      onClick={(e) => {
+                        if (isFieldEditable(field)) {
+                          e.stopPropagation(); // Stop event from bubbling up to the parent
+                          setIsClickingCell(true);
+                          onCellClick(row.id, field);
+                        }
+                      }}
+                    >
+                      {isEditing ? 
+                        renderEditField(field, row[field]) : 
+                        renderFieldValue(field, row[field])}
+                      
+                      {field === 'secrets' && row[field] && !isEditing && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setShowSecrets(!showSecrets);
+                          }}
+                          className="ml-2 p-1 text-gray-400 hover:text-gray-200 transition-colors"
+                          title={showSecrets ? "Hide secrets" : "Show secrets"}
+                        >
+                          {showSecrets ? <EyeOff size={16} /> : <Eye size={16} />}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
+          </div>
+          
+          {/* Status section - Now includes filename and hash fields */}
+          <div className="bg-gray-700/50 p-4 rounded-lg">
+            <h3 className="text-sm font-medium text-white mb-3">File & Status Information</h3>
+            <div className="space-y-3">
+              {/* Manually specify the fields to ensure the right order */}
+              {['filename', 'hash_algorithm', 'hash_value', 'status', 'analyst'].map(field => {
+                const column = COLUMNS.find(col => col.field === field);
+                const isEditing = editingCell?.rowId === row.id && editingCell?.field === field;
+                
+                return (
+                  <div key={field} className="group">
+                    <div className="text-xs text-blue-200 mb-1">{column.header}:</div>
+                    <div 
+                      className={`${isFieldEditable(field) ? 'cursor-pointer hover:bg-gray-600/50' : ''} p-1 rounded`}
+                      onClick={(e) => {
+                        if (isFieldEditable(field)) {
+                          e.stopPropagation(); // Stop event from bubbling up to the parent
+                          setIsClickingCell(true);
+                          onCellClick(row.id, field);
+                        }
+                      }}
+                    >
+                      {isEditing ? 
+                        renderEditField(field, row[field]) : 
+                        renderFieldValue(field, row[field])}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
+        {/* Evidence Tab */}
+        {showEvidenceTab && (
+          <div className="mt-4 pt-4 border-t border-gray-700">
+            <EvidenceTab 
+              logId={row.id}
+              csrfToken={csrfToken}
+              isAdmin={isAdmin}
+              currentUser={currentUser}
+            />
+          </div>
           )}
         </div>
       )}

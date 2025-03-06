@@ -27,6 +27,8 @@ CREATE TABLE IF NOT EXISTS logs (
     filename VARCHAR(100),
     status VARCHAR(75),
     secrets TEXT CHECK (LENGTH(secrets) <= 150),
+    hash_algorithm VARCHAR(50),
+    hash_value VARCHAR(128),
     analyst VARCHAR(100),
     locked BOOLEAN DEFAULT FALSE,
     locked_by VARCHAR(75),
@@ -54,6 +56,7 @@ CREATE TABLE IF NOT EXISTS evidence_files (
 CREATE INDEX IF NOT EXISTS idx_logs_timestamp ON logs(timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_logs_analyst ON logs(analyst);
 CREATE INDEX IF NOT EXISTS idx_logs_hostname ON logs(hostname);
+CREATE INDEX IF NOT EXISTS idx_logs_hash_value ON logs(hash_value);
 
 -- Create evidence index
 CREATE INDEX IF NOT EXISTS idx_evidence_log_id ON evidence_files(log_id);

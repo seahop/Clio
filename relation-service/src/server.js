@@ -177,7 +177,7 @@ const initializeDatabase = async () => {
       CREATE INDEX IF NOT EXISTS idx_relations_metadata_gin ON relations USING GIN (metadata);
     `);
     
-    // Initialize file status tracking tables
+    // Initialize file status tracking tables with hash fields
     await db.query(`
       CREATE TABLE IF NOT EXISTS file_status (
         id SERIAL PRIMARY KEY,
@@ -188,6 +188,8 @@ const initializeDatabase = async () => {
         external_ip VARCHAR(45),
         username VARCHAR(75),
         analyst VARCHAR(100),
+        hash_algorithm VARCHAR(50),
+        hash_value VARCHAR(128),
         first_seen TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
         last_seen TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
         metadata JSONB DEFAULT '{}'::jsonb,
@@ -198,6 +200,7 @@ const initializeDatabase = async () => {
       CREATE INDEX IF NOT EXISTS idx_file_status_status ON file_status(status);
       CREATE INDEX IF NOT EXISTS idx_file_status_hostname ON file_status(hostname);
       CREATE INDEX IF NOT EXISTS idx_file_status_last_seen ON file_status(last_seen);
+      CREATE INDEX IF NOT EXISTS idx_file_status_hash_value ON file_status(hash_value);
       
       -- Add index on combined fields for common queries
       CREATE INDEX IF NOT EXISTS idx_file_status_combined ON file_status(status, hostname, analyst);
@@ -214,7 +217,9 @@ const initializeDatabase = async () => {
         analyst VARCHAR(100) NOT NULL,
         notes TEXT,
         command TEXT,
-        secrets TEXT,  /* Add the secrets column here */
+        secrets TEXT,
+        hash_algorithm VARCHAR(50),
+        hash_value VARCHAR(128),
         timestamp TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
       );
 
@@ -222,7 +227,7 @@ const initializeDatabase = async () => {
       CREATE INDEX IF NOT EXISTS idx_file_status_history_timestamp ON file_status_history(timestamp);
     `);
     
-    console.log('Database tables initialized with optimized indexes');
+    console.log('Database tables initialized with optimized indexes and hash fields');
   } catch (error) {
     console.error('Database initialization error:', error);
     throw error;

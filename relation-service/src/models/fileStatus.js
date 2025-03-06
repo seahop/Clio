@@ -57,9 +57,10 @@ class FileStatusModel {
       const result = await db.query(`
         INSERT INTO file_status (
           filename, status, hostname, internal_ip, external_ip, 
-          username, analyst, first_seen, last_seen, metadata
+          username, analyst, first_seen, last_seen, metadata,
+          hash_algorithm, hash_value
         ) 
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
         ON CONFLICT (filename) 
         DO UPDATE SET
           status = $2,
@@ -69,7 +70,9 @@ class FileStatusModel {
           username = COALESCE($6, file_status.username),
           analyst = $7,
           last_seen = $9,
-          metadata = file_status.metadata || $10
+          metadata = file_status.metadata || $10,
+          hash_algorithm = COALESCE($11, file_status.hash_algorithm),
+          hash_value = COALESCE($12, file_status.hash_value)
         RETURNING *
       `, [
         fileData.filename,
@@ -81,7 +84,9 @@ class FileStatusModel {
         fileData.analyst,
         fileData.timestamp || new Date(),
         fileData.timestamp || new Date(),
-        fileData.metadata || {}
+        fileData.metadata || {},
+        fileData.hash_algorithm,
+        fileData.hash_value
       ]);
 
       return result.rows[0];
@@ -107,9 +112,10 @@ class FileStatusModel {
       const result = await db.query(`
         INSERT INTO file_status_history (
           filename, status, previous_status, hostname, internal_ip,
-          external_ip, username, analyst, notes, command, secrets, timestamp
+          external_ip, username, analyst, notes, command, secrets, 
+          hash_algorithm, hash_value, timestamp
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
         RETURNING *
       `, [
         safeHistoryData.filename,
@@ -123,6 +129,8 @@ class FileStatusModel {
         safeHistoryData.notes,
         safeHistoryData.command,
         safeHistoryData.secrets, // This will already be redacted
+        safeHistoryData.hash_algorithm,
+        safeHistoryData.hash_value,
         safeHistoryData.timestamp || new Date()
       ]);
   
@@ -213,7 +221,7 @@ class FileStatusModel {
           id, filename, status, previous_status, hostname, internal_ip,
           external_ip, username, analyst, notes, command,
           CASE WHEN secrets IS NOT NULL THEN '[REDACTED]' ELSE NULL END as secrets,
-          timestamp
+          hash_algorithm, hash_value, timestamp
         FROM file_status_history
         WHERE filename = $1
         ORDER BY timestamp DESC
@@ -382,18 +390,21 @@ class FileStatusModel {
           safeRecord.notes,
           safeRecord.command,
           safeRecord.secrets,
+          safeRecord.hash_algorithm,
+          safeRecord.hash_value,
           safeRecord.timestamp || new Date()
         );
         
-        const offset = index * 12; // 12 parameters per record
-        placeholders.push(`($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7}, $${offset + 8}, $${offset + 9}, $${offset + 10}, $${offset + 11}, $${offset + 12})`);
+        const offset = index * 14; // 14 parameters per record (added 2 for hash fields)
+        placeholders.push(`($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7}, $${offset + 8}, $${offset + 9}, $${offset + 10}, $${offset + 11}, $${offset + 12}, $${offset + 13}, $${offset + 14})`);
       });
       
       // Execute batch insert
       const query = `
         INSERT INTO file_status_history (
           filename, status, previous_status, hostname, internal_ip,
-          external_ip, username, analyst, notes, command, secrets, timestamp
+          external_ip, username, analyst, notes, command, secrets, 
+          hash_algorithm, hash_value, timestamp
         )
         VALUES ${placeholders.join(', ')}
         RETURNING id

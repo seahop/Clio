@@ -48,8 +48,8 @@ const LogsModel = {
         `INSERT INTO logs (
           timestamp, internal_ip, external_ip, hostname,
           domain, username, command, notes, filename,
-          status, secrets, analyst
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+          status, secrets, analyst, hash_algorithm, hash_value
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
         RETURNING *`,
         [
           new Date(),
@@ -63,7 +63,9 @@ const LogsModel = {
           logData.filename,
           logData.status,
           logData.secrets,
-          logData.analyst
+          logData.analyst,
+          logData.hash_algorithm,
+          logData.hash_value
         ]
       );
       
@@ -80,7 +82,7 @@ const LogsModel = {
       const allowedUpdates = [
         'internal_ip', 'external_ip', 'hostname', 'domain',
         'username', 'command', 'notes', 'filename', 'status',
-        'secrets', 'locked', 'locked_by'
+        'secrets', 'locked', 'locked_by', 'hash_algorithm', 'hash_value'
       ];
 
       // Filter out any fields that aren't in allowedUpdates
