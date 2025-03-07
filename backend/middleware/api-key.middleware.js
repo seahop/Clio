@@ -54,7 +54,21 @@ const authenticateApiKey = async (req, res, next) => {
       });
     }
     
-    // Check permissions (simplified - expand as needed)
+    // Special case: status endpoint should be accessible with any valid API key
+    if (req.path === '/status' && req.method === 'GET') {
+      // Add API key info to the request
+      req.apiKey = {
+        id: keyData.id,
+        keyId: keyData.key_id,
+        name: keyData.name,
+        createdBy: keyData.created_by,
+        permissions: keyData.permissions
+      };
+      
+      return next();
+    }
+    
+    // Check permissions for other endpoints
     const requiredPermission = req.method === 'GET' ? 'logs:read' : 'logs:write';
     if (!keyData.permissions.includes(requiredPermission) && 
         !keyData.permissions.includes('logs:admin')) {

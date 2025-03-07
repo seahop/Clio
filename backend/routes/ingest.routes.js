@@ -27,6 +27,38 @@ router.use(sanitizeRequestMiddleware);
 router.use(sanitizeLogMiddleware);
 
 /**
+ * Status endpoint to check API key validity
+ * GET /api/ingest/status
+ * This endpoint should be accessible with any valid API key
+ */
+router.get('/status', async (req, res) => {
+  try {
+    // Simple status endpoint to verify API key is working
+    await eventLogger.logDataEvent('api_status_check', req.apiKey.createdBy, {
+      keyId: req.apiKey.keyId,
+      timestamp: new Date().toISOString(),
+      clientInfo: {
+        ip: req.ip,
+        userAgent: req.get('User-Agent')
+      }
+    });
+    
+    res.json({
+      status: 'ok',
+      apiKey: {
+        name: req.apiKey.name,
+        keyId: req.apiKey.keyId,
+        permissions: req.apiKey.permissions
+      },
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('Error in API status check:', error);
+    res.status(500).json({ error: 'Status check failed', detail: error.message });
+  }
+});
+
+/**
  * Log ingestion endpoint
  * POST /api/ingest/logs
  */
@@ -113,33 +145,6 @@ router.post('/logs', async (req, res) => {
     });
     
     res.status(500).json({ error: 'Log ingestion failed', detail: error.message });
-  }
-});
-
-router.get('/status', async (req, res) => {
-  try {
-    // Simple status endpoint to verify API key is working
-    await eventLogger.logDataEvent('api_status_check', req.apiKey.createdBy, {
-      keyId: req.apiKey.keyId,
-      timestamp: new Date().toISOString(),
-      clientInfo: {
-        ip: req.ip,
-        userAgent: req.get('User-Agent')
-      }
-    });
-    
-    res.json({
-      status: 'ok',
-      apiKey: {
-        name: req.apiKey.name,
-        keyId: req.apiKey.keyId,
-        permissions: req.apiKey.permissions
-      },
-      timestamp: new Date().toISOString()
-    });
-  } catch (error) {
-    console.error('Error in API status check:', error);
-    res.status(500).json({ error: 'Status check failed', detail: error.message });
   }
 });
 
