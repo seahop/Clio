@@ -248,7 +248,7 @@ const ApiKeyManager = ({ csrfToken }) => {
 
   // Function to generate a cURL command example for a given API key
   const generateCurlExample = (apiKey) => {
-    return `curl -X POST https://your-app-domain.com/ingest/logs \\
+    return `curl -k -X POST https://your-IP-or-Host:3000/ingest/logs \\
   -H "Content-Type: application/json" \\
   -H "X-API-Key: ${apiKey}" \\
   -d '{
@@ -273,9 +273,12 @@ const ApiKeyManager = ({ csrfToken }) => {
   // Generate a code snippet for Python
   const generatePythonExample = (apiKey) => {
     return `import requests
-import json
+import urllib3
 
-url = "https://your-app-domain.com/ingest/logs"
+# Disable SSL warnings for self-signed certificates
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+url = "https://your-IP-or-Host:3000/ingest/logs"
 headers = {
     "Content-Type": "application/json",
     "X-API-Key": "${apiKey}"
@@ -292,7 +295,7 @@ payload = {
     "status": "ON_DISK"
 }
 
-response = requests.post(url, headers=headers, json=payload)
+response = requests.post(url, headers=headers, json=payload, verify=False)
 print(f"Status code: {response.status_code}")
 print(f"Response: {response.json()}")`;
   };

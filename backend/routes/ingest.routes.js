@@ -116,10 +116,6 @@ router.post('/logs', async (req, res) => {
   }
 });
 
-/**
- * API status check endpoint
- * GET /api/ingest/status
- */
 router.get('/status', async (req, res) => {
   try {
     // Simple status endpoint to verify API key is working

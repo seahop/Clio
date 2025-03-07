@@ -96,7 +96,20 @@ module.exports = function(app) {
         '^/ingest': '/api/ingest', // Rewrite to the backend's ingest endpoint
       },
       headers: {
-        'Origin': process.env.FRONTEND_URL || 'https://localhost:3000'
+        'Origin': process.env.FRONTEND_URL || 'https://localhost:3000',
+        // Skip CSRF check by sending a special header
+        'X-API-Request': 'true'
+      },
+      onProxyReq: function(proxyReq, req, res) {
+        // Add content-type if not present
+        if (!req.headers['content-type']) {
+          proxyReq.setHeader('Content-Type', 'application/json');
+        }
+        
+        // Copy any cookies from frontend to backend
+        if (req.headers.cookie) {
+          proxyReq.setHeader('Cookie', req.headers.cookie);
+        }
       },
       onProxyRes: function (proxyRes, req, res) {
         if (proxyRes.headers['set-cookie']) {
