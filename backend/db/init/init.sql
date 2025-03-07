@@ -52,6 +52,23 @@ CREATE TABLE IF NOT EXISTS evidence_files (
     metadata JSONB DEFAULT '{}'::jsonb
 );
 
+-- API keys table for managing API authentication
+CREATE TABLE IF NOT EXISTS api_keys (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    key_id VARCHAR(50) NOT NULL UNIQUE,
+    key_hash VARCHAR(255) NOT NULL,
+    created_by VARCHAR(100) NOT NULL,
+    permissions JSONB DEFAULT '["logs:write"]'::jsonb,
+    description TEXT,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    expires_at TIMESTAMPTZ,
+    is_active BOOLEAN DEFAULT TRUE,
+    last_used TIMESTAMPTZ,
+    metadata JSONB DEFAULT '{}'::jsonb
+);
+
 -- Create indexes
 CREATE INDEX IF NOT EXISTS idx_logs_timestamp ON logs(timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_logs_analyst ON logs(analyst);
@@ -63,6 +80,11 @@ CREATE INDEX IF NOT EXISTS idx_evidence_log_id ON evidence_files(log_id);
 CREATE INDEX IF NOT EXISTS idx_evidence_uploaded_by ON evidence_files(uploaded_by);
 CREATE INDEX IF NOT EXISTS idx_evidence_upload_date ON evidence_files(upload_date);
 
+-- Create API key indexes
+CREATE INDEX IF NOT EXISTS idx_api_keys_key_id ON api_keys(key_id);
+CREATE INDEX IF NOT EXISTS idx_api_keys_created_by ON api_keys(created_by);
+CREATE INDEX IF NOT EXISTS idx_api_keys_is_active ON api_keys(is_active);
+
 -- Create updated_at trigger function
 CREATE OR REPLACE FUNCTION update_updated_at_column()
 RETURNS TRIGGER AS $$
@@ -72,9 +94,15 @@ BEGIN
 END;
 $$ language 'plpgsql';
 
--- Create trigger
+-- Create triggers for tables
 DROP TRIGGER IF EXISTS update_logs_updated_at ON logs;
 CREATE TRIGGER update_logs_updated_at
     BEFORE UPDATE ON logs
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+DROP TRIGGER IF EXISTS update_api_keys_updated_at ON api_keys;
+CREATE TRIGGER update_api_keys_updated_at
+    BEFORE UPDATE ON api_keys
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at_column();

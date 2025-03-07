@@ -82,4 +82,30 @@ module.exports = function(app) {
       }
     })
   );
+
+  // Add a new proxy for the log ingestion API
+  app.use(
+    '/ingest',
+    createProxyMiddleware({
+      target: 'https://backend:3001',
+      secure: false,
+      changeOrigin: true,
+      logProvider,
+      logLevel: debug ? 'debug' : 'error',
+      pathRewrite: {
+        '^/ingest': '/api/ingest', // Rewrite to the backend's ingest endpoint
+      },
+      headers: {
+        'Origin': process.env.FRONTEND_URL || 'https://localhost:3000'
+      },
+      onProxyRes: function (proxyRes, req, res) {
+        if (proxyRes.headers['set-cookie']) {
+          const cookies = proxyRes.headers['set-cookie'].map(cookie => {
+            return cookie.replace(/; secure/gi, '');
+          });
+          proxyRes.headers['set-cookie'] = cookies;
+        }
+      }
+    })
+  );
 };
