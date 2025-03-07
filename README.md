@@ -34,10 +34,15 @@ A secure, collaborative logging system designed for red team operations and secu
 
 2. Generate environment variables and security keys:
    ```bash
-   # Using Python
-   python generate-env.py https://yourDomainOrIP.com:3000
-   # Or default to localhost
-   python generate-env.py
+   # Create and activate a virtual environment
+   python -m venv venv
+   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   
+   # Install required packages
+   pip install -r requirements.txt
+
+   # Generate certs and env
+   python generate-env.py https://yourIPorHost:3000
    ```
 
 3. Build and start the containers:
