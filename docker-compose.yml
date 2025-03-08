@@ -109,9 +109,11 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      backend:
+        condition: service_healthy
     networks:
-      - frontend-network
-      - backend-network
+    - frontend-network
+    - backend-network
     restart: unless-stopped
     logging:
       driver: "json-file"
