@@ -148,9 +148,9 @@ app.get('/health', (req, res) => {
   res.json({ status: 'healthy' });
 });
 
-// Initialize database tables
 const initializeDatabase = async () => {
   try {
+    // First create the relations table
     await db.query(`
       CREATE TABLE IF NOT EXISTS relations (
         id SERIAL PRIMARY KEY,
@@ -169,15 +169,11 @@ const initializeDatabase = async () => {
       CREATE INDEX IF NOT EXISTS idx_relations_source ON relations(source_type, source_value);
       CREATE INDEX IF NOT EXISTS idx_relations_target ON relations(target_type, target_value);
       CREATE INDEX IF NOT EXISTS idx_relations_last_seen ON relations(last_seen);
-      
-      -- Add compound index for faster relationship lookups
       CREATE INDEX IF NOT EXISTS idx_relations_compound ON relations(source_type, source_value, target_type, target_value);
-      
-      -- Add index on metadata JSONB for improved query performance
       CREATE INDEX IF NOT EXISTS idx_relations_metadata_gin ON relations USING GIN (metadata);
     `);
     
-    // Initialize file status tracking tables with hash fields
+    // Create file_status table without any unique constraints
     await db.query(`
       CREATE TABLE IF NOT EXISTS file_status (
         id SERIAL PRIMARY KEY,
@@ -192,19 +188,48 @@ const initializeDatabase = async () => {
         hash_value VARCHAR(128),
         first_seen TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
         last_seen TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-        metadata JSONB DEFAULT '{}'::jsonb,
-        UNIQUE(filename)
+        metadata JSONB DEFAULT '{}'::jsonb
       );
-
+    `);
+    
+    // Attempt to drop the problematic constraint if it exists
+    try {
+      await db.query(`
+        ALTER TABLE file_status DROP CONSTRAINT IF EXISTS file_status_filename_key;
+      `);
+    } catch (err) {
+      console.log('Note: No filename constraint to drop or already dropped');
+    }
+    
+    // Try to add the new compound constraint - but catch errors if it already exists
+    try {
+      await db.query(`
+        ALTER TABLE file_status 
+        ADD CONSTRAINT file_status_composite_key 
+        UNIQUE (filename, hostname, internal_ip);
+      `);
+      console.log('Added composite constraint on filename, hostname, and internal_ip');
+    } catch (err) {
+      // If error is about duplicate constraint, that's fine - otherwise log it
+      if (!err.message.includes('already exists')) {
+        console.log('Note: Could not add composite constraint:', err.message);
+      } else {
+        console.log('Composite constraint already exists');
+      }
+    }
+    
+    // Create or update indexes
+    await db.query(`
       CREATE INDEX IF NOT EXISTS idx_file_status_filename ON file_status(filename);
       CREATE INDEX IF NOT EXISTS idx_file_status_status ON file_status(status);
       CREATE INDEX IF NOT EXISTS idx_file_status_hostname ON file_status(hostname);
       CREATE INDEX IF NOT EXISTS idx_file_status_last_seen ON file_status(last_seen);
       CREATE INDEX IF NOT EXISTS idx_file_status_hash_value ON file_status(hash_value);
-      
-      -- Add index on combined fields for common queries
-      CREATE INDEX IF NOT EXISTS idx_file_status_combined ON file_status(status, hostname, analyst);
-      
+      CREATE INDEX IF NOT EXISTS idx_file_status_combined ON file_status(filename, hostname, internal_ip);
+    `);
+    
+    // Create file status history table
+    await db.query(`
       CREATE TABLE IF NOT EXISTS file_status_history (
         id SERIAL PRIMARY KEY,
         filename VARCHAR(100) NOT NULL,
@@ -227,7 +252,7 @@ const initializeDatabase = async () => {
       CREATE INDEX IF NOT EXISTS idx_file_status_history_timestamp ON file_status_history(timestamp);
     `);
     
-    console.log('Database tables initialized with optimized indexes and hash fields');
+    console.log('Database tables initialized with optimized indexes');
   } catch (error) {
     console.error('Database initialization error:', error);
     throw error;

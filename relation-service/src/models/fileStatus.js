@@ -46,14 +46,168 @@ class FileStatusModel {
     console.log('FileStatusModel cache cleared');
   }
 
-  /**
-   * Upsert a file status record with batched query
-   */
-  static async upsertFileStatus(fileData) {
-    try {
-      // Always invalidate cache when new data is added
-      this.clearCache();
+
+/**
+ * Get files by name with support for multiple hosts/IPs
+ */
+static async getFilesByName(filename) {
+  try {
+    // Get all file statuses with this filename
+    const statusResult = await db.query(`
+      SELECT * FROM file_status
+      WHERE filename = $1
+      ORDER BY last_seen DESC
+    `, [filename]);
+
+    if (statusResult.rows.length === 0) {
+      return [];
+    }
+
+    // For each file status, get its history
+    const fileResults = [];
+
+    for (const fileStatus of statusResult.rows) {
+      // Get history for this specific combination of filename, host, and IP
+      const historyResult = await db.query(`
+        SELECT 
+          id, filename, status, previous_status, hostname, internal_ip,
+          external_ip, username, analyst, notes, command,
+          CASE WHEN secrets IS NOT NULL THEN '[REDACTED]' ELSE NULL END as secrets,
+          hash_algorithm, hash_value, timestamp
+        FROM file_status_history
+        WHERE filename = $1
+          AND (hostname = $2 OR (hostname IS NULL AND $2 IS NULL))
+          AND (internal_ip = $3 OR (internal_ip IS NULL AND $3 IS NULL))
+        ORDER BY timestamp DESC
+      `, [filename, fileStatus.hostname, fileStatus.internal_ip]);
+
+      fileResults.push({
+        ...fileStatus,
+        history: historyResult.rows
+      });
+    }
+
+    return fileResults;
+  } catch (error) {
+    console.error('Error getting files by name:', error);
+    throw error;
+  }
+}
+
+/**
+ * Get a single file by name and specific host/IP
+ */
+static async getFileByName(filename, hostname = null, internal_ip = null) {
+  try {
+    // If hostname and internal_ip are provided, get that specific file
+    let query, params;
+    
+    if (hostname || internal_ip) {
+      query = `
+        SELECT * FROM file_status
+        WHERE filename = $1
+          AND (hostname = $2 OR (hostname IS NULL AND $2 IS NULL))
+          AND (internal_ip = $3 OR (internal_ip IS NULL AND $3 IS NULL))
+      `;
+      params = [filename, hostname, internal_ip];
+    } else {
+      // Otherwise just get the most recently updated file with that name
+      query = `
+        SELECT * FROM file_status
+        WHERE filename = $1
+        ORDER BY last_seen DESC
+        LIMIT 1
+      `;
+      params = [filename];
+    }
+
+    const statusResult = await db.query(query, params);
+
+    if (statusResult.rows.length === 0) {
+      return null;
+    }
+
+    const fileStatus = statusResult.rows[0];
+
+    // Get history for this specific combination of filename, host, and IP
+    const historyResult = await db.query(`
+      SELECT 
+        id, filename, status, previous_status, hostname, internal_ip,
+        external_ip, username, analyst, notes, command,
+        CASE WHEN secrets IS NOT NULL THEN '[REDACTED]' ELSE NULL END as secrets,
+        hash_algorithm, hash_value, timestamp
+      FROM file_status_history
+      WHERE filename = $1
+        AND (hostname = $2 OR (hostname IS NULL AND $2 IS NULL))
+        AND (internal_ip = $3 OR (internal_ip IS NULL AND $3 IS NULL))
+      ORDER BY timestamp DESC
+    `, [filename, fileStatus.hostname, fileStatus.internal_ip]);
+
+    // Return combined result
+    return {
+      ...fileStatus,
+      history: historyResult.rows
+    };
+  } catch (error) {
+    console.error('Error getting file by name:', error);
+    throw error;
+  }
+}
+
+/**
+ * Upsert a file status record with explicit type handling
+ */
+static async upsertFileStatus(fileData) {
+  try {
+    // Always invalidate cache when new data is added
+    this.clearCache();
+    
+    // First, check if this combination of filename, hostname, and IP exists
+    const existingResult = await db.query(`
+      SELECT id FROM file_status
+      WHERE filename = $1
+        AND (hostname IS NOT DISTINCT FROM $2)
+        AND (internal_ip IS NOT DISTINCT FROM $3)
+    `, [
+      fileData.filename,
+      fileData.hostname,
+      fileData.internal_ip
+    ]);
+    
+    // If it exists, update it
+    if (existingResult.rows.length > 0) {
+      const result = await db.query(`
+        UPDATE file_status SET
+          status = $1,
+          hostname = COALESCE($2, file_status.hostname),
+          internal_ip = COALESCE($3, file_status.internal_ip),
+          external_ip = COALESCE($4, file_status.external_ip),
+          username = COALESCE($5, file_status.username),
+          analyst = $6,
+          last_seen = $7,
+          metadata = COALESCE(file_status.metadata, '{}'::jsonb) || $8,
+          hash_algorithm = COALESCE($9, file_status.hash_algorithm),
+          hash_value = COALESCE($10, file_status.hash_value)
+        WHERE id = $11
+        RETURNING *
+      `, [
+        fileData.status || 'UNKNOWN',
+        fileData.hostname,
+        fileData.internal_ip,
+        fileData.external_ip,
+        fileData.username,
+        fileData.analyst,
+        fileData.timestamp || new Date(),
+        fileData.metadata || {},
+        fileData.hash_algorithm,
+        fileData.hash_value,
+        existingResult.rows[0].id
+      ]);
       
+      return result.rows[0];
+    } 
+    // If it doesn't exist, insert a new record
+    else {
       const result = await db.query(`
         INSERT INTO file_status (
           filename, status, hostname, internal_ip, external_ip, 
@@ -61,22 +215,10 @@ class FileStatusModel {
           hash_algorithm, hash_value
         ) 
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-        ON CONFLICT (filename) 
-        DO UPDATE SET
-          status = $2,
-          hostname = COALESCE($3, file_status.hostname),
-          internal_ip = COALESCE($4, file_status.internal_ip),
-          external_ip = COALESCE($5, file_status.external_ip),
-          username = COALESCE($6, file_status.username),
-          analyst = $7,
-          last_seen = $9,
-          metadata = file_status.metadata || $10,
-          hash_algorithm = COALESCE($11, file_status.hash_algorithm),
-          hash_value = COALESCE($12, file_status.hash_value)
         RETURNING *
       `, [
         fileData.filename,
-        fileData.status || 'UNKNOWN',  // Set default value to avoid nulls
+        fileData.status || 'UNKNOWN',
         fileData.hostname,
         fileData.internal_ip,
         fileData.external_ip,
@@ -90,11 +232,12 @@ class FileStatusModel {
       ]);
 
       return result.rows[0];
-    } catch (error) {
-      console.error('Error upserting file status:', error);
-      throw error;
     }
+  } catch (error) {
+    console.error('Error upserting file status:', error);
+    throw error;
   }
+}
 
   /**
    * Add a history entry for a file status change
@@ -196,44 +339,6 @@ class FileStatusModel {
       return result.rows;
     } catch (error) {
       console.error('Error getting file statuses by status:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Get file by name with history
-   */
-  static async getFileByName(filename) {
-    try {
-      // First get the file status with a direct query
-      const statusResult = await db.query(`
-        SELECT * FROM file_status
-        WHERE filename = $1
-      `, [filename]);
-
-      if (statusResult.rows.length === 0) {
-        return null;
-      }
-
-      // Then get the history with a separate query
-      const historyResult = await db.query(`
-        SELECT 
-          id, filename, status, previous_status, hostname, internal_ip,
-          external_ip, username, analyst, notes, command,
-          CASE WHEN secrets IS NOT NULL THEN '[REDACTED]' ELSE NULL END as secrets,
-          hash_algorithm, hash_value, timestamp
-        FROM file_status_history
-        WHERE filename = $1
-        ORDER BY timestamp DESC
-      `, [filename]);
-
-      // Return combined result
-      return {
-        ...statusResult.rows[0],
-        history: historyResult.rows
-      };
-    } catch (error) {
-      console.error('Error getting file by name:', error);
       throw error;
     }
   }

@@ -27,82 +27,86 @@ const redactSensitiveData = (data, fieldsToRedact = ['secrets']) => {
 };
 
 class FileStatusService {
-  /**
-   * Process log entries for file status tracking
-   * @param {Array} logs - Log entries from the main database
-   */
-  static async processLogEntries(logs) {
-    try {
-      console.log(`Processing ${logs.length} log entries for file status tracking`);
-      let filesUpdated = 0;
-  
-      // Process logs sequentially to ensure they're all processed
-      for (const log of logs) {
-        if (!log.filename || log.filename.trim() === '') {
-          continue;
-        }
-  
-        try {
-          // Get current file status if it exists
-          const existingFile = await FileStatusModel.getFileByName(log.filename);
-          const previousStatus = existingFile?.status || null;
-      
-          // Always update file status for logs with filenames
-          // This ensures files are always showing in the UI
-          await FileStatusModel.upsertFileStatus({
-            filename: log.filename,
-            status: log.status || 'UNKNOWN',  // Always provide a status
-            hostname: log.hostname,
-            internal_ip: log.internal_ip,
-            external_ip: log.external_ip,
-            username: log.username,
-            analyst: log.analyst,
-            hash_algorithm: log.hash_algorithm,
-            hash_value: log.hash_value,
-            timestamp: log.timestamp || new Date(),
-            metadata: {
-              domain: log.domain,
-              command_type: this.categorizeCommand(log.command)
-            }
-          });
-      
-          // Add to history - ensure any secrets are properly redacted
-          const safeHistory = {
-            filename: log.filename,
-            status: log.status || 'UNKNOWN',
-            previous_status: previousStatus,
-            hostname: log.hostname,
-            internal_ip: log.internal_ip,
-            external_ip: log.external_ip,
-            username: log.username,
-            analyst: log.analyst,
-            notes: log.notes,
-            command: log.command,
-            // Handle the secrets field properly - redact it when storing
-            secrets: log.secrets ? '[REDACTED]' : null,
-            hash_algorithm: log.hash_algorithm,
-            hash_value: log.hash_value,
-            timestamp: log.timestamp || new Date()
-          };
-          
-          await FileStatusModel.addStatusHistory(safeHistory);
-      
-          filesUpdated++;
-        } catch (error) {
-          console.error(`Error processing file status for ${log.filename}:`, error);
-        }
+/**
+ * Process log entries for file status tracking
+ * @param {Array} logs - Log entries from the main database
+ */
+static async processLogEntries(logs) {
+  try {
+    console.log(`Processing ${logs.length} log entries for file status tracking`);
+    let filesUpdated = 0;
+
+    // Process logs sequentially to ensure they're all processed
+    for (const log of logs) {
+      if (!log.filename || log.filename.trim() === '') {
+        continue;
       }
-  
-      // Clear the cache to ensure fresh data
-      FileStatusModel.clearCache();
-      
-      console.log(`Updated status for ${filesUpdated} files`);
-      return filesUpdated;
-    } catch (error) {
-      console.error('Error processing log entries for file status:', error);
-      throw error;
+
+      try {
+        // Get current file status if it exists - use hostname and IP for specific lookup
+        const existingFile = await FileStatusModel.getFileByName(
+          log.filename, 
+          log.hostname, 
+          log.internal_ip
+        );
+        const previousStatus = existingFile?.status || null;
+    
+        // Always update file status for logs with filenames
+        // This ensures files are always showing in the UI
+        await FileStatusModel.upsertFileStatus({
+          filename: log.filename,
+          status: log.status || 'UNKNOWN',  // Always provide a status
+          hostname: log.hostname,
+          internal_ip: log.internal_ip,
+          external_ip: log.external_ip,
+          username: log.username,
+          analyst: log.analyst,
+          hash_algorithm: log.hash_algorithm,
+          hash_value: log.hash_value,
+          timestamp: log.timestamp || new Date(),
+          metadata: {
+            domain: log.domain,
+            command_type: this.categorizeCommand(log.command)
+          }
+        });
+    
+        // Add to history - ensure any secrets are properly redacted
+        const safeHistory = {
+          filename: log.filename,
+          status: log.status || 'UNKNOWN',
+          previous_status: previousStatus,
+          hostname: log.hostname,
+          internal_ip: log.internal_ip,
+          external_ip: log.external_ip,
+          username: log.username,
+          analyst: log.analyst,
+          notes: log.notes,
+          command: log.command,
+          // Handle the secrets field properly - redact it when storing
+          secrets: log.secrets ? '[REDACTED]' : null,
+          hash_algorithm: log.hash_algorithm,
+          hash_value: log.hash_value,
+          timestamp: log.timestamp || new Date()
+        };
+        
+        await FileStatusModel.addStatusHistory(safeHistory);
+    
+        filesUpdated++;
+      } catch (error) {
+        console.error(`Error processing file status for ${log.filename}:`, error);
+      }
     }
+
+    // Clear the cache to ensure fresh data
+    FileStatusModel.clearCache();
+    
+    console.log(`Updated status for ${filesUpdated} files`);
+    return filesUpdated;
+  } catch (error) {
+    console.error('Error processing log entries for file status:', error);
+    throw error;
   }
+}
 
   /**
    * Categorize a command to determine its purpose

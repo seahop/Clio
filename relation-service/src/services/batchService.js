@@ -1,4 +1,6 @@
 // relation-service/src/services/batchService.js
+const _ = require('lodash');
+const FileStatusModel = require('../models/fileStatus');
 
 /**
  * Enhanced BatchService with parallel processing capabilities
@@ -45,7 +47,12 @@ class BatchService {
   
       // Set processor function if not already set
       if (!this.processing.has(batchType)) {
-        this.processing.set(batchType, processor);
+        // Special handling for file status batches
+        if (batchType === 'fileStatus') {
+          this.processing.set(batchType, (batch) => this._processFileStatusBatch(batchType, batch));
+        } else {
+          this.processing.set(batchType, processor);
+        }
       }
   
       // Set or reset flush timer
@@ -193,6 +200,67 @@ class BatchService {
           isProcessing: this.pendingFlushes.has(type)
         }))
       };
+    }
+  
+    /**
+     * Generate a unique key for file status entries that includes hostname and IP
+     * @param {Object} fileData - File status data
+     * @returns {string} Unique composite key
+     * @private
+     */
+    _generateFileKey(fileData) {
+      return `${fileData.filename}|${fileData.hostname || 'none'}|${fileData.internal_ip || 'none'}`;
+    }
+    
+    /**
+     * Process a batch of file status updates with proper handling of same filename on different hosts
+     * @param {string} batchType - The type of batch (e.g., 'fileStatus')
+     * @param {Array} batch - Array of file status objects
+     * @returns {Promise<void>}
+     */
+    async _processFileStatusBatch(batchType, batch) {
+      console.log(`Processing ${batch.length} file status updates in batch`);
+      
+      // Group by the composite key to handle same filename on different hosts
+      const batchByKey = {};
+      batch.forEach(item => {
+        const key = this._generateFileKey(item);
+        if (!batchByKey[key]) {
+          batchByKey[key] = [];
+        }
+        batchByKey[key].push(item);
+      });
+      
+      // Process each unique file instance sequentially
+      for (const [key, items] of Object.entries(batchByKey)) {
+        try {
+          // Sort by timestamp to ensure proper order
+          const sortedItems = _.sortBy(items, 'timestamp');
+          
+          // Process the latest item for this file instance
+          const latestItem = sortedItems[sortedItems.length - 1];
+          await FileStatusModel.upsertFileStatus(latestItem);
+          
+          // Add history entries for all items
+          for (const item of sortedItems) {
+            await FileStatusModel.addStatusHistory({
+              filename: item.filename,
+              status: item.status || 'UNKNOWN',
+              hostname: item.hostname,
+              internal_ip: item.internal_ip,
+              external_ip: item.external_ip,
+              username: item.username,
+              analyst: item.analyst || 'system',
+              timestamp: item.timestamp
+            });
+          }
+        } catch (error) {
+          console.error(`Error processing file status batch for ${key}:`, error);
+        }
+      }
+      
+      // Clear cache after batch processing
+      FileStatusModel.clearCache();
     }
   
     /**

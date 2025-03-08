@@ -35,7 +35,7 @@ This guide provides information for developers working with the Clio codebase, i
 
 3. Start the containers in development mode:
    ```bash
-   docker-compose -f docker-compose.yml -f docker-compose.dev.yml up
+   docker-compose build --no-cache
    ```
 
 4. Access the application at:

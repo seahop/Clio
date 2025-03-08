@@ -104,6 +104,9 @@ const FileStatusTracker = () => {
     };
   };
 
+  // Generate a unique key for each file instance
+  const getFileKey = (file) => `${file.filename}-${file.hostname || 'none'}-${file.internal_ip || 'none'}`;
+
   const fetchFiles = async () => {
     try {
       setRefreshing(true);
@@ -136,12 +139,12 @@ const FileStatusTracker = () => {
     fetchFiles();
   }, []);
 
-  const toggleExpand = (filename) => {
+  const toggleExpand = (fileKey) => {
     const newExpanded = new Set(expandedItems);
-    if (newExpanded.has(filename)) {
-      newExpanded.delete(filename);
+    if (newExpanded.has(fileKey)) {
+      newExpanded.delete(fileKey);
     } else {
-      newExpanded.add(filename);
+      newExpanded.add(fileKey);
     }
     setExpandedItems(newExpanded);
   };
@@ -312,159 +315,169 @@ const FileStatusTracker = () => {
                 </div>
                 
                 <div className="space-y-2">
-                  {filesByStatus[status].map(file => (
-                    <div 
-                      key={file.filename} 
-                      className="bg-gray-700/50 rounded-lg overflow-hidden"
-                    >
-                      <button
-                        onClick={() => toggleExpand(file.filename)}
-                        className="w-full px-4 py-3 flex items-center justify-between hover:bg-gray-600/50 transition-colors"
+                  {filesByStatus[status].map(file => {
+                    const fileKey = getFileKey(file);
+                    return (
+                      <div 
+                        key={fileKey}
+                        className="bg-gray-700/50 rounded-lg overflow-hidden"
                       >
-                        <div className="flex items-center gap-3">
-                          <File className="w-5 h-5 text-gray-400" />
-                          <span className="text-white font-medium font-mono text-sm break-all">
-                            {file.filename}
-                          </span>
-                          <div className="flex items-center gap-1 text-xs text-gray-400">
-                            <Calendar size={12} />
-                            {new Date(file.last_seen).toLocaleString()}
+                        <button
+                          onClick={() => toggleExpand(fileKey)}
+                          className="w-full px-4 py-3 flex items-center justify-between hover:bg-gray-600/50 transition-colors"
+                        >
+                          <div className="flex items-center gap-3">
+                            <File className="w-5 h-5 text-gray-400" />
+                            <span className="text-white font-medium font-mono text-sm break-all">
+                              {file.filename}
+                            </span>
+                            {/* Show hostname and IP to distinguish identical filenames */}
+                            {(file.hostname || file.internal_ip) && (
+                              <span className="text-xs text-blue-300">
+                                {file.hostname && `@${file.hostname}`}
+                                {file.internal_ip && ` (${file.internal_ip})`}
+                              </span>
+                            )}
+                            <div className="flex items-center gap-1 text-xs text-gray-400">
+                              <Calendar size={12} />
+                              {new Date(file.last_seen).toLocaleString()}
+                            </div>
                           </div>
-                        </div>
-                        {expandedItems.has(file.filename) ? (
-                          <ChevronDown className="w-5 h-5 text-gray-400" />
-                        ) : (
-                          <ChevronRight className="w-5 h-5 text-gray-400" />
-                        )}
-                      </button>
+                          {expandedItems.has(fileKey) ? (
+                            <ChevronDown className="w-5 h-5 text-gray-400" />
+                          ) : (
+                            <ChevronRight className="w-5 h-5 text-gray-400" />
+                          )}
+                        </button>
 
-                      {expandedItems.has(file.filename) && (
-                      <div className="border-t border-gray-600 p-4">
-                        <div className="grid grid-cols-2 gap-4 mb-4">
-                          <div>
-                            <h4 className="text-sm text-gray-400 mb-1">Host Information</h4>
-                            <div className="bg-gray-800 p-3 rounded-md space-y-1">
-                              <div className="flex items-center justify-between">
-                                <span className="text-gray-400">Hostname:</span>
-                                <span className="text-white">{file.hostname || 'N/A'}</span>
+                        {expandedItems.has(fileKey) && (
+                        <div className="border-t border-gray-600 p-4">
+                          <div className="grid grid-cols-2 gap-4 mb-4">
+                            <div>
+                              <h4 className="text-sm text-gray-400 mb-1">Host Information</h4>
+                              <div className="bg-gray-800 p-3 rounded-md space-y-1">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-gray-400">Hostname:</span>
+                                  <span className="text-white">{file.hostname || 'N/A'}</span>
+                                </div>
+                                <div className="flex items-center justify-between">
+                                  <span className="text-gray-400">Internal IP:</span>
+                                  <span className="text-white">{file.internal_ip || 'N/A'}</span>
+                                </div>
+                                <div className="flex items-center justify-between">
+                                  <span className="text-gray-400">External IP:</span>
+                                  <span className="text-white">{file.external_ip || 'N/A'}</span>
+                                </div>
                               </div>
-                              <div className="flex items-center justify-between">
-                                <span className="text-gray-400">Internal IP:</span>
-                                <span className="text-white">{file.internal_ip || 'N/A'}</span>
-                              </div>
-                              <div className="flex items-center justify-between">
-                                <span className="text-gray-400">External IP:</span>
-                                <span className="text-white">{file.external_ip || 'N/A'}</span>
+                            </div>
+                            
+                            <div>
+                              <h4 className="text-sm text-gray-400 mb-1">File Information</h4>
+                              <div className="bg-gray-800 p-3 rounded-md space-y-1">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-gray-400">Analyst:</span>
+                                  <span className="text-white">{file.analyst || 'N/A'}</span>
+                                </div>
+                                <div className="flex items-center justify-between">
+                                  <span className="text-gray-400">First Seen:</span>
+                                  <span className="text-white">{new Date(file.first_seen).toLocaleString()}</span>
+                                </div>
+                                <div className="flex items-center justify-between">
+                                  <span className="text-gray-400">Status Updates:</span>
+                                  <span className="text-white">{file.history_count || 0}</span>
+                                </div>
                               </div>
                             </div>
                           </div>
                           
-                          <div>
-                            <h4 className="text-sm text-gray-400 mb-1">File Information</h4>
-                            <div className="bg-gray-800 p-3 rounded-md space-y-1">
-                              <div className="flex items-center justify-between">
-                                <span className="text-gray-400">Analyst:</span>
-                                <span className="text-white">{file.analyst || 'N/A'}</span>
-                              </div>
-                              <div className="flex items-center justify-between">
-                                <span className="text-gray-400">First Seen:</span>
-                                <span className="text-white">{new Date(file.first_seen).toLocaleString()}</span>
-                              </div>
-                              <div className="flex items-center justify-between">
-                                <span className="text-gray-400">Status Updates:</span>
-                                <span className="text-white">{file.history_count || 0}</span>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                        
-                        {/* Hash Information - New section */}
-                        {(file.hash_algorithm || file.hash_value) && (
-                          <div className="mb-4">
-                            <h4 className="text-sm text-gray-400 mb-1">Hash Information</h4>
-                            <div className="bg-gray-800 p-3 rounded-md space-y-1">
-                              <div className="flex items-center justify-between">
-                                <span className="text-gray-400">Algorithm:</span>
-                                <span className="text-white">{file.hash_algorithm || 'N/A'}</span>
-                              </div>
-                              {file.hash_value && (
-                                <div>
-                                  <span className="text-gray-400">Hash Value:</span>
-                                  <div className="mt-1 p-2 bg-gray-900 rounded font-mono text-xs text-gray-300 break-all overflow-x-auto">
-                                    {file.hash_value}
-                                  </div>
+                          {/* Hash Information - New section */}
+                          {(file.hash_algorithm || file.hash_value) && (
+                            <div className="mb-4">
+                              <h4 className="text-sm text-gray-400 mb-1">Hash Information</h4>
+                              <div className="bg-gray-800 p-3 rounded-md space-y-1">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-gray-400">Algorithm:</span>
+                                  <span className="text-white">{file.hash_algorithm || 'N/A'}</span>
                                 </div>
-                              )}
+                                {file.hash_value && (
+                                  <div>
+                                    <span className="text-gray-400">Hash Value:</span>
+                                    <div className="mt-1 p-2 bg-gray-900 rounded font-mono text-xs text-gray-300 break-all overflow-x-auto">
+                                      {file.hash_value}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
                             </div>
-                          </div>
-                        )}
-                        
-                        {file.history && file.history.length > 0 ? (
-                          <>
-                            <h4 className="text-sm text-gray-400 mb-2">Status History</h4>
-                            <div className="space-y-2 max-h-64 overflow-y-auto pr-2">
-                              {file.history.map((entry, index) => (
-                                <div 
-                                  key={index}
-                                  className="bg-gray-800 p-3 rounded-md border-l-4 border-gray-600"
-                                >
-                                  <div className="flex items-center justify-between mb-2">
-                                    <div className="flex items-center gap-2">
-                                      {getStatusDisplay(entry.status).component}
-                                      <span className="text-xs text-gray-400">
-                                        by {entry.analyst}
+                          )}
+                          
+                          {file.history && file.history.length > 0 ? (
+                            <>
+                              <h4 className="text-sm text-gray-400 mb-2">Status History</h4>
+                              <div className="space-y-2 max-h-64 overflow-y-auto pr-2">
+                                {file.history.map((entry, index) => (
+                                  <div 
+                                    key={index}
+                                    className="bg-gray-800 p-3 rounded-md border-l-4 border-gray-600"
+                                  >
+                                    <div className="flex items-center justify-between mb-2">
+                                      <div className="flex items-center gap-2">
+                                        {getStatusDisplay(entry.status).component}
+                                        <span className="text-xs text-gray-400">
+                                          by {entry.analyst}
+                                        </span>
+                                      </div>
+                                      <span className="text-xs text-gray-500">
+                                        {new Date(entry.timestamp).toLocaleString()}
                                       </span>
                                     </div>
-                                    <span className="text-xs text-gray-500">
-                                      {new Date(entry.timestamp).toLocaleString()}
-                                    </span>
+                                    
+                                    {/* Show hash information in history entries */}
+                                    {(entry.hash_algorithm || entry.hash_value) && (
+                                      <div className="mt-2 p-2 bg-gray-900/50 rounded">
+                                        <div className="text-xs text-gray-400 mb-1">Hash Info:</div>
+                                        <div className="flex flex-wrap gap-2">
+                                          {entry.hash_algorithm && (
+                                            <span className="text-xs text-purple-300">{entry.hash_algorithm}</span>
+                                          )}
+                                          {entry.hash_value && (
+                                            <span className="text-xs font-mono break-all text-gray-300">{entry.hash_value}</span>
+                                          )}
+                                        </div>
+                                      </div>
+                                    )}
+                                    
+                                    {entry.command && (
+                                      <div className="mt-2">
+                                        <div className="text-xs text-gray-400 mb-1">Command:</div>
+                                        <div className="bg-gray-900 p-2 rounded text-gray-300 font-mono text-xs overflow-x-auto">
+                                          {entry.command}
+                                        </div>
+                                      </div>
+                                    )}
+                                    
+                                    {entry.notes && (
+                                      <div className="mt-2">
+                                        <div className="text-xs text-gray-400 mb-1">Notes:</div>
+                                        <div className="text-gray-300 text-sm italic">
+                                          {entry.notes}
+                                        </div>
+                                      </div>
+                                    )}
                                   </div>
-                                  
-                                  {/* Show hash information in history entries */}
-                                  {(entry.hash_algorithm || entry.hash_value) && (
-                                    <div className="mt-2 p-2 bg-gray-900/50 rounded">
-                                      <div className="text-xs text-gray-400 mb-1">Hash Info:</div>
-                                      <div className="flex flex-wrap gap-2">
-                                        {entry.hash_algorithm && (
-                                          <span className="text-xs text-purple-300">{entry.hash_algorithm}</span>
-                                        )}
-                                        {entry.hash_value && (
-                                          <span className="text-xs font-mono break-all text-gray-300">{entry.hash_value}</span>
-                                        )}
-                                      </div>
-                                    </div>
-                                  )}
-                                  
-                                  {entry.command && (
-                                    <div className="mt-2">
-                                      <div className="text-xs text-gray-400 mb-1">Command:</div>
-                                      <div className="bg-gray-900 p-2 rounded text-gray-300 font-mono text-xs overflow-x-auto">
-                                        {entry.command}
-                                      </div>
-                                    </div>
-                                  )}
-                                  
-                                  {entry.notes && (
-                                    <div className="mt-2">
-                                      <div className="text-xs text-gray-400 mb-1">Notes:</div>
-                                      <div className="text-gray-300 text-sm italic">
-                                        {entry.notes}
-                                      </div>
-                                    </div>
-                                  )}
-                                </div>
-                              ))}
+                                ))}
+                              </div>
+                            </>
+                          ) : (
+                            <div className="text-center py-4 text-gray-400">
+                              <p>No detailed history available</p>
                             </div>
-                          </>
-                        ) : (
-                          <div className="text-center py-4 text-gray-400">
-                            <p>No detailed history available</p>
-                          </div>
-                        )}
+                          )}
+                        </div>
+                      )}
                       </div>
-                    )}
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             ))}

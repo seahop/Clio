@@ -31,12 +31,17 @@ class FileStatusAnalyzer extends BaseAnalyzer {
       
       console.log(`Found ${filenameLogs.length} logs with filenames to process in parallel`);
       
-      // Group by filename to prevent concurrent updates to the same file
-      const logsByFilename = _.groupBy(filenameLogs, 'filename');
+      // Generate a unique key for each file based on filename, hostname, and IP
+      const getFileKey = (log) => {
+        return `${log.filename}|${log.hostname || 'none'}|${log.internal_ip || 'none'}`;
+      };
       
-      // Process each unique filename in parallel
+      // Group by the composite key to handle same filename on different hosts properly
+      const logsByCompositeKey = _.groupBy(filenameLogs, getFileKey);
+      
+      // Process each unique file instance in parallel
       const results = await Promise.all(
-        Object.entries(logsByFilename).map(async ([filename, fileLogs]) => {
+        Object.entries(logsByCompositeKey).map(async ([fileKey, fileLogs]) => {
           try {
             // Sort logs by timestamp to ensure proper order
             const sortedLogs = _.sortBy(fileLogs, 'timestamp');
@@ -44,8 +49,13 @@ class FileStatusAnalyzer extends BaseAnalyzer {
             // Process this file's logs - we process logs for the same file sequentially
             // for data consistency, but different files are processed in parallel
             await FileStatusService.processLogEntries(sortedLogs);
+            
+            // Extract filename from the key for reporting
+            const filename = fileKey.split('|')[0];
             return { filename, success: true, count: sortedLogs.length };
           } catch (error) {
+            // Extract filename from the key for error reporting
+            const filename = fileKey.split('|')[0];
             console.error(`Error processing file status for ${filename}:`, error);
             return { filename, success: false, error: error.message };
           }

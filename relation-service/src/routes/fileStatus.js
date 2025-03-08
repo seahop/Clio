@@ -46,13 +46,36 @@ router.get('/status/:status', authenticateToken, async (req, res) => {
 router.get('/:filename', authenticateToken, async (req, res) => {
   try {
     const { filename } = req.params;
-    const file = await FileStatusService.getFileByName(filename);
+    const { hostname, internal_ip } = req.query;
     
-    if (!file) {
-      return res.status(404).json({ error: 'File not found' });
+    // If hostname or IP is provided, get the specific file
+    if (hostname || internal_ip) {
+      const file = await FileStatusService.getFileByName(filename, hostname, internal_ip);
+      
+      if (!file) {
+        return res.status(404).json({ error: 'File not found' });
+      }
+      
+      res.json(file);
+    } else {
+      // Otherwise get all files with that name
+      const files = await FileStatusService.getFilesByName(filename);
+      
+      if (!files || files.length === 0) {
+        return res.status(404).json({ error: 'File not found' });
+      }
+      
+      // If there's only one file, return it directly for backward compatibility
+      if (files.length === 1) {
+        res.json(files[0]);
+      } else {
+        res.json({ 
+          multiple: true, 
+          count: files.length,
+          files: files
+        });
+      }
     }
-    
-    res.json(file);
   } catch (error) {
     console.error('Error getting file details:', error);
     res.status(500).json({ error: 'Failed to get file details', details: error.message });

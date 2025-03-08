@@ -136,7 +136,7 @@ BEGIN
 END;
 $$ language 'plpgsql';
 
--- Add file status tracking table
+-- Add file status tracking table - without unique constraint on filename
 CREATE TABLE IF NOT EXISTS file_status (
     id SERIAL PRIMARY KEY,
     filename VARCHAR(100) NOT NULL,
@@ -150,11 +150,18 @@ CREATE TABLE IF NOT EXISTS file_status (
     analyst VARCHAR(100),
     first_seen TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     last_seen TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    metadata JSONB DEFAULT '{}'::jsonb,
-    UNIQUE(filename)
+    metadata JSONB DEFAULT '{}'::jsonb
 );
 
-CREATE INDEX IF NOT EXISTS idx_file_status_filename ON file_status(filename);
+-- Create a composite unique constraint on filename, hostname, and internal_ip
+-- This allows the same filename to exist on different hosts/IPs
+ALTER TABLE file_status 
+ADD CONSTRAINT file_status_filename_host_ip_key 
+UNIQUE (filename, COALESCE(hostname, ''), COALESCE(internal_ip, ''));
+
+-- Create optimized indexes for file status lookups
+CREATE INDEX idx_file_status_combined_lookup ON file_status(filename, hostname, internal_ip);
+CREATE INDEX idx_file_status_filename ON file_status(filename);
 CREATE INDEX IF NOT EXISTS idx_file_status_status ON file_status(status);
 CREATE INDEX IF NOT EXISTS idx_file_status_hostname ON file_status(hostname);
 CREATE INDEX IF NOT EXISTS idx_file_status_last_seen ON file_status(last_seen);
@@ -180,4 +187,5 @@ CREATE TABLE IF NOT EXISTS file_status_history (
 );
 
 CREATE INDEX IF NOT EXISTS idx_file_status_history_filename ON file_status_history(filename);
+CREATE INDEX IF NOT EXISTS idx_file_status_history_host_ip ON file_status_history(hostname, internal_ip);
 CREATE INDEX IF NOT EXISTS idx_file_status_history_timestamp ON file_status_history(timestamp);
