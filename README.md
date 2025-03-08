@@ -64,7 +64,6 @@ For detailed information about Clio, please refer to our documentation:
 - [Security Features](./docs/security.md) - In-depth security information
 - [User Guide](./docs/user-guide.md) - How to use the application
 - [API Documentation](./docs/api-guide.md) - Working with the Clio API
-- [Development Guide](./docs/development.md) - Information for developers
 
 ## License
 
