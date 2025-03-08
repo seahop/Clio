@@ -43,7 +43,8 @@ The Logs view is the main logging interface for recording and tracking activitie
 </p>
 <br>
 There is a legacy view which might not be supported for long term support<br>
-If there is interest in keeping it, let me know<br>
+If there is interest in keeping it, let me know
+<br>
 <p align="center">
 <img src="../images/Clio_user_table_view.png" alt="Clio Table View" width="1000"/>
 </p>
