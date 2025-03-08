@@ -1,6 +1,6 @@
 // frontend/src/components/RedTeamLogger.jsx
 import React, { useState } from 'react';
-import { Network, File, Database, Users, Key, Book, HardDrive } from 'lucide-react';
+import { Network, File, Database, Users, Key, Book, HardDrive, Settings } from 'lucide-react';
 import LoggerCardView from './LoggerCardView';
 import RelationViewer from './RelationViewer';
 import FileStatusTracker from './FileStatusTracker';
@@ -8,7 +8,8 @@ import ExportDatabasePanel from './ExportDatabasePanel';
 import SessionManagement from './SessionManagement';
 import ApiKeyManager from './ApiKeyManager';
 import ApiDocumentation from './ApiDocumentation';
-import LogManagement from './LogManagement';  // Import the new component
+import LogManagement from './LogManagement';
+import UserSettings from './UserSettings';
 import { useLoggerOperations } from '../hooks/useLoggerOperations';
 
 const RedTeamLogger = ({ currentUser, csrfToken }) => {
@@ -72,6 +73,19 @@ const RedTeamLogger = ({ currentUser, csrfToken }) => {
               <span className="inline">File Status</span>
             </button>
             
+            {/* User Settings Button - Available to all users */}
+            <button
+              onClick={() => setActiveView('settings')}
+              className={`px-4 py-2 rounded-md flex items-center gap-2 transition-colors duration-200 ${
+                activeView === 'settings' 
+                  ? 'bg-blue-600 text-white' 
+                  : 'bg-gray-700 text-white hover:bg-gray-600'
+              }`}
+            >
+              <Settings className="w-5 h-5" />
+              <span className="inline">Settings</span>
+            </button>
+            
             {/* Admin-only buttons */}
             {isAdmin && (
               <>
@@ -87,7 +101,6 @@ const RedTeamLogger = ({ currentUser, csrfToken }) => {
                   <span className="inline">Export</span>
                 </button>
                 
-                {/* New Log Management Button */}
                 <button
                   onClick={() => setActiveView('logs-management')}
                   className={`px-4 py-2 rounded-md flex items-center gap-2 transition-colors duration-200 ${
@@ -163,6 +176,15 @@ const RedTeamLogger = ({ currentUser, csrfToken }) => {
           </div>
         )}
         
+        {/* User Settings View - Available to all users */}
+        {activeView === 'settings' && (
+          <div className="w-full">
+            <div className="bg-gray-800 rounded-lg shadow-lg p-4">
+              <UserSettings currentUser={currentUser} csrfToken={csrfToken} />
+            </div>
+          </div>
+        )}
+        
         {/* Admin Views */}
         {activeView === 'export' && isAdmin && (
           <div className="w-full">
@@ -172,7 +194,6 @@ const RedTeamLogger = ({ currentUser, csrfToken }) => {
           </div>
         )}
         
-        {/* New Log Management View */}
         {activeView === 'logs-management' && isAdmin && (
           <div className="w-full">
             <div className="bg-gray-800 rounded-lg shadow-lg p-4">

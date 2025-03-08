@@ -1,7 +1,7 @@
 // routes/auth.routes.js
 const express = require('express');
 const router = express.Router();
-const { loginUser, logoutUser, getCurrentUser, revokeAllSessions, changePassword, forcePasswordReset } = require('../controllers/auth.controller');
+const { loginUser, logoutUser, getCurrentUser, revokeAllSessions, changePassword, forcePasswordReset, changeOwnPassword } = require('../controllers/auth.controller');
 const { authenticateJwt, verifyAdmin } = require('../middleware/jwt.middleware');
 const rateLimit = require('express-rate-limit');
 
@@ -15,6 +15,7 @@ router.post('/login', loginLimiter, loginUser);
 router.post('/logout', authenticateJwt, logoutUser);
 router.get('/me', authenticateJwt, getCurrentUser);
 router.post('/change-password', authenticateJwt, changePassword);
+router.post('/change-own-password', authenticateJwt, changeOwnPassword);
 router.post('/revoke-all', authenticateJwt, verifyAdmin, revokeAllSessions);
 router.post('/force-password-reset', authenticateJwt, verifyAdmin, forcePasswordReset);
 

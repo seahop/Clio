@@ -423,11 +423,103 @@ const forcePasswordReset = async (req, res) => {
   }
 };
 
+/**
+ * Allow a user to change their own password
+ */
+const changeOwnPassword = async (req, res) => {
+  const { currentPassword, newPassword } = req.body;
+  const username = req.user.username;
+  const isAdmin = req.user.role === 'admin';
+  const oldToken = req.cookies.auth_token;
+
+  try {
+    // Validate new password
+    const passwordErrors = PasswordService.validateNewPassword(newPassword);
+    if (passwordErrors.length > 0) {
+      return res.status(400).json({
+        error: 'Invalid password',
+        detail: passwordErrors
+      });
+    }
+
+    // Change password - uses the same method as admin-triggered password change
+    await AuthService.changeUserPassword(username, currentPassword, newPassword, isAdmin);
+
+    // If the user had a password reset flag, remove it after successful change
+    const passwordResetKey = `user:password_reset:${username}`;
+    await redisClient.del(passwordResetKey);
+
+    // Log password change
+    await authLogger.logSecurityEvent('password_change', username, {
+      ip: req.ip,
+      userAgent: req.get('User-Agent'),
+      isAdmin,
+      selfInitiated: true
+    });
+
+    await eventLogger.logPasswordChange(username, {
+      ip: req.ip,
+      userAgent: req.get('User-Agent'),
+      isAdmin,
+      selfInitiated: true,
+      timestamp: new Date().toISOString()
+    });
+
+    // Create updated user object
+    const user = AuthService.createUserObject(username, isAdmin);
+    
+    // Revoke the old token
+    await revokeJwtToken(oldToken);
+    
+    // Generate a new token
+    const tokenData = await createJwtToken(user, { expiresIn: '8h' });
+    
+    if (!tokenData) {
+      throw new Error('Failed to create new authentication token');
+    }
+
+    // Set the new token in a cookie
+    res.cookie('auth_token', tokenData.token, SESSION_OPTIONS);
+    
+    res.json({ 
+      message: 'Password changed successfully',
+      user: {
+        username: user.username,
+        role: user.role
+      }
+    });
+  } catch (error) {
+    console.error('Password change error:', error);
+    
+    // Log error
+    await authLogger.logSecurityEvent('password_change_error', username, {
+      error: error.message,
+      ip: req.ip,
+      userAgent: req.get('User-Agent'),
+      selfInitiated: true
+    });
+
+    await eventLogger.logSecurityEvent('password_change_error', username, {
+      error: error.message,
+      stackTrace: process.env.NODE_ENV === 'development' ? error.stack : undefined,
+      ip: req.ip,
+      userAgent: req.get('User-Agent'),
+      selfInitiated: true
+    });
+
+    res.status(500).json({ 
+      error: 'Failed to change password',
+      detail: error.message
+    });
+  }
+};
+
 module.exports = {
   loginUser,
   logoutUser,
   getCurrentUser,
   revokeAllSessions: revokeAllUserSessions,
   changePassword,
-  forcePasswordReset
+  forcePasswordReset,
+  changeOwnPassword
 };
