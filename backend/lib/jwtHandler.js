@@ -176,22 +176,24 @@ class JwtHandler {
         try {
           const parsedData = parseRedisValue(tokenData);
           
-          // Remove from user's tokens set if username exists
+          // IMPORTANT: Only remove this specific token from user's tokens set if username exists
+          // Don't delete or affect any other Redis keys related to the user
           if (parsedData.username) {
             await redisClient.sRem(`user:${parsedData.username}:tokens`, jti);
+            
+            // Log the revocation
+            await eventLogger.logSecurityEvent('token_revoke', parsedData.username, {
+              jti: jti.substring(0, 8)
+            });
           }
-          
-          // Log the revocation
-          await eventLogger.logSecurityEvent('token_revoke', parsedData.username, {
-            jti: jti.substring(0, 8)
-          });
         } catch (error) {
           console.error('Error parsing token info during revocation:', error);
         }
       }
       
-      // Delete the token
+      // Delete only the specific token
       await redisClient.del(`jwt:${jti}`);
+      
       return true;
     } catch (error) {
       console.error('Token revocation error:', error);
@@ -204,7 +206,9 @@ class JwtHandler {
       // Get all tokens for this user
       const tokenIds = await redisClient.smembers(`user:${username}:tokens`);
       
-      // Revoke each token
+      console.log(`Revoking ${tokenIds.length} tokens for user ${username}`);
+      
+      // Revoke each token individually
       for (const jti of tokenIds) {
         await this.revokeToken(jti);
       }
@@ -230,13 +234,32 @@ class JwtHandler {
       const tokenKeys = await redisClient.keys('jwt:*');
       const userTokenSets = await redisClient.keys('user:*:tokens');
       
+      // Log what we're trying to do
+      console.log(`Revoking all tokens: ${tokenKeys.length} tokens, ${userTokenSets.length} token sets`);
+      
       // Delete all tokens
       for (const key of tokenKeys) {
+        // Skip refreshed tokens as they're handled separately
+        if (key.includes('refreshed:')) continue;
+        
+        // Try to get the username from the token before deleting
+        try {
+          const tokenData = await redisClient.get(key);
+          if (tokenData) {
+            const parsedData = parseRedisValue(tokenData);
+            console.log(`Revoking token for ${parsedData.username || 'unknown user'}`);
+          }
+        } catch (err) {
+          console.error(`Error getting token data before deletion:`, err);
+        }
+        
         await redisClient.del(key);
       }
       
       // Delete all user token sets
       for (const key of userTokenSets) {
+        const username = key.replace('user:', '').replace(':tokens', '');
+        console.log(`Clearing token set for ${username}`);
         await redisClient.del(key);
       }
       

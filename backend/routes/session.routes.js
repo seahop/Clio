@@ -92,19 +92,30 @@ router.post('/revoke', authenticateJwt, verifyAdmin, async (req, res) => {
     const results = [];
     // Process each session ID
     for (const sessionId of sessionIds) {
-      // Get full token ID (since we only store first 16 chars in the frontend)
-      const fullTokenIds = await redisClient.keys(`jwt:${sessionId}*`);
-      
-      for (const fullKey of fullTokenIds) {
-        const tokenId = fullKey.replace('jwt:', '');
+      try {
+        // We need to find tokens that START with this sessionId
+        // (since we only display the first 16 chars in the frontend)
+        const matchingKeys = await redisClient.keys(`jwt:${sessionId}*`);
         
-        try {
-          // Get token data before deletion to log username
-          const tokenData = await redisClient.get(fullKey);
+        if (matchingKeys.length === 0) {
+          results.push({
+            id: sessionId,
+            error: 'Session not found',
+            success: false
+          });
+          continue;
+        }
+        
+        // Should only match one token in most cases
+        for (const matchingKey of matchingKeys) {
+          const tokenId = matchingKey.replace('jwt:', '');
+          
+          // Get token data before revoking
+          const tokenData = await redisClient.get(matchingKey);
           let username = 'unknown';
           
+          // Extract username from token data
           if (tokenData) {
-            // Parse the simple delimiter-based data format
             const parts = tokenData.split('::');
             for (let i = 0; i < parts.length; i += 2) {
               if (parts[i] === 'username' && i + 1 < parts.length) {
@@ -112,33 +123,40 @@ router.post('/revoke', authenticateJwt, verifyAdmin, async (req, res) => {
                 break;
               }
             }
+            
+            // Only remove this token from redis. Don't do anything else to the user's account
+            // This is key - we only want to invalidate this specific token
+            await redisClient.del(matchingKey);
+            
+            // Remove only this specific token from the user's tokens set
+            await redisClient.sRem(`user:${username}:tokens`, tokenId);
+            
+            // Log the revocation
+            await eventLogger.logSecurityEvent('token_revoke', req.user.username, {
+              affectedUser: username,
+              tokenId: tokenId.substring(0, 8)
+            });
+            
+            results.push({
+              id: sessionId,
+              username,
+              success: true
+            });
+          } else {
+            results.push({
+              id: sessionId,
+              error: 'Token data not found',
+              success: false
+            });
           }
-          
-          // Revoke the token
-          await redisClient.del(fullKey);
-          
-          // Remove from user's tokens set
-          await redisClient.sRem(`user:${username}:tokens`, tokenId);
-          
-          // Log the revocation
-          await eventLogger.logSecurityEvent('token_revoke', req.user.username, {
-            affectedUser: username,
-            tokenId: tokenId.substring(0, 8)
-          });
-          
-          results.push({
-            id: sessionId,
-            username,
-            success: true
-          });
-        } catch (err) {
-          console.error(`Error revoking token ${tokenId}:`, err);
-          results.push({
-            id: sessionId,
-            error: err.message,
-            success: false
-          });
         }
+      } catch (err) {
+        console.error(`Error revoking token ${sessionId}:`, err);
+        results.push({
+          id: sessionId,
+          error: err.message,
+          success: false
+        });
       }
     }
     

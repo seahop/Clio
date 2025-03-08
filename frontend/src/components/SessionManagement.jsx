@@ -1,12 +1,15 @@
 // frontend/src/components/SessionManagement.jsx
 import React, { useState } from 'react';
-import { Shield, Users, RefreshCw, AlertCircle, CheckCircle, Clock, Layers, LogOut } from 'lucide-react';
+import { Shield, Users, RefreshCw, AlertCircle, CheckCircle, Clock, Layers, LogOut, Key } from 'lucide-react';
 import ActiveSessionsTable from './ActiveSessionsTable';
 
 const SessionManagement = ({ csrfToken }) => {
   const [actionMessage, setActionMessage] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [activeTab, setActiveTab] = useState('sessions'); // 'sessions' or 'settings'
+  const [showPasswordResetModal, setShowPasswordResetModal] = useState(false);
+  const [selectedUsername, setSelectedUsername] = useState('');
+  const [passwordResetLoading, setPasswordResetLoading] = useState(false);
 
   const handleRevokeAllSessions = async () => {
     if (!window.confirm('Are you sure you want to revoke all sessions? This will log out all users.')) {
@@ -66,6 +69,52 @@ const SessionManagement = ({ csrfToken }) => {
     }
   };
 
+  // Force password reset functionality
+  const handleUserPasswordReset = (username) => {
+    setSelectedUsername(username);
+    setShowPasswordResetModal(true);
+  };
+
+  const confirmPasswordReset = async () => {
+    setPasswordResetLoading(true);
+    try {
+      const response = await fetch(`/api/auth/force-password-reset`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'CSRF-Token': csrfToken
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          username: selectedUsername
+        })
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Failed to force password reset');
+      }
+
+      const data = await response.json();
+      setActionMessage({ 
+        type: 'success', 
+        text: `Password reset required for ${selectedUsername} on next login.` 
+      });
+      setShowPasswordResetModal(false);
+    } catch (error) {
+      console.error('Password reset error:', error);
+      setActionMessage({ type: 'error', text: error.message });
+    } finally {
+      setPasswordResetLoading(false);
+      setSelectedUsername('');
+    }
+  };
+
+  const cancelPasswordReset = () => {
+    setShowPasswordResetModal(false);
+    setSelectedUsername('');
+  };
+
   return (
     <div className="w-full">
       <div className="flex items-center gap-2 mb-4">
@@ -120,6 +169,7 @@ const SessionManagement = ({ csrfToken }) => {
           <ActiveSessionsTable 
             csrfToken={csrfToken} 
             onSessionsRevoked={handleSessionsRevoked}
+            onForcePasswordReset={handleUserPasswordReset}
           />
         </div>
       )}
@@ -186,6 +236,54 @@ const SessionManagement = ({ csrfToken }) => {
             <p className="mt-4 text-xs text-gray-500">
               Additional session management features will be available in a future update.
             </p>
+          </div>
+        </div>
+      )}
+
+      {/* Password Reset Modal */}
+      {showPasswordResetModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-gray-800 rounded-lg p-6 max-w-md w-full">
+            <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+              <Key className="text-yellow-400" size={20} />
+              Force Password Reset
+            </h3>
+            
+            <p className="text-gray-300 mb-4">
+              Are you sure you want to force <span className="font-bold text-white">{selectedUsername}</span> to reset their password on next login?
+            </p>
+            
+            <p className="text-sm text-gray-400 mb-6">
+              This will require the user to change their password before they can access the application again.
+            </p>
+            
+            <div className="flex justify-end gap-4">
+              <button
+                onClick={cancelPasswordReset}
+                disabled={passwordResetLoading}
+                className="px-4 py-2 bg-gray-700 text-gray-300 rounded-md hover:bg-gray-600 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              
+              <button
+                onClick={confirmPasswordReset}
+                disabled={passwordResetLoading}
+                className="px-4 py-2 bg-yellow-600 text-white rounded-md hover:bg-yellow-700 transition-colors duration-200 disabled:opacity-50 flex items-center gap-2"
+              >
+                {passwordResetLoading ? (
+                  <>
+                    <RefreshCw size={16} className="animate-spin" />
+                    <span>Processing...</span>
+                  </>
+                ) : (
+                  <>
+                    <Key size={16} />
+                    <span>Force Reset</span>
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         </div>
       )}

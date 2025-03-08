@@ -1,14 +1,23 @@
 // frontend/src/components/ActiveSessionsTable.jsx
 import React, { useState, useEffect } from 'react';
-import { RefreshCw, LogOut, UserCheck, AlertCircle, Users, Shield, CheckSquare, Square } from 'lucide-react';
+import { RefreshCw, LogOut, UserCheck, AlertCircle, Users, Shield, CheckSquare, Square, Key } from 'lucide-react';
 
-const ActiveSessionsTable = ({ csrfToken, onSessionsRevoked }) => {
+const ActiveSessionsTable = ({ csrfToken, onSessionsRevoked, onForcePasswordReset }) => {
   const [sessions, setSessions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [selectedSessions, setSelectedSessions] = useState([]);
   const [revoking, setRevoking] = useState(false);
   const [successMessage, setSuccessMessage] = useState(null);
+  
+  // Group sessions by username for password reset feature
+  const sessionsByUser = sessions.reduce((acc, session) => {
+    if (!acc[session.username]) {
+      acc[session.username] = [];
+    }
+    acc[session.username].push(session);
+    return acc;
+  }, {});
 
   const fetchSessions = async () => {
     try {
@@ -132,6 +141,13 @@ const ActiveSessionsTable = ({ csrfToken, onSessionsRevoked }) => {
     }
   };
 
+  // Handle Force Password Reset action
+  const handleForcePasswordReset = (username) => {
+    if (onForcePasswordReset) {
+      onForcePasswordReset(username);
+    }
+  };
+
   const formatDate = (dateString) => {
     try {
       return new Date(dateString).toLocaleString();
@@ -250,64 +266,79 @@ const ActiveSessionsTable = ({ csrfToken, onSessionsRevoked }) => {
                 </td>
               </tr>
             ) : (
-              sessions.map((session, index) => (
-                <tr 
-                  key={session.id} 
-                  className={`${index % 2 === 0 ? 'bg-gray-800/30' : ''} ${session.isCurrentSession ? 'bg-blue-900/20' : ''} border-b border-gray-700`}
-                >
-                  <td className="px-3 py-2">
-                    <div 
-                      className="cursor-pointer" 
-                      onClick={() => handleSelectSession(session.id)}
-                    >
-                      {selectedSessions.includes(session.id) ? (
-                        <CheckSquare size={18} className="text-blue-400" />
-                      ) : (
-                        <Square size={18} className="text-gray-400" />
+              /* Group sessions by username and only show reset option once per user */
+              Object.entries(sessionsByUser).map(([username, userSessions]) => (
+                userSessions.map((session, idx) => (
+                  <tr 
+                    key={session.id} 
+                    className={`${idx % 2 === 0 ? 'bg-gray-800/30' : ''} ${session.isCurrentSession ? 'bg-blue-900/20' : ''} border-b border-gray-700`}
+                  >
+                    <td className="px-3 py-2">
+                      <div 
+                        className="cursor-pointer" 
+                        onClick={() => handleSelectSession(session.id)}
+                      >
+                        {selectedSessions.includes(session.id) ? (
+                          <CheckSquare size={18} className="text-blue-400" />
+                        ) : (
+                          <Square size={18} className="text-gray-400" />
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-3 py-2 font-medium text-white">
+                      {session.username}
+                      {session.isCurrentSession && (
+                        <span className="ml-2 text-xs bg-blue-500/30 text-blue-300 px-1.5 py-0.5 rounded">
+                          current
+                        </span>
                       )}
-                    </div>
-                  </td>
-                  <td className="px-3 py-2 font-medium text-white">
-                    {session.username}
-                    {session.isCurrentSession && (
-                      <span className="ml-2 text-xs bg-blue-500/30 text-blue-300 px-1.5 py-0.5 rounded">
-                        current
+                    </td>
+                    <td className="px-3 py-2">
+                      {session.role === 'admin' ? (
+                        <span className="flex items-center">
+                          <Shield size={14} className="text-red-400 mr-1" />
+                          Admin
+                        </span>
+                      ) : (
+                        <span className="flex items-center">
+                          <UserCheck size={14} className="text-green-400 mr-1" />
+                          User
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2">{formatDate(session.issuedAt)}</td>
+                    <td className="px-3 py-2">
+                      <span className="px-2 py-1 bg-green-900/30 text-green-300 rounded text-xs">
+                        Active
                       </span>
-                    )}
-                  </td>
-                  <td className="px-3 py-2">
-                    {session.role === 'admin' ? (
-                      <span className="flex items-center">
-                        <Shield size={14} className="text-red-400 mr-1" />
-                        Admin
-                      </span>
-                    ) : (
-                      <span className="flex items-center">
-                        <UserCheck size={14} className="text-green-400 mr-1" />
-                        User
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-3 py-2">{formatDate(session.issuedAt)}</td>
-                  <td className="px-3 py-2">
-                    <span className="px-2 py-1 bg-green-900/30 text-green-300 rounded text-xs">
-                      Active
-                    </span>
-                  </td>
-                  <td className="px-3 py-2 text-right">
-                    <button
-                      onClick={() => {
-                        handleSelectSession(session.id);
-                        setTimeout(() => handleRevokeSelected(), 100);
-                      }}
-                      disabled={revoking}
-                      className="text-red-400 hover:text-red-300 p-1 rounded"
-                      title={`Revoke ${session.isCurrentSession ? 'your' : 'this'} session`}
-                    >
-                      <LogOut size={16} />
-                    </button>
-                  </td>
-                </tr>
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      <div className="flex justify-end gap-2">
+                        {/* Only show password reset button for the first session of each user */}
+                        {idx === 0 && (
+                          <button
+                            onClick={() => handleForcePasswordReset(username)}
+                            className="text-yellow-400 hover:text-yellow-300 p-1 rounded"
+                            title="Force password reset on next login"
+                          >
+                            <Key size={16} />
+                          </button>
+                        )}
+                        <button
+                          onClick={() => {
+                            handleSelectSession(session.id);
+                            setTimeout(() => handleRevokeSelected(), 100);
+                          }}
+                          disabled={revoking}
+                          className="text-red-400 hover:text-red-300 p-1 rounded"
+                          title={`Revoke ${session.isCurrentSession ? 'your' : 'this'} session`}
+                        >
+                          <LogOut size={16} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
               ))
             )}
           </tbody>

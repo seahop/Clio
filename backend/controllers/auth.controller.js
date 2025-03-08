@@ -34,6 +34,10 @@ const loginUser = async (req, res) => {
       await AuthService.verifyCredentials(sanitizedUsername, password);
 
     if (isValidUser) {
+      // Check if there's a forced password reset flag for this user
+      const passwordResetKey = `user:password_reset:${sanitizedUsername}`;
+      const passwordResetRequired = await redisClient.exists(passwordResetKey);
+
       const user = AuthService.createUserObject(sanitizedUsername, isAdmin);
 
       // Generate JWT token
@@ -46,18 +50,31 @@ const loginUser = async (req, res) => {
       // Log successful login
       await AuthService.logAuthEvent('login', sanitizedUsername, true, {
         ...clientInfo,
-        role: user.role
+        role: user.role,
+        passwordResetRequired: passwordResetRequired ? true : false
       });
 
       await eventLogger.logLogin(sanitizedUsername, true, {
         ...clientInfo,
         role: user.role,
-        requiresPasswordChange,
+        requiresPasswordChange: requiresPasswordChange || passwordResetRequired,
+        passwordResetRequired: passwordResetRequired ? true : false,
         tokenId: tokenData.jti.substring(0, 8) // Log only first 8 chars for security
       });
 
       // Set the JWT token in a secure cookie
       res.cookie('auth_token', tokenData.token, SESSION_OPTIONS);
+      
+      // If password reset required, return that info to trigger the password change form
+      if (passwordResetRequired) {
+        return res.json({
+          user: {
+            username: user.username,
+            role: user.role,
+            requiresPasswordChange: true
+          }
+        });
+      }
       
       res.json({
         user: {
@@ -121,17 +138,23 @@ const changePassword = async (req, res) => {
     // Change password
     await AuthService.changeUserPassword(username, currentPassword, newPassword, isAdmin);
 
+    // If the user had a password reset flag, remove it after successful change
+    const passwordResetKey = `user:password_reset:${username}`;
+    await redisClient.del(passwordResetKey);
+
     // Log password change
     await authLogger.logSecurityEvent('password_change', username, {
       ip: req.ip,
       userAgent: req.get('User-Agent'),
-      isAdmin
+      isAdmin,
+      wasResetRequired: true
     });
 
     await eventLogger.logPasswordChange(username, {
       ip: req.ip,
       userAgent: req.get('User-Agent'),
       isAdmin,
+      wasResetRequired: true,
       timestamp: new Date().toISOString()
     });
 
@@ -252,6 +275,10 @@ const getCurrentUser = async (req, res) => {
     const username = req.user.username;
     const isAdmin = req.user.role === 'admin';
 
+    // Check if there's a password reset flag for this user
+    const passwordResetKey = `user:password_reset:${username}`;
+    const passwordResetRequired = await redisClient.exists(passwordResetKey);
+
     const isFirstTime = isAdmin 
       ? await security.isFirstTimeAdminLogin(username)
       : await security.isFirstTimeLogin(username);
@@ -260,16 +287,19 @@ const getCurrentUser = async (req, res) => {
     await eventLogger.logSecurityEvent('user_check', username, {
       isFirstTime,
       isAdmin,
+      passwordResetRequired: !!passwordResetRequired,
       ip: req.ip,
       userAgent: req.get('User-Agent')
     });
 
-    if (isFirstTime) {
-      return res.status(401).json({
-        error: 'Password change required',
-        requiresPasswordChange: true,
+    // Return password change requirement if either condition is true
+    if (isFirstTime || passwordResetRequired) {
+      // Return 200 instead of 401 to keep the user authenticated for other actions
+      // but still signal that a password change is required
+      return res.status(200).json({
         username: req.user.username,
-        role: req.user.role
+        role: req.user.role,
+        requiresPasswordChange: true
       });
     }
 
@@ -290,6 +320,7 @@ const getCurrentUser = async (req, res) => {
   }
 };
 
+// Function to revoke all sessions
 const revokeAllUserSessions = async (req, res) => {
   try {
     // Revoke all tokens in the system
@@ -325,10 +356,78 @@ const revokeAllUserSessions = async (req, res) => {
   }
 };
 
+// New function to force password reset for a specific user
+const forcePasswordReset = async (req, res) => {
+  const { username } = req.body;
+  
+  if (!username) {
+    return res.status(400).json({ error: 'Username is required' });
+  }
+
+  try {
+    // Only allow admin users to reset admin passwords
+    if (username.toLowerCase() === 'admin' && req.user.username.toLowerCase() !== 'admin') {
+      return res.status(403).json({ error: 'Only the admin user can reset the admin password' });
+    }
+
+    // Set a password reset flag for this user in Redis
+    const passwordResetKey = `user:password_reset:${username}`;
+    await redisClient.set(passwordResetKey, 'true');
+    
+    // Get the user's role to determine which password to reset
+    const isUserAdmin = username.toLowerCase() === 'admin';
+    
+    // Log the password reset action
+    await eventLogger.logSecurityEvent('force_password_reset', req.user.username, {
+      affectedUser: username,
+      isAdmin: isUserAdmin,
+      ip: req.ip,
+      userAgent: req.get('User-Agent'),
+      timestamp: new Date().toISOString()
+    });
+
+    await authLogger.logSecurityEvent('force_password_reset', req.user.username, {
+      affectedUser: username,
+      isAdmin: isUserAdmin,
+      ip: req.ip, 
+      userAgent: req.get('User-Agent')
+    });
+
+    res.json({ 
+      success: true, 
+      message: `Password reset required for ${username} on next login` 
+    });
+  } catch (error) {
+    console.error('Force password reset error:', error);
+    
+    // Log error
+    await authLogger.logSecurityEvent('force_password_reset_error', req.user.username, {
+      error: error.message,
+      affectedUser: username,
+      ip: req.ip,
+      userAgent: req.get('User-Agent')
+    });
+
+    await eventLogger.logSecurityEvent('force_password_reset_error', req.user.username, {
+      error: error.message,
+      stackTrace: process.env.NODE_ENV === 'development' ? error.stack : undefined,
+      affectedUser: username,
+      ip: req.ip,
+      userAgent: req.get('User-Agent')
+    });
+
+    res.status(500).json({ 
+      error: 'Failed to force password reset',
+      detail: error.message
+    });
+  }
+};
+
 module.exports = {
   loginUser,
   logoutUser,
   getCurrentUser,
   revokeAllSessions: revokeAllUserSessions,
-  changePassword
+  changePassword,
+  forcePasswordReset
 };
