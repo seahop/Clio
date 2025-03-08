@@ -1,4 +1,4 @@
-# Clio Logging Platform
+<h1 align="center">Clio Logging Platform</h1>
 <p align="center">
 <img src="./images/Clio_Logging_Platform_Logo.png" alt="Clio Logo" width="400"/>
 </p>
