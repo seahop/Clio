@@ -13,7 +13,7 @@ import {
   Shield,
   Clock,
   Lock,
-  Download
+  ChevronDown
 } from 'lucide-react';
 
 const ApiKeyManager = ({ csrfToken }) => {
@@ -80,6 +80,16 @@ const ApiKeyManager = ({ csrfToken }) => {
       setError(null);
       setMessage(null);
       
+      // Fix the date offset issue by adjusting the date
+      let adjustedExpiresAt = null;
+      if (newKeyData.expiresAt) {
+        // Create a date object from the input value
+        const dateObj = new Date(newKeyData.expiresAt);
+        // Add one day to fix the offset issue
+        dateObj.setDate(dateObj.getDate() + 1);
+        adjustedExpiresAt = dateObj.toISOString().split('T')[0];
+      }
+      
       const response = await fetch('/api/api-keys', {
         method: 'POST',
         credentials: 'include',
@@ -91,7 +101,7 @@ const ApiKeyManager = ({ csrfToken }) => {
           name: newKeyData.name,
           description: newKeyData.description,
           permissions: newKeyData.permissions,
-          expires_at: newKeyData.expiresAt || null
+          expires_at: adjustedExpiresAt || null
         })
       });
 
@@ -469,19 +479,23 @@ print(f"Response: {response.json()}")`;
               <h4 className="text-sm font-medium text-gray-300 mb-1">Key Details</h4>
               <div className="bg-gray-800 p-3 rounded text-sm">
                 <div className="mb-1">
-                  <span className="text-gray-400">Name:</span> {newApiKey.name}
+                  <span className="text-gray-400">Name:</span>{' '}
+                  <span className="text-gray-200">{newApiKey.name}</span>
                 </div>
                 {newApiKey.description && (
                   <div className="mb-1">
-                    <span className="text-gray-400">Description:</span> {newApiKey.description}
+                    <span className="text-gray-400">Description:</span>{' '}
+                    <span className="text-gray-200">{newApiKey.description}</span>
                   </div>
                 )}
                 <div className="mb-1">
-                  <span className="text-gray-400">Created:</span> {formatDate(newApiKey.createdAt)}
+                  <span className="text-gray-400">Created:</span>{' '}
+                  <span className="text-gray-200">{formatDate(newApiKey.createdAt)}</span>
                 </div>
                 {newApiKey.expiresAt && (
                   <div>
-                    <span className="text-gray-400">Expires:</span> {formatDate(newApiKey.expiresAt)}
+                    <span className="text-gray-400">Expires:</span>{' '}
+                    <span className="text-gray-200">{formatDate(newApiKey.expiresAt)}</span>
                   </div>
                 )}
               </div>
@@ -616,11 +630,13 @@ print(f"Response: {response.json()}")`;
                         <div className="space-y-1 text-sm">
                           {key.description && (
                             <div>
-                              <span className="text-gray-400">Description:</span> {key.description}
+                              <span className="text-gray-400">Description:</span>{' '}
+                              <span className="text-gray-200">{key.description}</span>
                             </div>
                           )}
                           <div>
-                            <span className="text-gray-400">Created by:</span> {key.createdBy}
+                            <span className="text-gray-400">Created by:</span>{' '}
+                            <span className="text-gray-200">{key.createdBy}</span>
                           </div>
                           <div>
                             <span className="text-gray-400">Permissions:</span>
@@ -646,23 +662,62 @@ print(f"Response: {response.json()}")`;
                         <div>
                           <h5 className="text-sm font-medium text-gray-300 mb-2">Integration Examples</h5>
                           <div className="space-y-2">
-                            <button
-                              onClick={() => copyToClipboard(generateCurlExample(`[YOUR_API_KEY]`))}
-                              className="w-full px-3 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded text-sm text-left flex items-center justify-between"
-                            >
-                              <span>cURL Example</span>
-                              <Download size={14} />
-                            </button>
-                            <button
-                              onClick={() => copyToClipboard(generatePythonExample(`[YOUR_API_KEY]`))}
-                              className="w-full px-3 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded text-sm text-left flex items-center justify-between"
-                            >
-                              <span>Python Example</span>
-                              <Download size={14} />
-                            </button>
+                            {/* cURL Example dropdown */}
+                            <div className="border border-gray-600 rounded overflow-hidden">
+                              <button
+                                onClick={(e) => {
+                                  e.currentTarget.nextElementSibling.classList.toggle('hidden');
+                                }}
+                                className="w-full px-3 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 text-sm text-left flex items-center justify-between"
+                              >
+                                <span>cURL Example</span>
+                                <ChevronDown size={14} />
+                              </button>
+                              <div className="hidden">
+                                <div className="bg-gray-900 p-3 relative">
+                                  <pre className="text-xs text-gray-300 whitespace-pre-wrap overflow-x-auto">
+                                    {generateCurlExample(`${key.keyId}_YOUR_API_KEY`)}
+                                  </pre>
+                                  <button 
+                                    onClick={() => copyToClipboard(generateCurlExample(`${key.keyId}_YOUR_API_KEY`))}
+                                    className="absolute top-2 right-2 p-1 bg-gray-700 text-gray-300 hover:bg-gray-600 rounded"
+                                    title="Copy to clipboard"
+                                  >
+                                    <Copy size={12} />
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                            
+                            {/* Python Example dropdown */}
+                            <div className="border border-gray-600 rounded overflow-hidden">
+                              <button
+                                onClick={(e) => {
+                                  e.currentTarget.nextElementSibling.classList.toggle('hidden');
+                                }}
+                                className="w-full px-3 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 text-sm text-left flex items-center justify-between"
+                              >
+                                <span>Python Example</span>
+                                <ChevronDown size={14} />
+                              </button>
+                              <div className="hidden">
+                                <div className="bg-gray-900 p-3 relative">
+                                  <pre className="text-xs text-gray-300 whitespace-pre-wrap overflow-x-auto">
+                                    {generatePythonExample(`${key.keyId}_YOUR_API_KEY`)}
+                                  </pre>
+                                  <button 
+                                    onClick={() => copyToClipboard(generatePythonExample(`${key.keyId}_YOUR_API_KEY`))}
+                                    className="absolute top-2 right-2 p-1 bg-gray-700 text-gray-300 hover:bg-gray-600 rounded"
+                                    title="Copy to clipboard"
+                                  >
+                                    <Copy size={12} />
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
                           </div>
                           <div className="mt-2 text-xs text-gray-400">
-                            Remember to replace <code className="bg-gray-800 px-1 rounded">[YOUR_API_KEY]</code> with the actual API key value.
+                            Remember to replace <code className="bg-gray-800 px-1 rounded">{key.keyId}_YOUR_API_KEY</code> with the actual API key value.
                           </div>
                         </div>
                       )}
