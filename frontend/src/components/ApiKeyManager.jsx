@@ -364,7 +364,7 @@ print(f"Response: {response.json()}")`;
                   onChange={(e) => setNewKeyData({...newKeyData, name: e.target.value})}
                   required
                   className="w-full p-2 bg-gray-700 border border-gray-600 rounded text-white"
-                  placeholder="e.g., Splunk Integration"
+                  placeholder="e.g., Cobalt_Strike_Key1"
                 />
               </div>
               

@@ -60,6 +60,9 @@ export const useEvidenceApi = (csrfToken) => {
     setError(null);
     
     try {
+      // Get the latest CSRF token from window
+      const currentToken = window.csrfToken || csrfToken;
+      
       const formData = new FormData();
       
       // Add each file to the form data
@@ -76,8 +79,7 @@ export const useEvidenceApi = (csrfToken) => {
         method: 'POST',
         credentials: 'include',
         headers: {
-          'CSRF-Token': csrfToken || window.csrfToken
-          // Don't set Content-Type here, it will be set automatically with the boundary
+          'CSRF-Token': currentToken
         },
         body: formData
       });
