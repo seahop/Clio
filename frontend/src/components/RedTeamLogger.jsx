@@ -1,6 +1,6 @@
 // frontend/src/components/RedTeamLogger.jsx
 import React, { useState } from 'react';
-import { Network, File, Database, Users, Key, Book } from 'lucide-react';
+import { Network, File, Database, Users, Key, Book, HardDrive } from 'lucide-react';
 import LoggerCardView from './LoggerCardView';
 import RelationViewer from './RelationViewer';
 import FileStatusTracker from './FileStatusTracker';
@@ -8,6 +8,7 @@ import ExportDatabasePanel from './ExportDatabasePanel';
 import SessionManagement from './SessionManagement';
 import ApiKeyManager from './ApiKeyManager';
 import ApiDocumentation from './ApiDocumentation';
+import LogManagement from './LogManagement';  // Import the new component
 import { useLoggerOperations } from '../hooks/useLoggerOperations';
 
 const RedTeamLogger = ({ currentUser, csrfToken }) => {
@@ -35,7 +36,7 @@ const RedTeamLogger = ({ currentUser, csrfToken }) => {
       <div className="space-y-6">
         <div className="flex justify-between items-center mb-4">
           {/* View Toggle Buttons */}
-          <div className="flex space-x-2">
+          <div className="flex space-x-2 flex-wrap gap-y-2">
             <button
               onClick={() => setActiveView('logs')}
               className={`px-4 py-2 rounded-md flex items-center gap-2 transition-colors duration-200 ${
@@ -84,6 +85,19 @@ const RedTeamLogger = ({ currentUser, csrfToken }) => {
                 >
                   <Database className="w-5 h-5" />
                   <span className="inline">Export</span>
+                </button>
+                
+                {/* New Log Management Button */}
+                <button
+                  onClick={() => setActiveView('logs-management')}
+                  className={`px-4 py-2 rounded-md flex items-center gap-2 transition-colors duration-200 ${
+                    activeView === 'logs-management' 
+                      ? 'bg-blue-600 text-white' 
+                      : 'bg-gray-700 text-white hover:bg-gray-600'
+                  }`}
+                >
+                  <HardDrive className="w-5 h-5" />
+                  <span className="inline">Log Management</span>
                 </button>
                 
                 <button
@@ -154,6 +168,15 @@ const RedTeamLogger = ({ currentUser, csrfToken }) => {
           <div className="w-full">
             <div className="bg-gray-800 rounded-lg shadow-lg p-4">
               <ExportDatabasePanel csrfToken={csrfToken} />
+            </div>
+          </div>
+        )}
+        
+        {/* New Log Management View */}
+        {activeView === 'logs-management' && isAdmin && (
+          <div className="w-full">
+            <div className="bg-gray-800 rounded-lg shadow-lg p-4">
+              <LogManagement csrfToken={csrfToken} />
             </div>
           </div>
         )}

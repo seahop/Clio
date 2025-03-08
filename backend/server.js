@@ -13,12 +13,14 @@ const authRoutes = require('./routes/auth.routes');
 const logsRoutes = require('./routes/logs.routes');
 const exportRoutes = require('./routes/export.routes');
 const eventLogger = require('./lib/eventLogger');
+const logRotationManager = require('./lib/logRotation');
 const sessionRoutes = require('./routes/session.routes');
 const evidenceRoutes = require('./routes/evidence.routes');
 const apiKeyRoutes = require('./routes/api-key.routes');
 const ingestRoutes = require('./routes/ingest.routes');
 const { errorMiddleware, notFoundMiddleware } = require('./middleware/error.middleware');
 const { csrfProtection, csrfTokenEndpoint } = require('./middleware/csrf.middleware');
+const { authenticateJwt, verifyAdmin } = require('./middleware/jwt.middleware');
 const db = require('./db');
 const url = require('url');
 
@@ -168,6 +170,151 @@ app.use('/api/evidence', evidenceRoutes);
 app.use('/api/api-keys', apiKeyRoutes);
 app.use('/api/ingest', ingestRoutes);
 
+// Health check endpoint with log status
+app.get('/api/health/logs', async (req, res) => {
+  try {
+    // Get log file statuses
+    const logFiles = ['security_logs.json', 'data_logs.json', 'system_logs.json', 'audit_logs.json'];
+    const logStatuses = await Promise.all(logFiles.map(async (fileName) => {
+      const filePath = path.join(__dirname, 'data', fileName);
+      
+      try {
+        const stats = await fs.promises.stat(filePath);
+        const fileContent = await fs.promises.readFile(filePath, 'utf8');
+        let logs = [];
+        
+        try {
+          logs = JSON.parse(fileContent);
+        } catch (error) {
+          return {
+            file: fileName,
+            status: 'corrupted',
+            error: error.message,
+            size: stats.size,
+            lastModified: stats.mtime
+          };
+        }
+        
+        return {
+          file: fileName,
+          status: 'ok',
+          size: stats.size,
+          sizeFormatted: formatFileSize(stats.size),
+          lastModified: stats.mtime,
+          logCount: Array.isArray(logs) ? logs.length : 'invalid',
+          percentFull: Array.isArray(logs) ? Math.round((logs.length / logRotationManager.maxLogsPerFile) * 100) : 0
+        };
+      } catch (error) {
+        return {
+          file: fileName,
+          status: 'error',
+          error: error.message
+        };
+      }
+    }));
+    
+    // Get archive information
+    const archiveDir = path.join(__dirname, 'data', 'archives');
+    let archives = [];
+    
+    try {
+      await fs.promises.access(archiveDir);
+      const archiveFiles = await fs.promises.readdir(archiveDir);
+      
+      // Get stats for zip files only
+      const archiveStats = await Promise.all(
+        archiveFiles
+          .filter(file => file.endsWith('.zip'))
+          .map(async (file) => {
+            const filePath = path.join(archiveDir, file);
+            const stats = await fs.promises.stat(filePath);
+            return {
+              file,
+              size: stats.size,
+              sizeFormatted: formatFileSize(stats.size),
+              created: stats.mtime
+            };
+          })
+      );
+      
+      archives = archiveStats.sort((a, b) => b.created - a.created);
+    } catch (error) {
+      console.error('Error reading archives:', error);
+    }
+    
+    // Get log rotation information
+    const logRotationInfo = {
+      isInitialized: logRotationManager.isInitialized,
+      rotationInterval: logRotationManager.rotationInterval,
+      rotationIntervalFormatted: formatDuration(logRotationManager.rotationInterval),
+      maxLogsPerFile: logRotationManager.maxLogsPerFile
+    };
+    
+    res.json({
+      status: 'ok',
+      timestamp: new Date().toISOString(),
+      logs: logStatuses,
+      archives: archives.slice(0, 10), // Show only the 10 most recent archives
+      totalArchives: archives.length,
+      logRotation: logRotationInfo
+    });
+  } catch (error) {
+    console.error('Error getting log status:', error);
+    res.status(500).json({ error: 'Failed to get log status' });
+  }
+});
+
+// Route to manually trigger log rotation (admin only)
+app.post('/api/logs/rotate', authenticateJwt, verifyAdmin, async (req, res) => {
+  try {
+    // Log the manual rotation trigger
+    await eventLogger.logAuditEvent('manual_log_rotation', req.user.username, {
+      ip: req.ip,
+      userAgent: req.get('User-Agent'),
+      timestamp: new Date().toISOString()
+    });
+    
+    // Force rotation of all logs
+    const result = await logRotationManager.forceRotation();
+    
+    res.json({
+      success: true,
+      message: 'Log rotation triggered successfully',
+      result
+    });
+  } catch (error) {
+    console.error('Error triggering log rotation:', error);
+    
+    res.status(500).json({
+      success: false,
+      error: 'Failed to trigger log rotation',
+      message: error.message
+    });
+  }
+});
+
+// Helper functions
+function formatFileSize(bytes) {
+  if (bytes === 0) return '0 Bytes';
+  
+  const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(1024));
+  
+  return parseFloat((bytes / Math.pow(1024, i)).toFixed(2)) + ' ' + sizes[i];
+}
+
+function formatDuration(ms) {
+  const seconds = Math.floor(ms / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+  
+  if (days > 0) return `${days} day${days === 1 ? '' : 's'}`;
+  if (hours > 0) return `${hours} hour${hours === 1 ? '' : 's'}`;
+  if (minutes > 0) return `${minutes} minute${minutes === 1 ? '' : 's'}`;
+  return `${seconds} second${seconds === 1 ? '' : 's'}`;
+}
+
 // Error handling
 app.use(errorMiddleware);
 app.use(notFoundMiddleware);
@@ -260,6 +407,10 @@ async function initialize() {
       serverInstanceId: security.SERVER_INSTANCE_ID
     });
     
+    // Initialize log rotation system
+    await logRotationManager.initialize();
+    console.log('Log rotation system initialized');
+    
     await waitForRedis();
     console.log('Redis connection established');
     
@@ -290,6 +441,9 @@ async function initialize() {
 
     // Handle server shutdown
     process.on('SIGTERM', async () => {
+      // Stop log rotation
+      logRotationManager.stop();
+      
       await eventLogger.logSystemEvent('server_shutdown', {
         reason: 'SIGTERM',
         serverInstanceId: security.SERVER_INSTANCE_ID
@@ -298,6 +452,9 @@ async function initialize() {
     });
 
     process.on('SIGINT', async () => {
+      // Stop log rotation
+      logRotationManager.stop();
+      
       await eventLogger.logSystemEvent('server_shutdown', {
         reason: 'SIGINT',
         serverInstanceId: security.SERVER_INSTANCE_ID

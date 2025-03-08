@@ -8,6 +8,7 @@ backend/exports/logs*
 backend/exports/evidence*
 backend/data/*corrupted*
 backend/data/*.json
+backend/data/archives/*
 backend/data/logs.json
 backend/data/auth_logs.json
 server.crt 
