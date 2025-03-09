@@ -1,0 +1,25 @@
+[Unit]
+Description=Cobalt Strike Beacon Log Forwarder for Clio
+After=network.target
+
+[Service]
+Type=simple
+# Replace with the appropriate user that should run the script
+User=REPLACE_WITH_USERNAME
+
+# Set the working directory to the Cobalt Strike root folder
+WorkingDirectory=/path/to/cobaltstrike
+
+# Replace with the full path to the script and appropriate parameters
+ExecStart=/usr/bin/python3 /path/to/cs_log_forwarder.py --api-key YOUR_API_KEY_HERE --clio-url https://your-clio-server:3000 --historical-days 1
+
+# Restart settings
+Restart=always
+RestartSec=10
+
+# Output handling
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
