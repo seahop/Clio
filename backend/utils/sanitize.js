@@ -42,36 +42,36 @@ const PRESERVE_SPECIAL_CHARS_FIELDS = ['command', 'notes', 'filename', 'secrets'
 const sanitizeString = (str, fieldName = '') => {
   if (typeof str !== 'string') return '';
   
-  // For fields that need to preserve special characters
+  // For fields that need to preserve special characters - particularly command and notes
   if (PRESERVE_SPECIAL_CHARS_FIELDS.includes(fieldName)) {
-    // Only perform minimal sanitization to block XSS but preserve other characters
-    return xss(str, {
+    // Use a lighter sanitization approach that preserves quotes and command syntax
+    // but still blocks XSS
+    const sanitized = xss(str, {
       whiteList: {}, // No HTML tags allowed
       stripIgnoreTag: true,
       stripIgnoreTagBody: ['script', 'style'],
+      // Critical change: Use a custom escaper that preserves quotes and backslashes
       escapeHtml: function(html) {
-        // Custom escaper that preserves backslashes
+        // Only escape < and > for command strings, as these could form HTML tags
         return html
-          .replace(/&/g, '&amp;')
           .replace(/</g, '&lt;')
-          .replace(/>/g, '&gt;')
-          .replace(/"/g, '&quot;')
-          .replace(/'/g, '&#x27;');
+          .replace(/>/g, '&gt;');
       }
     });
+    
+    return sanitized;
   }
   
-  // First pass: Basic sanitization for other fields
+  // Standard sanitization for other fields (unchanged)
   let sanitized = str
-    .replace(/javascript:/gi, '') // Remove javascript: protocol
-    .replace(/data:/gi, '') // Remove data: protocol
-    .replace(/vbscript:/gi, '') // Remove vbscript: protocol
-    .replace(/on\w+=/gi, '') // Remove inline event handlers
+    .replace(/javascript:/gi, '')
+    .replace(/data:/gi, '')
+    .replace(/vbscript:/gi, '')
+    .replace(/on\w+=/gi, '')
     .trim();
   
-  // Second pass: Use xss library for thorough sanitization
   sanitized = xss(sanitized, {
-    whiteList: {}, // No HTML tags allowed
+    whiteList: {},
     stripIgnoreTag: true,
     stripIgnoreTagBody: ['script', 'style', 'xml'],
     css: false
