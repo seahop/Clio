@@ -6,8 +6,6 @@ This tool automatically forwards logs from various Command and Control (C2) fram
 
 The C2 Log Forwarder monitors your C2 framework's log directories in real-time, detects new command entries, and sends them to Clio for centralized logging and analysis. It supports multiple C2 frameworks through a modular parser system that can be extended for any C2 platform.
 
-![Diagram of Log Forwarder Architecture](https://placeholder-image-url/diagram.png)
-
 ## Features
 
 - **Real-time monitoring** of C2 framework logs
