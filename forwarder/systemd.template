@@ -11,7 +11,7 @@ User=REPLACE_WITH_USERNAME
 WorkingDirectory=/path/to/cobaltstrike
 
 # Replace with the full path to the script and appropriate parameters
-ExecStart=/usr/bin/python3 /path/to/cs_log_forwarder.py --api-key YOUR_API_KEY_HERE --clio-url https://your-clio-server:3000 --historical-days 1
+ExecStart=/usr/bin/python3 /path/to/forwarder.py --api-key YOUR_API_KEY_HERE --clio-url https://your-clio-server:3000 --historical-days 1
 
 # Restart settings
 Restart=always

@@ -1,0 +1,1 @@
+# Core module for the C2 Log Forwarder

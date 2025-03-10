@@ -64,7 +64,7 @@ For detailed information about Clio, please refer to our documentation:
 - [Security Features](./docs/security.md) - In-depth security information
 - [User Guide](./docs/user-guide.md) - How to use the application
 - [API Documentation](./docs/api-guide.md) - Working with the Clio API
-- [Using Log Forwarders](./log_agents/cobalt_strike/README.MD) - Forwarding of logs for Cobalt Strike
+- [Using Log Forwarders](./forwarder/README.MD) - Forwarding of logs for C2s
 
 ## License
 
