@@ -161,10 +161,4 @@ See [SLIVER.md](docs/SLIVER.md) for detailed information.
 
 ## Contributing
 
-Contributions are welcome! Please check out our [contribution guidelines](CONTRIBUTING.md) for details on how to submit bug reports, feature requests, and pull requests.
-
 If you'd like to add support for a new C2 framework, see our [developer guide](docs/DEVELOPERS.md).
-
-## License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
