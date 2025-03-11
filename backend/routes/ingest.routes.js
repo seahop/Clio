@@ -10,7 +10,7 @@ const rateLimit = require('express-rate-limit');
 // Rate limiting for log ingestion
 const ingestLimiter = rateLimit({
   windowMs: 1 * 60 * 1000, // 1 minute
-  max: 60, // limit each API key to 60 requests per minute (1 per second)
+  max: 120, // limit each API key to 120 requests per minute (2 per second)
   message: 'Too many log ingestion requests, please try again later',
   standardHeaders: true,
   legacyHeaders: false,
@@ -91,10 +91,11 @@ router.post('/logs', async (req, res) => {
     
     for (const log of logs) {
       try {
-        // Set the analyst to the API key's creator
+        // Set the analyst to the API key's name instead of the creator's username
+        // This allows tracking which API key submitted the log
         const logWithAnalyst = {
           ...log,
-          analyst: req.apiKey.createdBy
+          analyst: req.apiKey.name
         };
         
         // Create the log
@@ -104,6 +105,7 @@ router.post('/logs', async (req, res) => {
         await eventLogger.logDataEvent('api_ingest_log', req.apiKey.createdBy, {
           logId: newLog.id,
           keyId: req.apiKey.keyId,
+          apiKeyName: req.apiKey.name, // Add API key name to event log for reference
           timestamp: new Date().toISOString(),
           clientInfo: {
             ip: req.ip,

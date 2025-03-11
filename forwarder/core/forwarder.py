@@ -10,11 +10,13 @@ from watchdog.observers import Observer
 
 from core.event_handler import LogEventHandler
 from core.utils import rotate_logs, cleanup_stale_locks, create_lock_file, remove_lock_file
+from core.rate_limit_queue import RateLimitQueue
 
 class LogForwarder:
     """Main log forwarding engine that handles watching and sending logs to Clio"""
     
-    def __init__(self, parser, api_key, clio_url, data_dir, poll_interval=5, verify_ssl=True):
+    def __init__(self, parser, api_key, clio_url, data_dir, poll_interval=5, verify_ssl=True, 
+                 rate_limit=120, rate_window=60, max_queue_size=10000):
         self.parser = parser
         self.api_key = api_key
         self.clio_url = clio_url.rstrip("/")
@@ -32,6 +34,13 @@ class LogForwarder:
         self.observers = {}        # Map from directory to observer
         self.last_observer_cleanup = datetime.now()
         self.running = True
+        
+        # Initialize the rate limit queue
+        self.rate_queue = RateLimitQueue(
+            rate_limit=rate_limit,
+            rate_window=rate_window,
+            max_queue_size=max_queue_size
+        )
         
         # Clio API endpoint for log ingestion
         self.ingest_url = f"{self.clio_url}/ingest/logs"
@@ -52,6 +61,8 @@ class LogForwarder:
         self.logger.info(f"- State file: {self.state_file}")
         self.logger.info(f"- Polling interval: {self.poll_interval} seconds")
         self.logger.info(f"- SSL verification: {'Disabled' if not verify_ssl else 'Enabled'}")
+        self.logger.info(f"- Rate limit: {rate_limit} requests per {rate_window} seconds")
+        self.logger.info(f"- Max queue size: {max_queue_size} entries")
     
     def load_state(self):
         """Load the previous processing state from disk"""
@@ -161,6 +172,28 @@ class LogForwarder:
             if resp.status_code == 200:
                 self.logger.info(f"✅ Connected to Clio API: {resp.json()}")
                 return True
+            elif resp.status_code == 429:
+                # Rate limited
+                self.logger.warning(f"⚠️ Connected to Clio API but received rate limit response")
+                
+                # Try to get reset information from response headers
+                reset_seconds = None
+                retry_after = resp.headers.get('Retry-After')
+                if retry_after:
+                    if retry_after.isdigit():
+                        reset_seconds = int(retry_after)
+                    else:
+                        try:
+                            # Try to parse as HTTP date
+                            reset_time = datetime.strptime(retry_after, "%a, %d %b %Y %H:%M:%S %Z")
+                            reset_seconds = (reset_time - datetime.now()).total_seconds()
+                        except ValueError:
+                            pass
+                
+                # Set rate limit in queue
+                self.rate_queue.set_rate_limited(reset_seconds)
+                
+                return True  # Connection is valid, just rate limited
             else:
                 self.logger.error(f"❌ Failed to connect to Clio API: {resp.status_code}")
                 self.logger.error(resp.text)
@@ -172,6 +205,30 @@ class LogForwarder:
             self.logger.error(f"❌ Unexpected error testing connection: {str(e)}")
             return False
     
+    def process_queued_logs(self):
+        """Process logs from the queue if any are available and not rate limited"""
+        try:
+            queue_size = self.rate_queue.get_size()
+            if queue_size == 0:
+                return
+            
+            # Check if we're rate limited
+            rate_limited, wait_seconds = self.rate_queue.is_rate_limited()
+            if rate_limited:
+                self.logger.debug(f"Rate limited, waiting {wait_seconds:.1f} seconds before processing queue")
+                return
+                
+            # Try to send up to 10 logs at a time
+            logs_to_send = self.rate_queue.get_queued_entries(max_count=10)
+            if not logs_to_send:
+                return
+                
+            self.logger.info(f"Processing {len(logs_to_send)} logs from queue (queue size: {queue_size})")
+            self.send_logs_to_clio(logs_to_send)
+        except Exception as e:
+            self.logger.error(f"Error processing queued logs: {str(e)}")
+            self.logger.error(traceback.format_exc())
+    
     def send_logs_to_clio(self, logs):
         """Send logs to the Clio API"""
         if not logs:
@@ -180,10 +237,19 @@ class LogForwarder:
         try:
             # Debug: Print what we're about to send
             self.logger.debug(f"Preparing to send {len(logs)} logs to Clio")
-            self.logger.debug(f"First log entry: {json.dumps(logs[0], indent=2)}")
+            if logs:
+                self.logger.debug(f"First log entry: {json.dumps(logs[0], indent=2)}")
             
+            # Check for rate limiting before sending
+            rate_limited, wait_seconds = self.rate_queue.is_rate_limited()
+            if rate_limited:
+                self.logger.info(f"Rate limited, queueing {len(logs)} logs (retry in {wait_seconds:.1f}s)")
+                self.rate_queue.add_batch(logs)
+                return False
+                
             # Split into batches if there are many logs
             batch_size = 25  # Clio has a batch limit of 50, using 25 to be safe
+            
             for i in range(0, len(logs), batch_size):
                 batch = logs[i:i+batch_size]
                 
@@ -214,6 +280,34 @@ class LogForwarder:
                             if resp.status_code in (200, 201, 207):
                                 result = resp.json()
                                 self.logger.info(f"✅ Sent log entry to Clio: {result.get('message', 'Success')}")
+                                
+                                # Track the request for rate limiting
+                                self.rate_queue.track_request()
+                            elif resp.status_code == 429:
+                                # Rate limited - add to queue and stop processing
+                                self.logger.warning(f"⚠️ Rate limited by Clio API")
+                                
+                                # Try to get reset information from response headers
+                                reset_seconds = None
+                                retry_after = resp.headers.get('Retry-After')
+                                if retry_after:
+                                    if retry_after.isdigit():
+                                        reset_seconds = int(retry_after)
+                                    else:
+                                        try:
+                                            # Try to parse as HTTP date
+                                            reset_time = datetime.strptime(retry_after, "%a, %d %b %Y %H:%M:%S %Z")
+                                            reset_seconds = (reset_time - datetime.now()).total_seconds()
+                                        except ValueError:
+                                            pass
+                                
+                                # Set rate limit in queue
+                                self.rate_queue.set_rate_limited(reset_seconds)
+                                
+                                # Add remaining logs to queue
+                                remaining_logs = batch[batch.index(log_entry):]
+                                self.rate_queue.add_batch(remaining_logs)
+                                return False
                             else:
                                 self.logger.error(f"❌ Failed to send log entry (attempt {attempt+1}/{max_retries}): {resp.status_code}")
                                 self.logger.error(f"Failed entry: {json.dumps(log_entry)}")
@@ -228,6 +322,8 @@ class LogForwarder:
                             time.sleep(retry_delay)
                         else:
                             self.logger.error("Max retries reached, giving up on this batch")
+                            # Queue the remaining logs for later
+                            self.rate_queue.add_batch(batch)
                             return False
                 
             return True
@@ -235,8 +331,11 @@ class LogForwarder:
         except Exception as e:
             self.logger.error(f"❌ Error sending logs: {str(e)}")
             self.logger.error(traceback.format_exc())
+            
+            # Queue the logs for retry
+            self.rate_queue.add_batch(logs)
             return False
-    
+
     def process_log_file(self, log_file):
         """Process a single log file"""
         # Convert to absolute path
@@ -270,11 +369,26 @@ class LogForwarder:
         try:
             entries = self.parser.parse_log_file(abs_log_file, self.processed_lines)
             if entries:
-                result = self.send_logs_to_clio(entries)
-                if result:
-                    self.logger.info(f"Processed {len(entries)} entries from {abs_log_file}")
+                # Check if we're rate limited first
+                rate_limited, wait_seconds = self.rate_queue.is_rate_limited()
+                if rate_limited:
+                    self.logger.info(f"Rate limited, queueing {len(entries)} entries (retry in {wait_seconds:.1f}s)")
+                    self.rate_queue.add_batch(entries)
+                    # Even though we're queuing, we still update the file metadata to avoid re-parsing
+                    self.file_metadata[abs_log_file] = {
+                        'size': os.path.getsize(abs_log_file),
+                        'mtime': os.path.getmtime(abs_log_file)
+                    }
+                    self.save_state()
+                else:
+                    # Try to send directly
+                    result = self.send_logs_to_clio(entries)
+                    if result:
+                        self.logger.info(f"Processed {len(entries)} entries from {abs_log_file}")
+                    else:
+                        self.logger.info(f"Queued {len(entries)} entries from {abs_log_file} for later sending")
                     
-                    # Update file metadata after successful processing
+                    # Update file metadata after processing
                     self.file_metadata[abs_log_file] = {
                         'size': os.path.getsize(abs_log_file),
                         'mtime': os.path.getmtime(abs_log_file)
@@ -381,6 +495,15 @@ class LogForwarder:
         
         if directories_to_remove:
             self.logger.info(f"Removed {len(directories_to_remove)} observers for old directories")
+
+    def log_queue_stats(self):
+        """Log statistics about the queue"""
+        stats = self.rate_queue.get_stats()
+        self.logger.info(f"Queue stats: size={stats['current_size']}, "
+                         f"total queued={stats['total_queued']}, "
+                         f"total sent={stats['total_sent']}, "
+                         f"dropped={stats['total_dropped']}, "
+                         f"rate limited={stats['rate_limited']}")
     
     def start(self):
         """Start monitoring log files"""
@@ -413,13 +536,22 @@ class LogForwarder:
             # Main loop - periodically scan for changes and check for new directories
             last_observer_cleanup = datetime.now()
             last_log_rotation_check = datetime.now()
+            last_stats_log = datetime.now()
             
             while self.running:
                 time.sleep(self.poll_interval)
                 
                 try:
-                    # Check if it's time to clean up old observers (once per day)
+                    # Process any queued logs first
+                    self.process_queued_logs()
+                    
+                    # Check if it's time to log queue stats (every 5 minutes)
                     now = datetime.now()
+                    if (now - last_stats_log).total_seconds() > 300:  # 5 minutes
+                        self.log_queue_stats()
+                        last_stats_log = now
+                    
+                    # Check if it's time to clean up old observers (once per day)
                     if (now - last_observer_cleanup).total_seconds() > 86400:  # 24 hours
                         self.logger.info("Performing maintenance tasks...")
                         # Clean up old observers

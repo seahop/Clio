@@ -64,6 +64,12 @@ def parse_arguments():
                         help="Disable SSL certificate verification")
     parser.add_argument("--debug", action="store_true", 
                         help="Enable debug logging")
+    parser.add_argument("--rate-limit", type=int, default=120,
+                        help="API rate limit (requests per minute, default: 120)")
+    parser.add_argument("--rate-window", type=int, default=60,
+                        help="Rate limit window in seconds (default: 60)")
+    parser.add_argument("--max-queue-size", type=int, default=10000,
+                        help="Maximum size of the queue (default: 10000)")
     
     return parser.parse_args()
 
@@ -103,7 +109,10 @@ def main():
             clio_url=args.clio_url,
             data_dir=data_dir,
             poll_interval=args.interval,
-            verify_ssl=not args.insecure_ssl
+            verify_ssl=not args.insecure_ssl,
+            rate_limit=args.rate_limit,
+            rate_window=args.rate_window,
+            max_queue_size=args.max_queue_size
         )
         
         # Register signal handlers
