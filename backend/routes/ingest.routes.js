@@ -6,6 +6,73 @@ const { authenticateApiKey } = require('../middleware/api-key.middleware');
 const eventLogger = require('../lib/eventLogger');
 const LogsModel = require('../models/logs');
 const rateLimit = require('express-rate-limit');
+const fetch = require('node-fetch');
+const https = require('https');
+
+// Create HTTPS agent that allows self-signed certificates
+const httpsAgent = new https.Agent({
+  rejectUnauthorized: false
+});
+
+// Track last notification time to prevent overwhelming the relation service
+let lastNotificationTime = 0;
+const MIN_NOTIFICATION_INTERVAL = 5000; // 5 seconds minimum between notifications
+
+// Notification function with debouncing and error handling
+const notifyRelationService = async () => {
+  try {
+    const now = Date.now();
+    
+    // Skip notification if we recently sent one
+    if (now - lastNotificationTime < MIN_NOTIFICATION_INTERVAL) {
+      console.log('Skipping relation service notification (rate limited)');
+      return;
+    }
+    
+    lastNotificationTime = now;
+    
+    console.log('Notifying relation service of new API-ingested logs...');
+    
+    // Set a timeout for the request to prevent hanging
+    const controller = new AbortController();
+    const timeout = setTimeout(() => {
+      controller.abort();
+    }, 3000);
+    
+    try {
+      const response = await fetch('https://relation-service:3002/api/notify/log-update', {
+        method: 'POST',
+        agent: httpsAgent,
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        signal: controller.signal,
+        body: JSON.stringify({ 
+          source: 'api_ingest',
+          timestamp: new Date().toISOString()
+        })
+      });
+      
+      clearTimeout(timeout);
+      
+      if (!response.ok) {
+        console.warn(`Relation service notification returned status: ${response.status}`);
+      } else {
+        console.log('Relation service notified successfully');
+      }
+    } catch (fetchError) {
+      clearTimeout(timeout);
+      if (fetchError.name === 'AbortError') {
+        console.warn('Relation service notification timed out after 3s');
+      } else {
+        console.warn('Error notifying relation service:', fetchError.message);
+      }
+    }
+  } catch (error) {
+    console.error('Unexpected error in relation service notification:', error);
+    // Don't throw - we don't want to fail the main operation
+  }
+};
 
 // Rate limiting for log ingestion
 const ingestLimiter = rateLimit({
@@ -127,12 +194,25 @@ router.post('/logs', async (req, res) => {
       }
     }
     
-    // Return the results
-    res.status(errors.length > 0 ? 207 : 201).json({
+    // Return the results first to avoid keeping the client waiting
+    const response = {
       message: `Processed ${logs.length} logs: ${results.length} successful, ${errors.length} failed`,
       results,
       errors: errors.length > 0 ? errors : undefined
-    });
+    };
+    
+    res.status(errors.length > 0 ? 207 : 201).json(response);
+    
+    // Then notify relation service asynchronously after response is sent
+    // This prevents client from waiting for the notification
+    if (results.length > 0) {
+      // Use setTimeout to ensure this runs after response is sent
+      setTimeout(() => {
+        notifyRelationService().catch(error => {
+          console.error('Async notification error:', error);
+        });
+      }, 10);
+    }
   } catch (error) {
     console.error('Error processing log ingestion:', error);
     
