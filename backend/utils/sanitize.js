@@ -93,10 +93,10 @@ const validateInput = (value, field) => {
   if (PRESERVE_SPECIAL_CHARS_FIELDS.includes(field)) {
     // Just check length constraints instead of character constraints
     const maxLengths = {
-      command: 150,
+      command: 254,
       notes: 254,
-      filename: 100,
-      secrets: 150
+      filename: 254,
+      secrets: 254
     };
     
     if (maxLengths[field] && value.length > maxLengths[field]) {

@@ -9,13 +9,13 @@ const maxLengths = {
   hostname: 75,
   domain: 75,
   username: 75,
-  command: 150,
+  command: 254,
   notes: 254,  // Increased from 150 to 254
-  filename: 100,
+  filename: 254,
   status: 75,
-  secrets: 150,
+  secrets: 254,
   analyst: 100,
-  locked_by: 75
+  locked_by: 100
 };
 
 // Define predefined status options for file tracking

@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS logs (
     hostname VARCHAR(75),
     domain VARCHAR(75),
     username VARCHAR(75),
-    command TEXT CHECK (LENGTH(command) <= 150),
+    command TEXT CHECK (LENGTH(command) <= 254),
     notes TEXT CHECK (LENGTH(notes) <= 254),
     filename VARCHAR(100),
     status VARCHAR(75),
@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS logs (
     hash_value VARCHAR(128),
     analyst VARCHAR(100),
     locked BOOLEAN DEFAULT FALSE,
-    locked_by VARCHAR(75),
+    locked_by VARCHAR(100),
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
@@ -139,7 +139,7 @@ $$ language 'plpgsql';
 -- Add file status tracking table - without unique constraint on filename
 CREATE TABLE IF NOT EXISTS file_status (
     id SERIAL PRIMARY KEY,
-    filename VARCHAR(100) NOT NULL,
+    filename VARCHAR(254) NOT NULL,
     status VARCHAR(50) NOT NULL,
     hash_algorithm VARCHAR(50),
     hash_value VARCHAR(128),
@@ -170,7 +170,7 @@ CREATE INDEX IF NOT EXISTS idx_file_status_hash_value ON file_status(hash_value)
 -- Add file status history table
 CREATE TABLE IF NOT EXISTS file_status_history (
   id SERIAL PRIMARY KEY,
-  filename VARCHAR(100) NOT NULL,
+  filename VARCHAR(254) NOT NULL,
   status VARCHAR(50) NOT NULL,
   previous_status VARCHAR(50),
   hash_algorithm VARCHAR(50),
