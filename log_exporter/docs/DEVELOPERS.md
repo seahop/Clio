@@ -8,7 +8,7 @@ The C2 Log Forwarder uses a modular parser system that separates the core log fo
 
 The architecture consists of:
 
-1. **Core Engine** (`core/forwarder.py`) - Manages file watching, log sending, and state tracking
+1. **Core Engine** (`core/log_exporter.py`) - Manages file watching, log sending, and state tracking
 2. **Event Handlers** (`core/event_handler.py`) - Processes file system events
 3. **Parser System** - Framework-specific parsers that extract information from logs
    - `parsers/base_parser.py` - Abstract base class defining the parser interface
@@ -195,7 +195,7 @@ class SliverParser(BaseLogParser):
 
 ### 2. Register Your Parser in the Main Script
 
-Update the main `forwarder.py` file to include your new parser:
+Update the main `log_exporter.py` file to include your new parser:
 
 ```python
 # Add a new import for your parser
@@ -227,7 +227,7 @@ elif args.c2_type == "sliver":  # Add your C2 type here
 1. **Manual Testing**:
    - Run the script with debug logging enabled:
      ```bash
-     python forwarder.py --api-key YOUR_KEY --clio-url YOUR_URL --c2-type sliver --debug
+     python log_exporter.py --api-key YOUR_KEY --clio-url YOUR_URL --c2-type sliver --debug
      ```
    - Check the log output to ensure your parser is correctly identifying and processing log files
 

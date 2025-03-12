@@ -153,7 +153,7 @@ To use the Cobalt Strike parser:
 
 2. **Command Line**:
    ```bash
-   python /path/to/forwarder.py \
+   python /path/to/log_exporter.py \
      --api-key YOUR_API_KEY \
      --clio-url https://your-clio-server:3000 \
      --c2-type cobalt_strike \

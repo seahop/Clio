@@ -8,7 +8,7 @@ When troubleshooting any issue, follow these steps:
 
 1. **Enable debug mode**:
    ```bash
-   python forwarder.py --api-key YOUR_KEY --clio-url YOUR_URL --c2-type cobalt_strike --debug
+   python log_exporter.py --api-key YOUR_KEY --clio-url YOUR_URL --c2-type cobalt_strike --debug
    ```
 
 2. **Check the log file**:
@@ -118,7 +118,7 @@ head -n 10 /path/to/c2/logs/$(date +%Y-%m-%d)/beacon_*.log
 - If needed, clear state and start fresh:
   ```bash
   rm clio_forwarder/forwarder_state.pkl
-  python forwarder.py --api-key YOUR_KEY --clio-url YOUR_URL --historical-days 1
+  python log_exporter.py --api-key YOUR_KEY --clio-url YOUR_URL --historical-days 1
   ```
 
 ### 5. Parsing Errors or Missing Data
@@ -266,22 +266,7 @@ find $(pwd)/logs/$(date +%Y-%m-%d) -name 'beacon_*.log' -exec head -n 5 {} \;
 To check exactly which files are being considered for processing:
 
 ```bash
-python forwarder.py --api-key YOUR_KEY --clio-url YOUR_URL --debug 2>&1 | grep "is_valid_log_file"
-```
-
-### Tracing API Calls
-
-To see the actual API requests being made:
-
-```bash
-# Install mitmproxy
-pip install mitmproxy
-
-# Run mitmproxy
-mitmproxy -p 8080
-
-# Run the forwarder with proxy settings
-HTTP_PROXY=http://localhost:8080 HTTPS_PROXY=http://localhost:8080 python forwarder.py --api-key YOUR_KEY --clio-url YOUR_URL --insecure-ssl
+python log_exporter.py --api-key YOUR_KEY --clio-url YOUR_URL --debug 2>&1 | grep "is_valid_log_file"
 ```
 
 ## Getting Help

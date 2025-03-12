@@ -22,12 +22,12 @@ The C2 Log Forwarder supports the following command line arguments:
 
 Basic usage:
 ```bash
-python forwarder.py --api-key YOUR_API_KEY --clio-url https://your-clio-server:3000
+python log_exporter.py --api-key YOUR_API_KEY --clio-url https://your-clio-server:3000
 ```
 
 Extended options:
 ```bash
-python forwarder.py \
+python log_exporter.py \
   --api-key YOUR_API_KEY \
   --clio-url https://your-clio-server:3000 \
   --c2-type cobalt_strike \
@@ -131,7 +131,7 @@ CLIO_API_KEY="your-api-key"
 CLIO_URL="https://your-clio-server:3000"
 C2_TYPE="cobalt_strike"
 
-python forwarder.py \
+python log_exporter.py \
   --api-key "$CLIO_API_KEY" \
   --clio-url "$CLIO_URL" \
   --c2-type "$C2_TYPE"
@@ -194,7 +194,7 @@ Group=yourgroup
 WorkingDirectory=/path/to/cobaltstrike
 
 # Main command
-ExecStart=/usr/bin/python3 /path/to/c2-log-forwarder/forwarder.py \
+ExecStart=/usr/bin/python3 /path/to/c2-log-forwarder/log_exporter.py \
   --api-key YOUR_API_KEY \
   --clio-url https://your-clio-server:3000 \
   --c2-type cobalt_strike \
