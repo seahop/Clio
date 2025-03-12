@@ -15,11 +15,21 @@ class BaseLogParser(ABC):
     The default implementations of some methods assume date-based directories (YYYY-MM-DD format),
     but each parser can override these methods if their C2 framework uses a different structure.
     """
-    def __init__(self, root_dir, historical_days=1, max_tracked_days=2):
+    def __init__(self, root_dir, historical_days=1, max_tracked_days=2, filter_mode="all"):
         self.root_dir = os.path.abspath(root_dir)
         self.historical_days = historical_days
         self.max_tracked_days = max_tracked_days
+        self.filter_mode = filter_mode
         self.logger = logging.getLogger(self.__class__.__name__)
+        
+        # Initialize insignificant commands list (to be overridden by subclasses)
+        self.insignificant_commands = []
+        
+        # Log filter mode
+        self.logger.info(f"Using filter mode: {self.filter_mode}")
+        if self.filter_mode == "significant":
+            self.setup_insignificant_commands()
+            self.logger.info(f"Filtering out {len(self.insignificant_commands)} insignificant commands")
 
     @abstractmethod
     def get_base_directory(self):
@@ -67,6 +77,89 @@ class BaseLogParser(ABC):
             list: List of extracted log entries
         """
         pass
+    
+    def setup_insignificant_commands(self):
+        """
+        Initialize the list of insignificant commands to filter out when in 'significant' mode
+        Loads commands from the command_filters module based on C2 framework type.
+        """
+        try:
+            # Import here to avoid circular imports
+            from command_filters import get_insignificant_commands
+            
+            # Get the class name without "Parser" suffix to determine C2 type
+            framework_type = self.__class__.__name__.lower().replace('parser', '')
+            
+            # Special case handling for class names that don't match framework types
+            if framework_type == "cobalstrike":
+                framework_type = "cobalt_strike"
+                
+            # Load commands for this framework
+            self.insignificant_commands = get_insignificant_commands(framework_type)
+            self.logger.debug(f"Loaded {len(self.insignificant_commands)} insignificant commands for {framework_type}")
+        except ImportError:
+            # Fallback to basic list if command_filters module is not available
+            self.logger.warning("command_filters module not found, using basic command filter list")
+            self.insignificant_commands = [
+                "ls", "dir", "pwd", "cd", "cls", "clear", "help", "?", "exit", "quit"
+            ]
+    
+    def should_exclude_entry(self, entry):
+        """
+        Check if an entry should be excluded from logging regardless of significance
+        
+        Args:
+            entry: The log entry dictionary
+            
+        Returns:
+            bool: True if the entry should be excluded, False otherwise
+        """
+        if not entry or "command" not in entry:
+            return True
+            
+        try:
+            # Import here to avoid circular imports
+            from command_filters import should_exclude_command
+            
+            # Get the class name without "Parser" suffix to determine C2 type
+            framework_type = self.__class__.__name__.lower().replace('parser', '')
+            
+            # Special case handling for class names that don't match framework types
+            if framework_type == "cobalstrike":
+                framework_type = "cobalt_strike"
+                
+            return should_exclude_command(entry["command"], framework_type)
+        except ImportError:
+            # Fallback to basic exclusion if command_filters module is not available
+            self.logger.warning("command_filters module not found, using basic exclusion logic")
+            return False
+    
+    def is_significant_command(self, command):
+        """
+        Check if a command is significant enough to forward
+        
+        Args:
+            command: The command string to check
+            
+        Returns:
+            bool: True if the command should be forwarded, False if it should be filtered out
+        """
+        if self.filter_mode == "all":
+            return True
+            
+        if not command:
+            return False
+            
+        # Check if the command starts with any insignificant command
+        command_lower = command.lower().strip()
+        
+        for insignificant in self.insignificant_commands:
+            # Match exact command or command with arguments
+            if command_lower == insignificant or command_lower.startswith(f"{insignificant} "):
+                self.logger.debug(f"Filtering out insignificant command: {command}")
+                return False
+        
+        return True
     
     def get_cutoff_date_str(self):
         """

@@ -15,8 +15,8 @@ class SliverParser(BaseLogParser):
     filtering out noise and system messages to reduce verbosity.
     """
     
-    def __init__(self, root_dir, historical_days=1, max_tracked_days=2):
-        super().__init__(root_dir, historical_days, max_tracked_days)
+    def __init__(self, root_dir, historical_days=1, max_tracked_days=2, filter_mode="all"):
+        super().__init__(root_dir, historical_days, max_tracked_days, filter_mode)
         
         # Set up paths relative to the Sliver root
         self.sliver_logs_base_dir = os.path.join(self.root_dir, "logs")
@@ -41,13 +41,7 @@ class SliverParser(BaseLogParser):
         # Updated to include more types of output messages
         self.command_output_regex = re.compile(r'(?:File listing:|Command (?:completed|output)|Downloaded|Screenshot saved|Welcome to|NT AUTHORITY|uid=|Session (?:terminated|backgrounded)|Interactive mode|Taking screenshot|use\s+[a-f0-9-]+|download complete|File download complete)')
         
-        # List of commands to exclude entirely
-        self.excluded_commands = [
-            'session backgrounded',
-            'session terminated',
-            'interactive mode',
-            'download complete',
-        ]
+        # We now use the command_filters.py module for exclusions
         
         # Initialize the parser
         self.logger.info(f"Initialized Sliver Parser")
@@ -55,6 +49,9 @@ class SliverParser(BaseLogParser):
         self.logger.info(f"- Logs base directory: {self.sliver_logs_base_dir}")
         self.logger.info(f"- Historical days to process: {self.historical_days}")
         self.logger.info(f"- Max tracked days: {self.max_tracked_days}")
+    
+    # We now use the centralized command_filters.py module instead of local definition
+    # The base class will handle loading the Sliver-specific commands for us
     
     def get_base_directory(self):
         """Get the base directory that contains all logs"""
@@ -230,7 +227,9 @@ class SliverParser(BaseLogParser):
                             log_entry = json.loads(line)
                             entry = self.parse_json_entry(log_entry)
                             if entry and not self.should_exclude_entry(entry):
-                                new_entries.append(entry)
+                                # Check if this command is significant based on the filter mode
+                                if self.is_significant_command(entry["command"]):
+                                    new_entries.append(entry)
                                 continue
                         except json.JSONDecodeError:
                             # Not JSON or invalid JSON, will process as text
@@ -240,20 +239,26 @@ class SliverParser(BaseLogParser):
                     if is_session_log:
                         entry = self.parse_session_line(line, session_id)
                         if entry and not self.should_exclude_entry(entry):
-                            new_entries.append(entry)
+                            # Check if this command is significant based on the filter mode
+                            if self.is_significant_command(entry["command"]):
+                                new_entries.append(entry)
                             continue
                     
                     # Parse client/console logs
                     if is_client_log:
                         entry = self.parse_client_line(line)
                         if entry and not self.should_exclude_entry(entry):
-                            new_entries.append(entry)
+                            # Check if this command is significant based on the filter mode
+                            if self.is_significant_command(entry["command"]):
+                                new_entries.append(entry)
                             continue
                     
                     # Generic parsing for any other lines that might contain commands
                     entry = self.parse_generic_line(line)
                     if entry and not self.should_exclude_entry(entry):
-                        new_entries.append(entry)
+                        # Check if this command is significant based on the filter mode
+                        if self.is_significant_command(entry["command"]):
+                            new_entries.append(entry)
             
             # Update processed lines count
             processed_lines[abs_log_file] = line_count
@@ -271,17 +276,8 @@ class SliverParser(BaseLogParser):
             self.logger.error(traceback.format_exc())
             return []
     
-    def should_exclude_entry(self, entry):
-        """Check if an entry should be excluded from logging"""
-        # Exclude entries with commands in the exclusion list
-        if any(excluded in entry["command"].lower() for excluded in self.excluded_commands):
-            return True
-            
-        # Exclude 'use' commands (which typically just select a session)
-        if entry["command"].startswith("use "):
-            return True
-            
-        return False
+    # We now use the base class implementation of should_exclude_entry
+    # which leverages the centralized command_filters.py module
     
     def parse_json_entry(self, log_entry):
         """Parse a JSON log entry and extract command if present"""

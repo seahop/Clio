@@ -10,6 +10,7 @@ The C2 Log Forwarder monitors your C2 framework's log directories in real-time, 
 
 - **Real-time monitoring** of C2 framework logs
 - **Multiple C2 framework support** through modular design
+- **Command filtering** to focus on significant activities
 - **State persistence** to prevent duplicate entries after restarts
 - **Historical log processing** to backfill logs from previous days
 - **Resource-efficient monitoring** with automatic cleanup
@@ -74,10 +75,29 @@ For more detailed options, run:
 python log_exporter.py --help
 ```
 
+## Command Filtering
+
+The forwarder supports filtering commands to focus on significant activities:
+
+- `--all` - Forward all commands (default behavior)
+- `--significant` - Forward only significant commands, filtering out common low-value commands
+
+Examples:
+```bash
+# Default behavior - forward all commands
+python log_exporter.py --api-key YOUR_KEY --clio-url URL --c2-type sliver
+
+# Significant commands only - filter out commands like ls, cd, pwd, etc.
+python log_exporter.py --api-key YOUR_KEY --clio-url URL --c2-type sliver --significant
+```
+
+For details on customizing which commands are considered significant, see [Command Filtering Guide](docs/COMMAND_FILTERING.md).
+
 ## Documentation
 
 - [Cobalt Strike Parser Documentation](docs/COBALT_STRIKE.md)
 - [Sliver Parser Documentation](docs/SLIVER.md)
+- [Command Filtering Guide](docs/COMMAND_FILTERING.md)
 - [Developer Guide: Creating New Parsers](docs/DEVELOPERS.md)
 - [Configuration Options](docs/CONFIGURATION.md)
 - [Troubleshooting Guide](docs/TROUBLESHOOTING.md)

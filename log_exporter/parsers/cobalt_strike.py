@@ -9,8 +9,8 @@ from parsers.base_parser import BaseLogParser
 class CobalStrikeParser(BaseLogParser):
     """Parser for Cobalt Strike beacon logs"""
     
-    def __init__(self, root_dir, historical_days=1, max_tracked_days=2):
-        super().__init__(root_dir, historical_days, max_tracked_days)
+    def __init__(self, root_dir, historical_days=1, max_tracked_days=2, filter_mode="all"):
+        super().__init__(root_dir, historical_days, max_tracked_days, filter_mode)
         
         # Set up paths relative to the Cobalt Strike root
         self.cs_logs_base_dir = os.path.join(self.root_dir, "logs")
@@ -129,6 +129,7 @@ class CobalStrikeParser(BaseLogParser):
                         self.logger.debug(f"  Extracted: timestamp={timestamp}, beacon_id={beacon_id}, username={username}, hostname={hostname}")
                         self.logger.debug(f"  Command: {command}")
                         
+                        # Create the entry first so we can check both exclusion and significance
                         # Parse domain if present
                         domain = ""
                         if '\\' in username:
@@ -153,7 +154,16 @@ class CobalStrikeParser(BaseLogParser):
                         # Only add domain if we found it
                         if domain:
                             entry["domain"] = domain
-                        
+                            
+                        # Check if entry should be excluded or filtered
+                        if self.should_exclude_entry(entry):
+                            self.logger.debug(f"  ✗ Entry excluded: {command}")
+                            continue
+                            
+                        if not self.is_significant_command(command):
+                            self.logger.debug(f"  ✗ Command filtered as insignificant: {command}")
+                            continue
+                            
                         self.logger.debug(f"  Created entry: {entry}")
                         new_entries.append(entry)
                     else:

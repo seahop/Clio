@@ -70,6 +70,13 @@ def parse_arguments():
                         help="Rate limit window in seconds (default: 60)")
     parser.add_argument("--max-queue-size", type=int, default=10000,
                         help="Maximum size of the queue (default: 10000)")
+
+    # Add new filtering options (mutually exclusive)
+    filter_group = parser.add_mutually_exclusive_group()
+    filter_group.add_argument("--all", action="store_true", default=True,
+                       help="Forward all command logs (default behavior)")
+    filter_group.add_argument("--significant", action="store_true",
+                       help="Forward only significant commands, filtering out common ones like 'ls'")
     
     return parser.parse_args()
 
@@ -84,18 +91,24 @@ def main():
     logger = logging.getLogger("LogForwarder")
     logger.info("Starting C2 Log Forwarder for Clio")
     
+    # Determine filter mode
+    filter_mode = "significant" if args.significant else "all"
+    logger.info(f"Using filter mode: {filter_mode}")
+    
     # Create the appropriate parser based on C2 type
     if args.c2_type == "cobalt_strike":
         parser = CobalStrikeParser(
             os.getcwd(),
             args.historical_days,
-            args.max_tracked_days
+            args.max_tracked_days,
+            filter_mode=filter_mode
         )
     elif args.c2_type == "sliver":
         parser = SliverParser(
             os.getcwd(),
             args.historical_days,
-            args.max_tracked_days
+            args.max_tracked_days,
+            filter_mode=filter_mode
         )
     else:
         logger.error(f"Unsupported C2 type: {args.c2_type}")
