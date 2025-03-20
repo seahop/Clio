@@ -6,11 +6,12 @@ import { ExpandIcon, Eye, EyeOff } from 'lucide-react';
 const maxLengths = {
   internal_ip: 45,
   external_ip: 45,
+  mac_address: 17, // New MAC address field (for format XX:XX:XX:XX:XX:XX)
   hostname: 75,
   domain: 75,
   username: 75,
   command: 254,
-  notes: 254,  // Increased from 150 to 254
+  notes: 254,
   filename: 254,
   status: 75,
   secrets: 254,
@@ -34,6 +35,13 @@ const validateFieldLength = (value, field) => {
   return !value || value.length <= maxLengths[field];
 };
 
+// Add MAC address validation function
+const validateMacAddress = (value) => {
+  if (!value) return true;
+  // Validate MAC address format (xx:xx:xx:xx:xx:xx or xx-xx-xx-xx-xx-xx)
+  return /^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$/.test(value);
+};
+
 const LoggerCell = ({ 
     row, 
     col, 
@@ -53,6 +61,7 @@ const LoggerCell = ({
     const isStatusField = col.field === 'status';
     const isSecretsField = col.field === 'secrets';
     const isNotesField = col.field === 'notes';
+    const isMacAddressField = col.field === 'mac_address';
     
     const getContent = () => {
       const value = row[col.field];
@@ -68,6 +77,9 @@ const LoggerCell = ({
         }
         if (isSecretsField) {
           return "Enter credentials";
+        }
+        if (isMacAddressField) {
+          return "Enter MAC address";
         }
         return '';
       }
@@ -104,6 +116,12 @@ const LoggerCell = ({
     const handleChange = (e) => {
       const newValue = e.target.value;
       const maxLength = maxLengths[col.field];
+      
+      // Special validation for MAC address
+      if (isMacAddressField && newValue && newValue.length >= 17 && !validateMacAddress(newValue)) {
+        alert('Please enter a valid MAC address format (XX:XX:XX:XX:XX:XX or XX-XX-XX-XX-XX-XX)');
+        return;
+      }
       
       if (!validateFieldLength(newValue, col.field)) {
         alert(`Maximum length for ${col.field} is ${maxLength} characters`);
@@ -162,6 +180,24 @@ const LoggerCell = ({
                 ))}
               </div>
             )}
+          </div>
+        );
+      }
+
+      // Special handling for MAC address field
+      if (isMacAddressField) {
+        return (
+          <div className="relative">
+            <input
+              ref={textareaRef}
+              type="text"
+              value={editingValue ?? ''}
+              onChange={handleChange}
+              onBlur={handleBlur}
+              onKeyDown={handleKeyDown}
+              className="w-full p-1 border rounded bg-gray-700 text-white border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="XX:XX:XX:XX:XX:XX"
+            />
           </div>
         );
       }

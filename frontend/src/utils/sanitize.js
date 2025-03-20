@@ -50,6 +50,10 @@ export const validateInput = (value, field) => {
     
     case 'filename':
       return /^[a-zA-Z0-9._-]+$/.test(value);
+      
+    case 'mac_address':
+      // Validate MAC address format (xx:xx:xx:xx:xx:xx or xx-xx-xx-xx-xx-xx)
+      return /^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$/.test(value);
     
     default:
       return true;
@@ -61,6 +65,7 @@ export const sanitizeLogData = (logData) => {
     ...logData,
     internal_ip: logData.internal_ip ? sanitizeString(logData.internal_ip) : '',
     external_ip: logData.external_ip ? sanitizeString(logData.external_ip) : '',
+    mac_address: logData.mac_address ? sanitizeString(logData.mac_address) : '', // New field
     hostname: logData.hostname ? sanitizeString(logData.hostname) : '',
     domain: logData.domain ? sanitizeString(logData.domain) : '',
     username: logData.username ? sanitizeString(logData.username) : '',

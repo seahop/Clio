@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS logs (
     timestamp TIMESTAMPTZ NOT NULL,
     internal_ip VARCHAR(45),
     external_ip VARCHAR(45),
+    mac_address VARCHAR(17), 
     hostname VARCHAR(75),
     domain VARCHAR(75),
     username VARCHAR(75),
@@ -70,6 +71,7 @@ CREATE INDEX IF NOT EXISTS idx_logs_timestamp ON logs(timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_logs_analyst ON logs(analyst);
 CREATE INDEX IF NOT EXISTS idx_logs_hostname ON logs(hostname);
 CREATE INDEX IF NOT EXISTS idx_logs_hash_value ON logs(hash_value);
+CREATE INDEX IF NOT EXISTS idx_logs_mac_address ON logs(mac_address);
 
 -- Create evidence index
 CREATE INDEX IF NOT EXISTS idx_evidence_log_id ON evidence_files(log_id);

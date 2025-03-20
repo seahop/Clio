@@ -132,6 +132,24 @@ const LogRowCard = ({
         </select>
       );
     }
+
+    // MAC address field should use a specialized input with placeholder
+    if (field === 'mac_address') {
+      return (
+        <input
+          type="text"
+          value={editingValue || ''}
+          onChange={onCellChange}
+          onBlur={(e) => onCellBlur(e, parseInt(row.id), field)}
+          onKeyDown={(e) => onKeyDown(e, parseInt(row.id), field)}
+          onClick={(e) => e.stopPropagation()}
+          className="w-full p-1 border rounded bg-gray-700 text-white border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          placeholder="XX:XX:XX:XX:XX:XX"
+          pattern="([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})"
+          title="Please enter a valid MAC address (e.g., 00:1A:2B:3C:4D:5E)"
+        />
+      );
+    }
     
     // Use textarea for notes, command, secrets, and hash_value fields
     if (field === 'notes' || field === 'command' || field === 'secrets' || field === 'hash_value') {
@@ -168,9 +186,9 @@ const LogRowCard = ({
 
   // Sort columns into logical groups
   const columnGroups = {
-    primary: ['timestamp', 'internal_ip', 'external_ip', 'hostname', 'domain'],
-    content: ['username', 'command', 'notes', 'secrets'],  // Moved secrets here
-    status: ['filename', 'hash_algorithm', 'hash_value', 'status', 'analyst']  // Combined status and hash fields
+    primary: ['timestamp', 'internal_ip', 'external_ip', 'mac_address', 'hostname', 'domain'],
+    content: ['username', 'command', 'notes', 'secrets'],
+    status: ['filename', 'hash_algorithm', 'hash_value', 'status', 'analyst']
   };
 
   return (
@@ -234,6 +252,12 @@ const LogRowCard = ({
             {row.internal_ip && (
               <div className="flex-shrink-0 px-2 py-1 bg-gray-700 rounded text-xs text-blue-300 whitespace-nowrap font-medium">
                 IP: {row.internal_ip}
+              </div>
+            )}
+            
+            {row.mac_address && (
+              <div className="flex-shrink-0 px-2 py-1 bg-gray-700 rounded text-xs text-cyan-300 whitespace-nowrap font-medium">
+                MAC: {row.mac_address}
               </div>
             )}
             

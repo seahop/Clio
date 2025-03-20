@@ -47,8 +47,8 @@ A secure, collaborative logging system designed for red team operations and secu
 
 3. Build and start the containers:
    ```bash
-   docker-compose build
-   docker-compose up
+   docker compose build
+   docker compose up
    ```
 
 4. Access the application at:

@@ -46,15 +46,16 @@ const LogsModel = {
     try {
       const result = await db.query(
         `INSERT INTO logs (
-          timestamp, internal_ip, external_ip, hostname,
+          timestamp, internal_ip, external_ip, mac_address, hostname,
           domain, username, command, notes, filename,
           status, secrets, analyst, hash_algorithm, hash_value
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
         RETURNING *`,
         [
           new Date(),
           logData.internal_ip,
           logData.external_ip,
+          logData.mac_address,
           logData.hostname,
           logData.domain,
           logData.username,
@@ -80,7 +81,7 @@ const LogsModel = {
   async updateLog(id, updates) {
     try {
       const allowedUpdates = [
-        'internal_ip', 'external_ip', 'hostname', 'domain',
+        'internal_ip', 'external_ip', 'mac_address', 'hostname', 'domain',
         'username', 'command', 'notes', 'filename', 'status',
         'secrets', 'locked', 'locked_by', 'hash_algorithm', 'hash_value'
       ];

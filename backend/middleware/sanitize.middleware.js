@@ -7,6 +7,7 @@ const validateInputLengths = (data) => {
   const constraints = {
     internal_ip: 45,
     external_ip: 45,
+    mac_address: 17,
     hostname: 75,
     domain: 75,
     username: 75,

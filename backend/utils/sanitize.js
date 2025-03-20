@@ -110,6 +110,7 @@ const validateInput = (value, field) => {
   const constraints = {
     internal_ip: /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$|^([0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}$/,
     external_ip: /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$|^([0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}$/,
+    mac_address: /^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$/, // New MAC Address validation
     hostname: /^[a-zA-Z0-9][a-zA-Z0-9-_.]{0,73}[a-zA-Z0-9]$/,
     domain: /^[a-zA-Z0-9][a-zA-Z0-9-_.]{0,73}[a-zA-Z0-9]$/,
     username: /^[a-zA-Z0-9_-]{1,75}$/,
@@ -178,12 +179,14 @@ const sanitizeLogData = (logData) => {
     original: {
       command: logData.command ? `${logData.command.substring(0, 20)}${logData.command.length > 20 ? '...' : ''}` : null,
       notes: logData.notes ? `${logData.notes.substring(0, 20)}${logData.notes.length > 20 ? '...' : ''}` : null,
-      filename: logData.filename
+      filename: logData.filename,
+      mac_address: logData.mac_address
     },
     sanitized: {
       command: sanitizedData.command ? `${sanitizedData.command.substring(0, 20)}${sanitizedData.command.length > 20 ? '...' : ''}` : null,
       notes: sanitizedData.notes ? `${sanitizedData.notes.substring(0, 20)}${sanitizedData.notes.length > 20 ? '...' : ''}` : null,
-      filename: sanitizedData.filename
+      filename: sanitizedData.filename,
+      mac_address: sanitizedData.mac_address
     }
   });
 
