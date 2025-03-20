@@ -12,7 +12,7 @@ router.get('/', authenticateToken, async (req, res) => {
     const allRelations = [];
     
     // Get relations for each type
-    const types = ['ip', 'hostname', 'domain', 'username', 'command', 'command_sequence'];
+    const types = ['ip', 'hostname', 'domain', 'username', 'command', 'command_sequence', 'mac_address'];
     
     for (const type of types) {
       const relations = await RelationsModel.getRelations(type, parseInt(limit));
@@ -33,7 +33,7 @@ router.get('/:type', authenticateToken, async (req, res) => {
     const { limit } = req.query;
 
     // Validate relation type
-    const validTypes = ['ip', 'hostname', 'domain', 'username', 'command', 'command_sequence', 'user'];
+    const validTypes = ['ip', 'hostname', 'domain', 'username', 'command', 'command_sequence', 'user', 'mac_address'];
     if (!validTypes.includes(type)) {
       return res.status(400).json({
         error: 'Invalid relation type',
@@ -66,6 +66,13 @@ router.get('/:type', authenticateToken, async (req, res) => {
       const sequences = await RelationsModel.getCommandSequences();
       return res.json(sequences);
     }
+    
+    // Special handling for MAC address relations
+    if (type === 'mac_address') {
+      console.log('Fetching MAC address relations');
+      const macRelations = await RelationsModel.getMacAddressRelations(parseInt(limit) || 100);
+      return res.json(macRelations);
+    }
 
     const relations = await RelationsModel.getRelations(
       type,
@@ -79,6 +86,7 @@ router.get('/:type', authenticateToken, async (req, res) => {
       connections: relation.related.length,
       related: relation.related.map(r => ({
         target: r.target,
+        type: r.type,
         strength: Math.round((r.strength / (r.connection_count || 1)) * 100),
         lastSeen: r.lastSeen,
         metadata: r.metadata
@@ -96,6 +104,15 @@ router.get('/:type', authenticateToken, async (req, res) => {
 router.get('/:type/:value', authenticateToken, async (req, res) => {
   try {
     const { type, value } = req.params;
+    
+    // Special handling for MAC addresses - ensure consistent format
+    if (type === 'mac_address') {
+      // Normalize MAC address to dashed format
+      const normalizedMac = value.toUpperCase().replace(/[:-]/g, '').match(/.{1,2}/g)?.join('-') || value;
+      const relations = await RelationsModel.getRelationsByValue(type, normalizedMac);
+      return res.json(relations);
+    }
+    
     const relations = await RelationsModel.getRelationsByValue(type, value);
     res.json(relations);
   } catch (error) {

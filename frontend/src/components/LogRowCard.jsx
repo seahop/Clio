@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import { ChevronRight, ChevronDown, Lock, Unlock, Trash2, Eye, EyeOff, FileText } from 'lucide-react';
 import { COLUMNS } from '../utils/constants';
 import EvidenceTab from './EvidenceTab';
+import { handleMacAddressInput, formatMacAddress } from '../utils/macAddressUtils';
 
 // Helper function to get status color class
 const getStatusColorClass = (status) => {
@@ -74,6 +75,10 @@ const LogRowCard = ({
     if (field === 'status' && value) {
       return <span className={`font-semibold ${getStatusColorClass(value)}`}>{value}</span>;
     }
+    
+    if (field === 'mac_address' && value) {
+      return <span className="text-white break-words whitespace-pre-wrap">{formatMacAddress(value)}</span>;
+    }
 
     if (!value) return <span className="text-gray-500">-</span>;
     
@@ -133,20 +138,30 @@ const LogRowCard = ({
       );
     }
 
-    // MAC address field should use a specialized input with placeholder
+    // MAC address field should use a specialized input with dash format
     if (field === 'mac_address') {
       return (
         <input
           type="text"
           value={editingValue || ''}
-          onChange={onCellChange}
-          onBlur={(e) => onCellBlur(e, parseInt(row.id), field)}
+          onChange={(e) => {
+            // Apply auto-formatting while typing
+            handleMacAddressInput(e);
+            onCellChange(e);
+          }}
+          onBlur={(e) => {
+            // Format on blur to ensure dash format
+            const formattedValue = formatMacAddress(e.target.value);
+            // Create a new event with the formatted value
+            const newEvent = { ...e, target: { ...e.target, value: formattedValue } };
+            onCellBlur(newEvent, parseInt(row.id), field);
+          }}
           onKeyDown={(e) => onKeyDown(e, parseInt(row.id), field)}
           onClick={(e) => e.stopPropagation()}
           className="w-full p-1 border rounded bg-gray-700 text-white border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
-          placeholder="XX:XX:XX:XX:XX:XX"
-          pattern="([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})"
-          title="Please enter a valid MAC address (e.g., 00:1A:2B:3C:4D:5E)"
+          placeholder="XX-XX-XX-XX-XX-XX"
+          pattern="([0-9A-Fa-f]{2}-){5}([0-9A-Fa-f]{2})"
+          title="Please enter a valid MAC address (e.g., AA-BB-CC-DD-EE-FF)"
         />
       );
     }
@@ -257,7 +272,7 @@ const LogRowCard = ({
             
             {row.mac_address && (
               <div className="flex-shrink-0 px-2 py-1 bg-gray-700 rounded text-xs text-cyan-300 whitespace-nowrap font-medium">
-                MAC: {row.mac_address}
+                MAC: {formatMacAddress(row.mac_address)}
               </div>
             )}
             

@@ -11,6 +11,14 @@ class RelationsModel {
    */
   static async upsertRelation(sourceType, sourceValue, targetType, targetValue, metadata = {}) {
     try {
+      // Normalize MAC addresses if present
+      if (sourceType === 'mac_address') {
+        sourceValue = sourceValue.toUpperCase().replace(/[:-]/g, '').match(/.{1,2}/g)?.join('-') || sourceValue;
+      }
+      if (targetType === 'mac_address') {
+        targetValue = targetValue.toUpperCase().replace(/[:-]/g, '').match(/.{1,2}/g)?.join('-') || targetValue;
+      }
+      
       // Invalidate cache for this relation type
       this._invalidateCache(sourceType);
       this._invalidateCache(targetType);
@@ -51,6 +59,87 @@ class RelationsModel {
   }
 
   /**
+   * Get MAC address relations with optimized query
+   * @param {Number} limit - Maximum number of relations to return
+   * @returns {Promise<Array>} Formatted MAC address relations
+   */
+  static async getMacAddressRelations(limit = 100) {
+    try {
+      // Check cache first
+      const cacheKey = `mac_address_${limit}`;
+      const cachedData = this._getCachedData(cacheKey);
+      if (cachedData) {
+        return cachedData;
+      }
+      
+      console.log('Fetching MAC address relations...');
+      
+      // Not in cache, fetch from database with optimized query
+      const result = await db.query(`
+        WITH mac_relations AS (
+          SELECT 
+            source_value as mac_address,
+            target_value as ip_address,
+            first_seen,
+            last_seen,
+            strength,
+            connection_count,
+            metadata
+          FROM relations
+          WHERE source_type = 'mac_address' AND target_type = 'ip'
+          ORDER BY last_seen DESC
+          LIMIT $1
+        )
+        SELECT * FROM mac_relations
+      `, [limit]);
+
+      console.log('Raw query results:', result.rows.slice(0, 3));
+
+      // Group by MAC address
+      const macAddressMap = new Map();
+      
+      result.rows.forEach(row => {
+        console.log('Processing MAC:', row.mac_address);
+        
+        // Use the MAC address as-is since we're standardizing on dashes in input
+        const macAddress = row.mac_address;
+        
+        if (!macAddressMap.has(macAddress)) {
+          macAddressMap.set(macAddress, {
+            source: macAddress,
+            type: 'mac_address',
+            related: []
+          });
+        }
+        
+        const relation = macAddressMap.get(macAddress);
+        
+        // Add this IP to the related items
+        relation.related.push({
+          target: row.ip_address,
+          type: 'ip',
+          strength: row.strength,
+          connectionCount: row.connection_count,
+          firstSeen: row.first_seen,
+          lastSeen: row.last_seen,
+          metadata: row.metadata || {}
+        });
+      });
+      
+      // Convert map to array of relations
+      const formattedRelations = Array.from(macAddressMap.values());
+      
+      // Store in cache
+      this._cacheData(cacheKey, formattedRelations);
+      
+      return formattedRelations;
+    } catch (error) {
+      console.error('Error getting MAC address relations:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Batch upsert multiple relations for improved performance
    * @param {Array} relations - Array of relation objects
    */
@@ -72,6 +161,17 @@ class RelationsModel {
         
         for (const relation of relations) {
           const { sourceType, sourceValue, targetType, targetValue, metadata = {} } = relation;
+          
+          // Normalize MAC addresses if present
+          let normSourceValue = sourceValue;
+          let normTargetValue = targetValue;
+          
+          if (sourceType === 'mac_address') {
+            normSourceValue = sourceValue.toUpperCase().replace(/[:-]/g, '').match(/.{1,2}/g)?.join('-') || sourceValue;
+          }
+          if (targetType === 'mac_address') {
+            normTargetValue = targetValue.toUpperCase().replace(/[:-]/g, '').match(/.{1,2}/g)?.join('-') || targetValue;
+          }
           
           // Track types for cache invalidation
           typesToInvalidate.add(sourceType);
@@ -97,9 +197,9 @@ class RelationsModel {
             RETURNING *`,
             [
               sourceType,
-              sourceValue,
+              normSourceValue,
               targetType,
-              targetValue,
+              normTargetValue,
               metadata,
               metadata.firstSeen || new Date(),
               metadata.timestamp || new Date()
@@ -279,6 +379,12 @@ class RelationsModel {
       }
       
       console.log(`Updating relations: ${fieldType} from "${oldValue}" to "${newValue}"`);
+      
+      // Normalize MAC addresses if needed
+      if (fieldType === 'mac_address') {
+        oldValue = oldValue.toUpperCase().replace(/[:-]/g, '').match(/.{1,2}/g)?.join('-') || oldValue;
+        newValue = newValue.toUpperCase().replace(/[:-]/g, '').match(/.{1,2}/g)?.join('-') || newValue;
+      }
       
       // Invalidate related caches
       this._invalidateCache(fieldType);

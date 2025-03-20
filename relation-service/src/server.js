@@ -171,6 +171,13 @@ const initializeDatabase = async () => {
       CREATE INDEX IF NOT EXISTS idx_relations_last_seen ON relations(last_seen);
       CREATE INDEX IF NOT EXISTS idx_relations_compound ON relations(source_type, source_value, target_type, target_value);
       CREATE INDEX IF NOT EXISTS idx_relations_metadata_gin ON relations USING GIN (metadata);
+      
+      -- Add specific indexes for MAC address relations
+      CREATE INDEX IF NOT EXISTS idx_relations_mac_address_source ON relations(source_value) 
+      WHERE source_type = 'mac_address';
+      
+      CREATE INDEX IF NOT EXISTS idx_relations_mac_address_target ON relations(target_value)
+      WHERE target_type = 'mac_address';
     `);
     
     // Create file_status table without any unique constraints
@@ -182,6 +189,7 @@ const initializeDatabase = async () => {
         hostname VARCHAR(75),
         internal_ip VARCHAR(45),
         external_ip VARCHAR(45),
+        mac_address VARCHAR(17),
         username VARCHAR(75),
         analyst VARCHAR(100),
         hash_algorithm VARCHAR(50),
@@ -226,6 +234,7 @@ const initializeDatabase = async () => {
       CREATE INDEX IF NOT EXISTS idx_file_status_last_seen ON file_status(last_seen);
       CREATE INDEX IF NOT EXISTS idx_file_status_hash_value ON file_status(hash_value);
       CREATE INDEX IF NOT EXISTS idx_file_status_combined ON file_status(filename, hostname, internal_ip);
+      CREATE INDEX IF NOT EXISTS idx_file_status_mac_address ON file_status(mac_address);
     `);
     
     // Create file status history table
@@ -238,6 +247,7 @@ const initializeDatabase = async () => {
         hostname VARCHAR(75),
         internal_ip VARCHAR(45),
         external_ip VARCHAR(45),
+        mac_address VARCHAR(17),
         username VARCHAR(75),
         analyst VARCHAR(100) NOT NULL,
         notes TEXT,
@@ -250,9 +260,10 @@ const initializeDatabase = async () => {
 
       CREATE INDEX IF NOT EXISTS idx_file_status_history_filename ON file_status_history(filename);
       CREATE INDEX IF NOT EXISTS idx_file_status_history_timestamp ON file_status_history(timestamp);
+      CREATE INDEX IF NOT EXISTS idx_file_status_history_mac_address ON file_status_history(mac_address);
     `);
     
-    console.log('Database tables initialized with optimized indexes');
+    console.log('Database tables initialized with optimized indexes including MAC address support');
   } catch (error) {
     console.error('Database initialization error:', error);
     throw error;
@@ -301,9 +312,9 @@ cron.schedule('*/10 * * * *', async () => {
 
 // IP and hostname analysis - runs at 5, 25, and 45 minutes past the hour
 cron.schedule('5,25,45 * * * *', async () => {
-  console.log('Running scheduled relation analysis (IP/hostname)...');
+  console.log('Running scheduled relation analysis (IP/hostname/MAC)...');
   try {
-    // Analyze IP and hostname relations in this job
+    // Analyze IP, hostname, and MAC relations in this job
     const logs = await db.query(`
       SELECT * FROM logs 
       WHERE timestamp > NOW() - INTERVAL '1 hour'
@@ -311,14 +322,14 @@ cron.schedule('5,25,45 * * * *', async () => {
       LIMIT 1000
     `);
     
-    // Use analyzeSpecificLogs with multiple types
+    // Use analyzeSpecificLogs with multiple types including MAC address
     await RelationAnalyzer.analyzeSpecificLogs(logs.rows, { 
-      types: ['ip', 'hostname'] 
+      types: ['ip', 'hostname', 'mac_address'] 
     });
     
-    console.log('Scheduled IP/hostname analysis completed successfully');
+    console.log('Scheduled IP/hostname/MAC analysis completed successfully');
   } catch (error) {
-    console.error('Error in scheduled IP/hostname analysis:', error);
+    console.error('Error in scheduled IP/hostname/MAC analysis:', error);
   }
 });
 

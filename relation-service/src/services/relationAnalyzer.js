@@ -9,7 +9,8 @@ const {
   DomainAnalyzer,
   FileStatusAnalyzer,
   UserHostnameAnalyzer,
-  UserIPAnalyzer
+  UserIPAnalyzer,
+  MacAddressAnalyzer
 } = require('./analyzers');
 
 /**
@@ -27,7 +28,8 @@ class RelationAnalyzer {
       file: new FileStatusAnalyzer(),
       command: new UserCommandAnalyzer(), // Alias for 'user'
       user_hostname: new UserHostnameAnalyzer(),
-      user_ip: new UserIPAnalyzer()
+      user_ip: new UserIPAnalyzer(),
+      mac_address: new MacAddressAnalyzer() // New MAC address analyzer
     };
   }
 
@@ -137,7 +139,10 @@ class RelationAnalyzer {
         .catch(error => console.error('Error in user-hostname analysis:', error)),
       
       'user_ip': () => this.analyzers.user_ip.analyze(logs)
-        .catch(error => console.error('Error in user-IP analysis:', error))
+        .catch(error => console.error('Error in user-IP analysis:', error)),
+      
+      'mac_address': () => this.analyzers.mac_address.analyze(logs)
+        .catch(error => console.error('Error in MAC address analysis:', error))
     };
   }
 
@@ -150,7 +155,7 @@ class RelationAnalyzer {
   async analyzeSpecificLogs(logs, options = {}) {
     console.log(`Running targeted analysis for ${logs.length} logs`);
     
-    const analysisTypes = options.types || ['user', 'ip', 'hostname', 'domain', 'file', 'user_hostname', 'user_ip'];
+    const analysisTypes = options.types || ['user', 'ip', 'hostname', 'domain', 'file', 'user_hostname', 'user_ip', 'mac_address'];
     const analysisPromises = [];
     
     for (const type of analysisTypes) {

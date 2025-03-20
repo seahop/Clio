@@ -7,6 +7,7 @@ const { DomainAnalyzer } = require('./domainAnalyzer');
 const { FileStatusAnalyzer } = require('./fileStatusAnalyzer');
 const { UserHostnameAnalyzer } = require('./userHostnameAnalyzer');
 const { UserIPAnalyzer } = require('./userIPAnalyzer');
+const { MacAddressAnalyzer } = require('./macAddressAnalyzer');
 
 module.exports = {
   BaseAnalyzer,
@@ -16,5 +17,6 @@ module.exports = {
   DomainAnalyzer,
   FileStatusAnalyzer,
   UserHostnameAnalyzer,
-  UserIPAnalyzer
+  UserIPAnalyzer,
+  MacAddressAnalyzer
 };

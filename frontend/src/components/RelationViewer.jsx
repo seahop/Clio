@@ -1,7 +1,8 @@
 // frontend/src/components/RelationViewer.jsx
 import React, { useState, useEffect } from 'react';
-import { Network, AlertCircle, User, ChevronDown, ChevronRight, Globe, Wifi, Server, RefreshCw } from 'lucide-react';
+import { Network, AlertCircle, User, ChevronDown, ChevronRight, Globe, Wifi, Server, RefreshCw, Cpu } from 'lucide-react';
 import UserCommandsViewer from './UserCommandsViewer';
+import MacAddressViewer from './MacAddressViewer';
 
 const RelationViewer = () => {
   const [relations, setRelations] = useState([]);
@@ -16,6 +17,7 @@ const RelationViewer = () => {
     { id: 'ip', label: 'IP Relations' },
     { id: 'hostname', label: 'Hostname Relations' },
     { id: 'domain', label: 'Domain Relations' },
+    { id: 'mac_address', label: 'MAC Address Relations' }, // New filter option
     { id: 'user', label: 'User Commands' }
   ];
 
@@ -28,13 +30,15 @@ const RelationViewer = () => {
         return <Server className="w-5 h-5 text-green-400" />;
       case 'domain':
         return <Globe className="w-5 h-5 text-purple-400" />;
+      case 'mac_address':
+        return <Cpu className="w-5 h-5 text-yellow-400" />; // New icon for MAC addresses
       default:
         return <Network className="w-5 h-5 text-gray-400" />;
     }
   };
 
   const fetchRelations = async () => {
-    if (selectedFilter === 'user') {
+    if (selectedFilter === 'user' || selectedFilter === 'mac_address') {
       setLoading(false);
       return;
     }
@@ -93,7 +97,7 @@ const RelationViewer = () => {
       // Sort by type and then by source name
       const sortedData = processedData.sort((a, b) => {
         // Sort by type first
-        const typeOrder = { domain: 1, ip: 2, hostname: 3, username: 4 };
+        const typeOrder = { domain: 1, ip: 2, hostname: 3, username: 4, mac_address: 5 };
         const typeCompare = (typeOrder[a.type] || 99) - (typeOrder[b.type] || 99);
         if (typeCompare !== 0) return typeCompare;
         
@@ -125,6 +129,13 @@ const RelationViewer = () => {
     setExpandedItems(newExpanded);
   };
 
+  // Format MAC address for display - pass through as is since we're standardizing on dashes
+  const formatMacAddress = (mac) => {
+    if (!mac) return mac;
+    // We're relying on the MAC addresses being stored in the correct format now
+    return mac.toUpperCase();
+  };
+
   const renderRelations = () => {
     if (relations.length === 0) {
       return (
@@ -139,6 +150,10 @@ const RelationViewer = () => {
       <div className="space-y-4">
         {relations.map((relation, index) => {
           const relationId = `${relation.source}_${index}`;
+          // Format MAC addresses for display
+          const displaySource = relation.type === 'mac_address' 
+            ? formatMacAddress(relation.source)  // Use the full formatted MAC address
+            : relation.source;         
           return (
             <div key={relationId} className="bg-gray-700/50 rounded-lg overflow-hidden">
               <button
@@ -147,7 +162,7 @@ const RelationViewer = () => {
               >
                 <div className="flex items-center gap-3">
                   {getRelationIcon(relation.type)}
-                  <span className="text-white font-medium">{relation.source}</span>
+                  <span className="text-white font-medium">{displaySource}</span>
                   <span className="text-sm text-gray-400">
                     ({relation.related?.length || 0} connection{relation.related?.length !== 1 ? 's' : ''})
                   </span>
@@ -176,9 +191,25 @@ const RelationViewer = () => {
                           </span>
                         </div>
                         {item.metadata && (
-                          <p className="text-sm text-gray-400 border-t border-gray-700 pt-2">
-                            {JSON.stringify(item.metadata)}
-                          </p>
+                          <div className="text-sm text-gray-400 border-t border-gray-700 pt-2">
+                            {item.metadata.hostname && (
+                              <div className="flex items-center gap-2">
+                                <Server className="w-4 h-4 text-green-400" />
+                                <span>{item.metadata.hostname}</span>
+                              </div>
+                            )}
+                            {item.metadata.ipType && (
+                              <div className="mt-1 text-xs">
+                                <span className={`px-1.5 py-0.5 rounded ${
+                                  item.metadata.ipType === 'internal' 
+                                    ? 'bg-green-900/30 text-green-300' 
+                                    : 'bg-orange-900/30 text-orange-300'
+                                }`}>
+                                  {item.metadata.ipType} IP
+                                </span>
+                              </div>
+                            )}
+                          </div>
                         )}
                         <div className="text-xs text-gray-500">
                           Last seen: {new Date(item.lastSeen).toLocaleString()}
@@ -208,6 +239,10 @@ const RelationViewer = () => {
     if (selectedFilter === 'user') {
       return <UserCommandsViewer />;
     }
+    
+    if (selectedFilter === 'mac_address') {
+      return <MacAddressViewer />;
+    }
 
     if (loading) {
       return (
@@ -226,10 +261,14 @@ const RelationViewer = () => {
         <h2 className="text-lg font-medium text-white flex items-center gap-2">
           {selectedFilter === 'user' ? (
             <User className="w-5 h-5" />
+          ) : selectedFilter === 'mac_address' ? (
+            <Cpu className="w-5 h-5" />
           ) : (
             <Network className="w-5 h-5" />
           )}
-          {selectedFilter === 'user' ? 'User Command Analysis' : 'Log Relations'}
+          {selectedFilter === 'user' ? 'User Command Analysis' : 
+           selectedFilter === 'mac_address' ? 'MAC Address Relations' : 
+           'Log Relations'}
         </h2>
         <div className="flex gap-2">
           <button
