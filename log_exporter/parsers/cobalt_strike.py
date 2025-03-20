@@ -17,7 +17,7 @@ class CobalStrikeParser(BaseLogParser):
         
         # Main regex pattern for parsing Beacon commands
         # Format: [time] Beacon ID (user@host): command
-        self.beacon_cmd_regex = re.compile(r"\[(.*?)\]\s+Beacon\s+(\d+)\s+\((.+?)(?:@|\s+)(.+?)\):\s+(.*)")
+        self.beacon_cmd_regex = re.compile(r"\[(.*?)\]\s+Beacon\s+(\d+)\s+\((.+?)@(.+?)\):\s+(.*)")
         
         self.logger.info(f"Initialized Cobalt Strike Parser")
         self.logger.info(f"- Logs base directory: {self.cs_logs_base_dir}")
