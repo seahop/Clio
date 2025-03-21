@@ -187,6 +187,28 @@ Admins can manage the system logs:
 <img src="../images/Clio_admin_logs.png" alt="Clio Log Management" width="1000"/>
 </p>
 
+### S3 Integration
+
+Admins can configure S3 storage for log archives:
+
+1. Navigate to the Log Management view
+2. Click "S3 Export Configuration"
+3. Configure the following settings:
+   - **Enable S3 Export**: Toggle to enable/disable S3 integration
+   - **S3 Bucket Name**: Your AWS S3 bucket name
+   - **AWS Region**: Region where your bucket is hosted
+   - **Access Key ID**: AWS access key with S3 permissions
+   - **Secret Access Key**: AWS secret key
+   - **S3 Path Prefix**: Optional prefix for S3 objects (default: "logs/")
+4. Click "Test Connection" to verify your settings
+5. Click "Save Configuration" to store your settings
+
+Once enabled, log archives will be automatically uploaded to S3 during log rotation. You can also:
+
+- Manually rotate logs with S3 export by clicking "Rotate Logs with S3 Export"
+- Monitor upload progress and status in real-time
+- Choose to rotate logs locally only, even when S3 is configured
+
 ## Tips and Best Practices
 
 1. **Lock rows** when actively working on them to prevent conflicts
