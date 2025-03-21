@@ -73,6 +73,13 @@ After deployment, the following services will be running:
    - Backend validates, sanitizes, and stores the data
    - Audit events track all API operations
 
+4. **S3 Integration**:
+   - Log archives are automatically exported to S3 during rotation
+   - AWS SDK handles secure uploads with proper credentials
+   - S3 exports can be triggered manually or automatically
+   - Configuration is stored in the data directory
+   - Pre-signed URLs are used for reliable uploads
+
 ## Containerization
 
 All services are containerized using Docker, with configuration managed through Docker Compose. This approach ensures:
