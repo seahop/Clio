@@ -18,7 +18,8 @@
     "node-fetch": "^2.7.0",
     "multer": "^1.4.5-lts.1",
     "archiver": "^6.0.1",
-    "date-fns": "^2.30.0"
+    "date-fns": "^2.30.0",
+    "aws-sdk": "^2.1550.0"
     },
   "scripts": {
     "start": "node server.js",

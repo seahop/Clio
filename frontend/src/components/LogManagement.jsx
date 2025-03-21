@@ -8,11 +8,14 @@ import {
   FileText, 
   Archive, 
   RotateCw,
-  Trash2,
-  FileWarning,
+  Cloud,
   Clock,
-  Download
+  ChevronDown,
+  ChevronRight,
+  FileWarning // Import missing FileWarning component
 } from 'lucide-react';
+import S3ConfigPanel from './S3ConfigPanel';
+import S3UploadModal from './S3UploadModal';
 
 const LogManagement = ({ csrfToken }) => {
   const [loading, setLoading] = useState(true);
@@ -21,6 +24,10 @@ const LogManagement = ({ csrfToken }) => {
   const [logStatus, setLogStatus] = useState(null);
   const [rotationInProgress, setRotationInProgress] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [showS3Config, setShowS3Config] = useState(false);
+  const [s3Enabled, setS3Enabled] = useState(false);
+  const [showS3UploadModal, setShowS3UploadModal] = useState(false);
+  const [currentArchivePath, setCurrentArchivePath] = useState(null);
 
   // Fetch log status from the server
   const fetchLogStatus = async () => {
@@ -41,6 +48,24 @@ const LogManagement = ({ csrfToken }) => {
 
       const data = await response.json();
       setLogStatus(data);
+      
+      // Check if S3 export is enabled
+      try {
+        const s3Response = await fetch('/api/logs/s3-config', {
+          credentials: 'include',
+          headers: {
+            'Accept': 'application/json'
+          }
+        });
+        
+        if (s3Response.ok) {
+          const s3Data = await s3Response.json();
+          setS3Enabled(s3Data.enabled || false);
+        }
+      } catch (s3Error) {
+        console.error('Error fetching S3 config status:', s3Error);
+        // Don't set an error - this is just supplementary information
+      }
     } catch (err) {
       console.error('Error fetching log status:', err);
       setError(err.message);
@@ -51,8 +76,14 @@ const LogManagement = ({ csrfToken }) => {
   };
 
   // Trigger log rotation
-  const triggerRotation = async () => {
-    if (!window.confirm('Are you sure you want to rotate logs now? This will archive current logs and reset log files.')) {
+  const triggerRotation = async (useS3 = null) => {
+    const confirmMessage = useS3 === true 
+      ? 'Are you sure you want to rotate logs and export to S3? This will archive current logs, reset log files, and upload archives to the configured S3 bucket.'
+      : useS3 === false
+        ? 'Are you sure you want to rotate logs WITHOUT S3 export? This will archive current logs and reset log files locally only.'
+        : 'Are you sure you want to rotate logs now? This will archive current logs and reset log files.';
+    
+    if (!window.confirm(confirmMessage)) {
       return;
     }
 
@@ -61,6 +92,13 @@ const LogManagement = ({ csrfToken }) => {
       setError(null);
       setMessage(null);
       
+      const requestBody = {};
+      
+      // Only include useS3 param if explicitly specified
+      if (useS3 !== null) {
+        requestBody.useS3 = useS3;
+      }
+      
       const response = await fetch('/api/logs/rotate', {
         method: 'POST',
         credentials: 'include',
@@ -68,7 +106,7 @@ const LogManagement = ({ csrfToken }) => {
           'Content-Type': 'application/json',
           'CSRF-Token': csrfToken
         },
-        body: JSON.stringify({})
+        body: JSON.stringify(requestBody)
       });
 
       if (!response.ok) {
@@ -79,6 +117,12 @@ const LogManagement = ({ csrfToken }) => {
       const data = await response.json();
       setMessage(data.message || 'Log rotation completed successfully');
       
+      // If S3 export was requested and succeeded, show the S3 upload modal
+      if (useS3 === true && data.success && data.archivePath) {
+        setCurrentArchivePath(data.archivePath);
+        setShowS3UploadModal(true);
+      }
+      
       // Refresh log status after rotation
       await fetchLogStatus();
     } catch (err) {
@@ -87,6 +131,22 @@ const LogManagement = ({ csrfToken }) => {
     } finally {
       setRotationInProgress(false);
     }
+  };
+
+  // Handle S3 config changes
+  const handleS3ConfigSaved = (data) => {
+    setS3Enabled(data.config?.enabled || false);
+    setMessage('S3 configuration updated successfully');
+  };
+
+  // Handle S3 upload success
+  const handleS3UploadSuccess = (result) => {
+    console.log('S3 upload successful:', result);
+    setMessage(`Log archive successfully uploaded to S3: ${result.location}`);
+    // After 3 seconds, close the modal
+    setTimeout(() => {
+      setShowS3UploadModal(false);
+    }, 3000);
   };
 
   // Load log status on component mount
@@ -162,25 +222,72 @@ const LogManagement = ({ csrfToken }) => {
                   {logStatus.logRotation.isInitialized ? 'Active' : 'Inactive'}
                 </span>
               </div>
+              {s3Enabled && (
+                <div className="flex justify-between">
+                  <span>S3 Export:</span>
+                  <span className="text-green-300">Enabled</span>
+                </div>
+              )}
             </div>
           )}
-          <button
-            onClick={triggerRotation}
-            disabled={rotationInProgress}
-            className="w-full px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors duration-200 flex items-center justify-center gap-2 disabled:opacity-50"
-          >
-            {rotationInProgress ? (
-              <>
-                <RefreshCw size={16} className="animate-spin" />
-                Rotating Logs...
-              </>
-            ) : (
-              <>
-                <RotateCw size={16} />
-                Rotate Logs Now
-              </>
-            )}
-          </button>
+          
+          {s3Enabled ? (
+            <div className="space-y-2">
+              <button
+                onClick={() => triggerRotation(true)}
+                disabled={rotationInProgress}
+                className="w-full px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors duration-200 flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                {rotationInProgress ? (
+                  <>
+                    <RefreshCw size={16} className="animate-spin" />
+                    Rotating Logs...
+                  </>
+                ) : (
+                  <>
+                    <Cloud size={16} />
+                    Rotate Logs with S3 Export
+                  </>
+                )}
+              </button>
+              
+              <button
+                onClick={() => triggerRotation(false)}
+                disabled={rotationInProgress}
+                className="w-full px-4 py-2 bg-gray-700 text-gray-300 rounded-md hover:bg-gray-600 transition-colors duration-200 flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                {rotationInProgress ? (
+                  <>
+                    <RefreshCw size={16} className="animate-spin" />
+                    Rotating Logs...
+                  </>
+                ) : (
+                  <>
+                    <RotateCw size={16} />
+                    Rotate Logs (Local Only)
+                  </>
+                )}
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => triggerRotation()}
+              disabled={rotationInProgress}
+              className="w-full px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors duration-200 flex items-center justify-center gap-2 disabled:opacity-50"
+            >
+              {rotationInProgress ? (
+                <>
+                  <RefreshCw size={16} className="animate-spin" />
+                  Rotating Logs...
+                </>
+              ) : (
+                <>
+                  <RotateCw size={16} />
+                  Rotate Logs Now
+                </>
+              )}
+            </button>
+          )}
         </div>
 
         <div className="bg-gray-800 p-4 rounded-lg border border-gray-700">
@@ -201,6 +308,12 @@ const LogManagement = ({ csrfToken }) => {
                 <span>Location:</span>
                 <span className="text-gray-300">backend/data/archives</span>
               </div>
+              {s3Enabled && (
+                <div className="flex justify-between text-sm text-gray-400 mt-1">
+                  <span>S3 Backup:</span>
+                  <span className="text-green-300">Enabled</span>
+                </div>
+              )}
               <div className="mt-4 text-xs text-gray-500">
                 View the full list in the Export panel.
               </div>
@@ -234,6 +347,34 @@ const LogManagement = ({ csrfToken }) => {
             <p className="text-gray-300 text-sm">No status information available</p>
           )}
         </div>
+      </div>
+
+      {/* S3 Configuration Section */}
+      <div className="mb-6">
+        <button
+          onClick={() => setShowS3Config(!showS3Config)}
+          className="w-full p-4 bg-gray-800 rounded-lg border border-gray-700 flex items-center justify-between"
+        >
+          <div className="flex items-center gap-2">
+            <Cloud className="text-blue-400" size={18} />
+            <h3 className="text-lg font-medium text-white">S3 Export Configuration</h3>
+            {s3Enabled && (
+              <span className="bg-green-900/50 text-green-300 text-xs px-2 py-0.5 rounded">
+                Enabled
+              </span>
+            )}
+          </div>
+          {showS3Config ? <ChevronDown size={20} /> : <ChevronRight size={20} />}
+        </button>
+        
+        {showS3Config && (
+          <div className="mt-1 p-1">
+            <S3ConfigPanel 
+              csrfToken={csrfToken} 
+              onConfigSaved={handleS3ConfigSaved}
+            />
+          </div>
+        )}
       </div>
 
       {/* Log files status */}
@@ -283,7 +424,7 @@ const LogManagement = ({ csrfToken }) => {
                         </span>
                       ) : log.status === 'corrupted' ? (
                         <span className="flex items-center gap-1 text-red-300">
-                          <FileWarning size={14} />
+                          <AlertCircle size={14} />
                           Corrupted
                         </span>
                       ) : (
@@ -353,6 +494,7 @@ const LogManagement = ({ csrfToken }) => {
                   <th className="px-3 py-2">Filename</th>
                   <th className="px-3 py-2">Size</th>
                   <th className="px-3 py-2">Created</th>
+                  <th className="px-3 py-2">S3 Status</th>
                 </tr>
               </thead>
               <tbody>
@@ -371,6 +513,21 @@ const LogManagement = ({ csrfToken }) => {
                     <td className="px-3 py-2">
                       {formatDate(archive.created)}
                     </td>
+                    <td className="px-3 py-2">
+                      {archive.s3Uploaded ? (
+                        <span className="flex items-center gap-1 text-green-300">
+                          <Cloud size={14} />
+                          Uploaded
+                        </span>
+                      ) : s3Enabled ? (
+                        <span className="flex items-center gap-1 text-yellow-300">
+                          <Clock size={14} />
+                          Pending
+                        </span>
+                      ) : (
+                        <span className="text-gray-400">Not configured</span>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -383,6 +540,16 @@ const LogManagement = ({ csrfToken }) => {
             </p>
           </div>
         </div>
+      )}
+      
+      {/* S3 Upload Modal */}
+      {showS3UploadModal && (
+        <S3UploadModal
+          show={showS3UploadModal}
+          onClose={() => setShowS3UploadModal(false)}
+          archivePath={currentArchivePath}
+          onSuccess={handleS3UploadSuccess}
+        />
       )}
     </div>
   );

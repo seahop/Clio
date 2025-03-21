@@ -14,7 +14,8 @@
     "postcss": "^8.4.31",
     "autoprefixer": "^10.4.17",
     "jsonwebtoken": "^9.0.2",
-    "http-proxy-middleware": "^2.0.6"
+    "http-proxy-middleware": "^2.0.6",
+    "aws-sdk": "^2.1550.0"
   },
   "devDependencies": {
     "@babel/plugin-proposal-private-property-in-object": "^7.21.11"

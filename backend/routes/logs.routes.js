@@ -7,6 +7,8 @@ const { authenticateJwt, verifyAdmin } = require('../middleware/jwt.middleware')
 const { redactSensitiveData } = require('../utils/sanitize');
 const fetch = require('node-fetch');
 const https = require('https');
+const fs = require('fs').promises;
+const path = require('path');
 
 // Create HTTPS agent that allows self-signed certificates
 const httpsAgent = new https.Agent({
@@ -339,6 +341,87 @@ router.delete('/:id', authenticateJwt, verifyAdmin, async (req, res, next) => {
       timestamp: new Date().toISOString()
     });
     next(error);
+  }
+});
+
+// Route to manually trigger log rotation (admin only)
+router.post('/rotate', authenticateJwt, verifyAdmin, async (req, res, next) => {
+  try {
+    // Get useS3 parameter from request body
+    const { useS3 } = req.body;
+
+    // Check if S3 is available and configured if explicitly requested
+    if (useS3 === true) {
+      const s3ConfigPath = path.join(__dirname, '../config/s3-config.json');
+      
+      try {
+        // Check if S3 config file exists
+        await fs.access(s3ConfigPath);
+        
+        // Read and parse the config
+        const s3ConfigData = await fs.readFile(s3ConfigPath, 'utf8');
+        const s3Config = JSON.parse(s3ConfigData);
+        
+        if (!s3Config.enabled || !s3Config.bucket || !s3Config.accessKeyId || !s3Config.secretAccessKey) {
+          return res.status(400).json({
+            error: 'S3 export requested but not properly configured',
+            message: 'Please configure S3 settings before enabling S3 export'
+          });
+        }
+      } catch (configError) {
+        return res.status(400).json({
+          error: 'S3 export requested but not configured',
+          message: 'S3 configuration not found. Please set up S3 export first.'
+        });
+      }
+    }
+
+    // Log the manual rotation trigger
+    await eventLogger.logAuditEvent('manual_log_rotation', req.user.username, {
+      ip: req.ip,
+      userAgent: req.get('User-Agent'),
+      useS3: useS3 === true,
+      timestamp: new Date().toISOString()
+    });
+    
+    // Import the log rotation manager
+    const logRotationManager = require('../lib/logRotation');
+    
+    // Force rotation of all logs
+    const result = await logRotationManager.forceRotation({ useS3 });
+    
+    // For S3 export, we include the archive path for frontend access
+    let exportPath = null;
+    if (result.archiveFile) {
+      exportPath = `/exports/${result.archiveFile}`;
+    }
+    
+    res.json({
+      success: true,
+      message: `Log rotation completed successfully.${useS3 === true ? ' The archive is ready for S3 upload.' : ''}`,
+      result: {
+        rotatedFiles: result.rotatedFiles,
+        archiveFile: result.archiveFile,
+        timestamp: new Date().toISOString()
+      },
+      s3Requested: useS3 === true,
+      archivePath: exportPath
+    });
+  } catch (error) {
+    console.error('Error triggering log rotation:', error);
+    
+    await eventLogger.logDataEvent('log_rotation_error', req.user.username, {
+      error: error.message,
+      ip: req.ip,
+      userAgent: req.get('User-Agent'),
+      timestamp: new Date().toISOString()
+    });
+    
+    res.status(500).json({
+      success: false,
+      error: 'Failed to trigger log rotation',
+      message: error.message
+    });
   }
 });
 

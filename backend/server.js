@@ -144,6 +144,18 @@ const httpsOptions = {
   minVersion: 'TLSv1.2'
 };
 
+// Ensure exports directory exists
+const ensureExportsDir = async () => {
+  try {
+    const exportsDir = path.join(__dirname, 'exports');
+    await fs.promises.access(exportsDir);
+    console.log('Exports directory exists');
+  } catch (error) {
+    console.log('Creating exports directory');
+    await fs.promises.mkdir(path.join(__dirname, 'exports'), { recursive: true });
+  }
+};
+
 // Routes
 app.get('/api/csrf-token', csrfTokenEndpoint);
 
@@ -161,6 +173,34 @@ if (process.env.NODE_ENV === 'development') {
   });
 }
 
+// Add a debug endpoint for exports
+app.get('/api/debug/exports', authenticateJwt, verifyAdmin, async (req, res) => {
+  try {
+    const exportsDir = path.join(__dirname, 'exports');
+    const files = await fs.promises.readdir(exportsDir);
+    
+    const fileDetails = await Promise.all(files.map(async (file) => {
+      const filePath = path.join(exportsDir, file);
+      const stats = await fs.promises.stat(filePath);
+      return {
+        name: file,
+        size: stats.size,
+        path: `/exports/${file}`,
+        fullPath: filePath,
+        exists: true
+      };
+    }));
+    
+    res.json({ 
+      exportsDir,
+      files: fileDetails,
+      baseUrl: req.protocol + '://' + req.get('host')
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.use('/api/auth', authRoutes);
 app.use('/api/logs', logsRoutes);
 app.use('/api/log-access', require('./routes/logs-access.routes'));
@@ -169,6 +209,11 @@ app.use('/api/sessions', sessionRoutes);
 app.use('/api/evidence', evidenceRoutes);
 app.use('/api/api-keys', apiKeyRoutes);
 app.use('/api/ingest', ingestRoutes);
+app.use('/api/logs/s3-config', require('./routes/s3-config.routes'));
+app.use('/api/health/logs', require('./routes/logs-health.routes'));
+
+// Important change: Serve exports WITHOUT authentication
+app.use('/exports', express.static(path.join(__dirname, 'exports')));
 
 // Health check endpoint with log status
 app.get('/api/health/logs', async (req, res) => {
@@ -410,6 +455,9 @@ async function initialize() {
     // Initialize log rotation system
     await logRotationManager.initialize();
     console.log('Log rotation system initialized');
+    
+    // Ensure exports directory exists
+    await ensureExportsDir();
     
     await waitForRedis();
     console.log('Redis connection established');

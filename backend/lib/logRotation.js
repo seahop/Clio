@@ -1,4 +1,4 @@
-// backend/lib/logRotation.js
+// lib/logRotation.js
 const fs = require('fs').promises;
 const path = require('path');
 const archiver = require('archiver');
@@ -9,11 +9,13 @@ const eventLogger = require('./eventLogger');
 /**
  * Log Rotation Module
  * Handles automatic rotation of application logs
+ * Now with S3 export capability
  */
 class LogRotationManager {
   constructor(options = {}) {
     this.dataDir = options.dataDir || path.join(__dirname, '../data');
     this.archiveDir = options.archiveDir || path.join(this.dataDir, 'archives');
+    this.exportDir = options.exportDir || path.join(__dirname, '../exports');
     this.logFiles = options.logFiles || [
       'security_logs.json',
       'data_logs.json',
@@ -24,6 +26,7 @@ class LogRotationManager {
     this.maxLogsPerFile = options.maxLogsPerFile || 10000; // Match eventLogger.js limit
     this.timer = null;
     this.isInitialized = false;
+    this.s3Uploads = new Map(); // Track S3 upload status for archives
   }
 
   /**
@@ -35,6 +38,7 @@ class LogRotationManager {
     try {
       // Ensure archive directory exists
       await this.ensureDirectoryExists(this.archiveDir);
+      await this.ensureDirectoryExists(this.exportDir);
       
       // Perform initial check and schedule ongoing rotation
       await this.checkAndRotate();
@@ -192,8 +196,11 @@ class LogRotationManager {
 
   /**
    * Rotate the specified log files
+   * @param {Array} logFiles - Array of log files to rotate
+   * @param {Object} options - Options for rotation
+   * @param {boolean} options.useS3 - Whether to mark for S3 export
    */
-  async rotateLogs(logFiles) {
+  async rotateLogs(logFiles, options = {}) {
     try {
       // Current date for naming archives
       const dateStr = format(new Date(), 'yyyy-MM-dd');
@@ -201,8 +208,14 @@ class LogRotationManager {
       const archiveFileName = `logs_${dateStr}_${timestamp}.zip`;
       const archivePath = path.join(this.archiveDir, archiveFileName);
       
+      // Also create a copy in the exports directory for frontend access
+      const exportPath = path.join(this.exportDir, archiveFileName);
+      
       // Create a zip archive
       await this.createArchive(logFiles, archivePath);
+      
+      // Create a copy in exports directory
+      await fs.copyFile(archivePath, exportPath);
       
       // Reset each log file
       const resets = [];
@@ -212,10 +225,19 @@ class LogRotationManager {
       
       await Promise.all(resets);
       
-      // Log the rotation event
+      // Set S3 upload status if requested
+      if (options.useS3) {
+        this.s3Uploads.set(archiveFileName, {
+          status: 'pending',
+          createdAt: new Date().toISOString()
+        });
+      }
+      
+      // Log the rotation event with S3 info if applicable
       await eventLogger.logSystemEvent('log_rotation_completed', {
         rotatedFiles: logFiles,
         archiveFile: archiveFileName,
+        s3Export: options.useS3 ? 'requested' : 'not_requested',
         timestamp: new Date().toISOString()
       });
       
@@ -224,7 +246,10 @@ class LogRotationManager {
       return {
         success: true,
         rotatedFiles: logFiles,
-        archiveFile: archiveFileName
+        archiveFile: archiveFileName,
+        archivePath,
+        exportPath,
+        s3Export: options.useS3 || false
       };
     } catch (error) {
       console.error('Log rotation failed:', error);
@@ -281,10 +306,52 @@ class LogRotationManager {
 
   /**
    * Manually trigger log rotation
+   * @param {Object} options - Options for rotation
+   * @param {boolean} options.useS3 - Whether to mark for S3 export
    */
-  async forceRotation() {
-    console.log('Manual log rotation triggered');
-    return this.rotateLogs(this.logFiles);
+  async forceRotation(options = {}) {
+    console.log('Manual log rotation triggered', options);
+    return this.rotateLogs(this.logFiles, options);
+  }
+
+  /**
+   * Update S3 upload status for an archive
+   * @param {string} archiveFileName - The archive file name
+   * @param {string} status - The new status (pending, success, failed)
+   * @param {Object} details - Additional details
+   */
+  updateS3UploadStatus(archiveFileName, status, details = {}) {
+    this.s3Uploads.set(archiveFileName, {
+      status,
+      ...details,
+      updatedAt: new Date().toISOString()
+    });
+
+    console.log(`Updated S3 upload status for ${archiveFileName} to ${status}`);
+  }
+
+  /**
+   * Get S3 upload status for an archive
+   * @param {string} archiveFileName - The archive file name
+   * @returns {Object|null} The upload status or null if not found
+   */
+  getS3UploadStatus(archiveFileName) {
+    return this.s3Uploads.get(archiveFileName) || null;
+  }
+
+  /**
+   * Get all S3 upload statuses
+   * @returns {Array} Array of archive statuses
+   */
+  getAllS3UploadStatuses() {
+    const statuses = [];
+    for (const [archiveFileName, status] of this.s3Uploads.entries()) {
+      statuses.push({
+        archiveFileName,
+        ...status
+      });
+    }
+    return statuses;
   }
 }
 
