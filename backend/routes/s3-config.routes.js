@@ -3,6 +3,7 @@ const express = require('express');
 const router = express.Router();
 const { authenticateJwt, verifyAdmin } = require('../middleware/jwt.middleware');
 const s3ConfigController = require('../controllers/s3-config.controller');
+const eventLogger = require('../lib/eventLogger');
 
 // All routes require JWT authentication and admin privileges
 router.use(authenticateJwt);

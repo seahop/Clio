@@ -9,7 +9,7 @@ const eventLogger = require('./eventLogger');
 /**
  * Log Rotation Module
  * Handles automatic rotation of application logs
- * Now with S3 export capability
+ * Now with S3 export capability and synchronization with event logger
  */
 class LogRotationManager {
   constructor(options = {}) {
@@ -27,6 +27,7 @@ class LogRotationManager {
     this.timer = null;
     this.isInitialized = false;
     this.s3Uploads = new Map(); // Track S3 upload status for archives
+    this.isRotating = false; // Flag to track active rotation
   }
 
   /**
@@ -102,7 +103,21 @@ class LogRotationManager {
    * Check if logs need to be rotated and perform rotation if necessary
    */
   async checkAndRotate() {
+    // Check if rotation is already in progress
+    if (this.isRotating) {
+      console.log('Log rotation already in progress, skipping check');
+      return {
+        success: true,
+        rotatedFiles: [],
+        message: 'Log rotation already in progress',
+        timestamp: new Date().toISOString()
+      };
+    }
+
     try {
+      // Set the rotating flag to prevent concurrent rotations
+      this.isRotating = true;
+
       // Check each log file's size
       const rotations = [];
       
@@ -116,12 +131,17 @@ class LogRotationManager {
       // If any files need rotation, perform the rotation
       if (rotations.length > 0) {
         await this.rotateLogs(rotations);
+        
+        this.isRotating = false;  // Reset the flag
+        
         return {
           success: true,
           rotatedFiles: rotations,
           timestamp: new Date().toISOString()
         };
       }
+      
+      this.isRotating = false;  // Reset the flag
       
       return {
         success: true,
@@ -131,6 +151,10 @@ class LogRotationManager {
       };
     } catch (error) {
       console.error('Log rotation check failed:', error);
+      
+      // Make sure to reset the rotation flag in case of error
+      this.isRotating = false;
+      
       await eventLogger.logSystemEvent('log_rotation_check_failed', {
         error: error.message,
         timestamp: new Date().toISOString()
@@ -211,6 +235,17 @@ class LogRotationManager {
       // Also create a copy in the exports directory for frontend access
       const exportPath = path.join(this.exportDir, archiveFileName);
       
+      // Get log type for each file (remove _logs.json suffix)
+      const logTypes = logFiles.map(file => file.replace('_logs.json', ''));
+      
+      // Set rotation locks for each file to prevent race conditions
+      for (const logType of logTypes) {
+        await eventLogger.setRotationLock(logType, true);
+      }
+      
+      // Wait a short time for any in-flight writes to complete
+      await new Promise(resolve => setTimeout(resolve, 200));
+      
       // Create a zip archive
       await this.createArchive(logFiles, archivePath);
       
@@ -224,6 +259,11 @@ class LogRotationManager {
       }
       
       await Promise.all(resets);
+      
+      // Release rotation locks - do this AFTER files have been reset
+      for (const logType of logTypes) {
+        await eventLogger.setRotationLock(logType, false);
+      }
       
       // Set S3 upload status if requested
       if (options.useS3) {
@@ -253,6 +293,13 @@ class LogRotationManager {
       };
     } catch (error) {
       console.error('Log rotation failed:', error);
+      
+      // Make sure to release locks in case of error
+      for (const logFile of logFiles) {
+        const logType = logFile.replace('_logs.json', '');
+        await eventLogger.setRotationLock(logType, false);
+      }
+      
       await eventLogger.logSystemEvent('log_rotation_failed', {
         error: error.message,
         timestamp: new Date().toISOString()
@@ -310,8 +357,34 @@ class LogRotationManager {
    * @param {boolean} options.useS3 - Whether to mark for S3 export
    */
   async forceRotation(options = {}) {
-    console.log('Manual log rotation triggered', options);
-    return this.rotateLogs(this.logFiles, options);
+    // Check if rotation is already in progress
+    if (this.isRotating) {
+      console.log('Log rotation already in progress, cannot force rotation');
+      return {
+        success: false,
+        error: 'Log rotation already in progress',
+        timestamp: new Date().toISOString()
+      };
+    }
+    
+    try {
+      // Set the rotation flag
+      this.isRotating = true;
+      
+      console.log('Manual log rotation triggered', options);
+      const result = await this.rotateLogs(this.logFiles, options);
+      
+      // Reset the rotation flag
+      this.isRotating = false;
+      
+      return result;
+    } catch (error) {
+      // Make sure to reset the flag in case of error
+      this.isRotating = false;
+      
+      console.error('Forced log rotation failed:', error);
+      throw error;
+    }
   }
 
   /**
