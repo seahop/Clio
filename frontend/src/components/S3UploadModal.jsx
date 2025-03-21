@@ -23,6 +23,9 @@ const S3UploadModal = ({ show, onClose, archivePath, onSuccess }) => {
       setProgress(0);
       setError(null);
       
+      // Extract file name from path for status tracking
+      const archiveFileName = archivePath.split('/').pop();
+      
       // Fetch S3 configuration
       const config = await s3UploadService.getS3Config();
       setS3Config(config);
@@ -59,6 +62,21 @@ const S3UploadModal = ({ show, onClose, archivePath, onSuccess }) => {
       setUploadResult(result);
       setUploadStatus('success');
       
+      // Update status on the backend - THIS IS THE NEW CODE
+      try {
+        await s3UploadService.updateUploadStatus(archiveFileName, 'success', {
+          location: result.location,
+          bucket: result.bucket,
+          objectKey: result.objectKey,
+          uploadMethod: usePresignedUrl ? 'presigned-url' : 'direct-sdk',
+          uploadedAt: new Date().toISOString()
+        });
+        console.log('Updated S3 upload status on backend');
+      } catch (statusError) {
+        // Don't fail the whole operation if status update fails
+        console.error('Failed to update S3 upload status on backend:', statusError);
+      }
+      
       // Notify parent component of success
       if (onSuccess) {
         onSuccess(result);
@@ -67,6 +85,18 @@ const S3UploadModal = ({ show, onClose, archivePath, onSuccess }) => {
       console.error('S3 upload error:', err);
       setError(err.message);
       setUploadStatus('error');
+      
+      // Update failure status on backend if possible
+      try {
+        const archiveFileName = archivePath.split('/').pop();
+        await s3UploadService.updateUploadStatus(archiveFileName, 'failed', {
+          error: err.message,
+          errorCode: err.code,
+          failedAt: new Date().toISOString()
+        });
+      } catch (statusError) {
+        console.error('Failed to update error status on backend:', statusError);
+      }
     }
   };
 

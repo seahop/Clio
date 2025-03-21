@@ -118,18 +118,19 @@ const S3ConfigPanel = ({ csrfToken, onConfigSaved }) => {
       setSaving(true);
       setError(null);
       setMessage(null);
-
+  
       // Validate inputs
       if (!config.bucket || !config.region || !config.accessKeyId || !config.secretAccessKey) {
         throw new Error('All S3 configuration fields are required to test the connection');
       }
-
+  
       // Don't send the masked password back to the server
       const configToSend = {
         ...config,
         secretAccessKey: config.secretAccessKey === '••••••••••••••••' ? null : config.secretAccessKey
       };
-
+  
+      // First test with backend API
       const response = await fetch('/api/logs/s3-config/test', {
         method: 'POST',
         credentials: 'include',
@@ -139,14 +140,25 @@ const S3ConfigPanel = ({ csrfToken, onConfigSaved }) => {
         },
         body: JSON.stringify(configToSend)
       });
-
+  
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to test S3 connection');
+        throw new Error(errorData.error || errorData.message || 'Failed to test S3 connection');
       }
-
+  
       const data = await response.json();
-      setMessage(`S3 connection test successful! ${data.message || ''}`);
+      
+      // Success message with additional details if available
+      let successMsg = `S3 connection test successful! ${data.message || ''}`;
+      if (data.details) {
+        if (data.details.objectCount > 0) {
+          successMsg += ` Found ${data.details.objectCount} object(s) in bucket.`;
+        } else {
+          successMsg += ' Bucket exists but appears to be empty.';
+        }
+      }
+      
+      setMessage(successMsg);
     } catch (err) {
       console.error('Error testing S3 connection:', err);
       setError(err.message);

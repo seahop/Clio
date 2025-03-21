@@ -278,6 +278,41 @@ class S3UploadService {
       throw error;
     }
   }
+
+  /**
+   * Update the S3 upload status on the backend
+   * @param {string} archiveFileName - The name of the archive file
+   * @param {string} status - The status (success, failed)
+   * @param {Object} details - Additional details about the upload
+   * @returns {Promise<Object>} Status update result
+   */
+  async updateUploadStatus(archiveFileName, status, details = {}) {
+    try {
+      const response = await fetch('/api/logs/s3-config/upload-status', {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+          'CSRF-Token': window.csrfToken
+        },
+        body: JSON.stringify({
+          archiveFileName,
+          status,
+          details
+        })
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to update upload status');
+      }
+      
+      return await response.json();
+    } catch (error) {
+      console.error('Error updating S3 upload status:', error);
+      throw error;
+    }
+  }
   
   /**
    * Test the S3 connection using the provided credentials

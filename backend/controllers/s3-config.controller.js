@@ -158,7 +158,7 @@ const saveS3Config = async (req, res) => {
 const testS3Connection = async (req, res) => {
   try {
     const { bucket, region, accessKeyId, secretAccessKey, prefix } = req.body;
-
+    
     // Validate input
     if (!bucket || !region || !accessKeyId || !secretAccessKey) {
       return res.status(400).json({ 
@@ -167,28 +167,89 @@ const testS3Connection = async (req, res) => {
       });
     }
 
-    // In a full implementation, you would use the AWS SDK to test the connection
-    // For example, you might try to list objects in the bucket or put a test object
+    // Load AWS SDK for actual testing
+    const AWS = require('aws-sdk');
     
-    // For now, just simulate a successful test
-    // In production, this would be replaced with actual AWS SDK calls
-
-    // Log the test
-    await eventLogger.logAuditEvent('test_s3_connection', req.user.username, {
-      bucket,
-      region,
-      // Don't log sensitive credentials
-      success: true,
-      ip: req.ip,
-      userAgent: req.get('User-Agent'),
-      timestamp: new Date().toISOString()
+    // Configure AWS SDK with provided credentials
+    AWS.config.update({
+      accessKeyId: accessKeyId,
+      secretAccessKey: secretAccessKey,
+      region: region
     });
-
-    // Return success
-    res.json({
-      success: true,
-      message: 'Connection to S3 bucket successful. Your configuration is valid.'
+    
+    // Create S3 instance
+    const s3 = new AWS.S3({
+      signatureVersion: 'v4', // Use v4 signature for better compatibility
+      httpOptions: {
+        timeout: 5000 // 5 second timeout for faster feedback
+      }
     });
+    
+    // Test by listing objects with a prefix (this is a minimal permission operation)
+    try {
+      // Perform the actual API call to verify connection
+      const data = await s3.listObjectsV2({
+        Bucket: bucket,
+        MaxKeys: 1,
+        Prefix: prefix || ''
+      }).promise();
+      
+      // Log the successful test
+      await eventLogger.logAuditEvent('test_s3_connection', req.user.username, {
+        bucket,
+        region,
+        success: true,
+        ip: req.ip,
+        userAgent: req.get('User-Agent'),
+        timestamp: new Date().toISOString()
+      });
+      
+      // Return success with details
+      res.json({
+        success: true,
+        message: 'Connection to S3 bucket successful. Your configuration is valid.',
+        details: {
+          bucketExists: true, 
+          objectCount: data.Contents ? data.Contents.length : 0,
+          truncated: data.IsTruncated || false
+        }
+      });
+    } catch (awsError) {
+      // Handle common AWS errors with user-friendly messages
+      let errorMessage = 'Unknown AWS error occurred';
+      let errorDetail = awsError.message;
+      
+      if (awsError.code === 'NoSuchBucket') {
+        errorMessage = `Bucket "${bucket}" does not exist or you don't have access to it`;
+      } else if (awsError.code === 'AccessDenied') {
+        errorMessage = 'Access denied. Check your IAM permissions for this bucket';
+      } else if (awsError.code === 'InvalidAccessKeyId') {
+        errorMessage = 'Invalid Access Key ID. Please check your credentials';
+      } else if (awsError.code === 'SignatureDoesNotMatch') {
+        errorMessage = 'Invalid Secret Access Key. Please check your credentials';
+      } else if (awsError.code === 'NetworkingError') {
+        errorMessage = 'Network error. Check your internet connection and region setting';
+      }
+      
+      // Log the failed test
+      await eventLogger.logAuditEvent('test_s3_connection', req.user.username, {
+        bucket,
+        region,
+        success: false,
+        error: errorMessage,
+        errorCode: awsError.code,
+        ip: req.ip,
+        userAgent: req.get('User-Agent'),
+        timestamp: new Date().toISOString()
+      });
+      
+      // Return detailed error to frontend
+      return res.status(400).json({
+        error: errorMessage,
+        detail: errorDetail,
+        code: awsError.code
+      });
+    }
   } catch (error) {
     console.error('Error testing S3 connection:', error);
     

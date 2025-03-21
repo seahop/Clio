@@ -47,6 +47,44 @@ const LogManagement = ({ csrfToken }) => {
       }
 
       const data = await response.json();
+      
+      // Process S3 status for display
+      if (data.archives && data.archives.length > 0) {
+        // Make sure we display the current S3 status properly
+        data.archives = data.archives.map(archive => {
+          // Check if we have S3 status info
+          if (archive.s3Status) {
+            // Add a human-readable status for display
+            let statusDisplay = archive.s3Status;
+            let statusClass = '';
+            
+            switch (archive.s3Status) {
+              case 'success':
+                statusDisplay = 'Uploaded';
+                statusClass = 'text-green-300';
+                break;
+              case 'pending':
+                statusDisplay = 'Pending';
+                statusClass = 'text-yellow-300';
+                break;
+              case 'failed':
+                statusDisplay = 'Failed';
+                statusClass = 'text-red-300';
+                break;
+              default:
+                statusDisplay = archive.s3Status.charAt(0).toUpperCase() + archive.s3Status.slice(1);
+            }
+            
+            return {
+              ...archive,
+              s3StatusDisplay: statusDisplay,
+              s3StatusClass: statusClass
+            };
+          }
+          return archive;
+        });
+      }
+      
       setLogStatus(data);
       
       // Check if S3 export is enabled
@@ -514,7 +552,12 @@ const LogManagement = ({ csrfToken }) => {
                       {formatDate(archive.created)}
                     </td>
                     <td className="px-3 py-2">
-                      {archive.s3Uploaded ? (
+                      {archive.s3StatusDisplay ? (
+                        <span className={`flex items-center gap-1 ${archive.s3StatusClass}`}>
+                          <Cloud size={14} />
+                          {archive.s3StatusDisplay}
+                        </span>
+                      ) : archive.s3Uploaded ? (
                         <span className="flex items-center gap-1 text-green-300">
                           <Cloud size={14} />
                           Uploaded
