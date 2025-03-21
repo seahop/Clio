@@ -352,7 +352,8 @@ router.post('/rotate', authenticateJwt, verifyAdmin, async (req, res, next) => {
 
     // Check if S3 is available and configured if explicitly requested
     if (useS3 === true) {
-      const s3ConfigPath = path.join(__dirname, '../config/s3-config.json');
+      // UPDATED PATH: Changed from ../config/s3-config.json to ../data/s3-config.json
+      const s3ConfigPath = path.join(__dirname, '../data/s3-config.json');
       
       try {
         // Check if S3 config file exists

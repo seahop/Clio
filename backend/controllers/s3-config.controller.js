@@ -1,28 +1,28 @@
-// backend/controllers/s3-config.controller.js
+// backend/controllers/s3-config.controller.js - UPDATED PATH
 const fs = require('fs').promises;
 const path = require('path');
 const eventLogger = require('../lib/eventLogger');
 const { redactSensitiveData } = require('../utils/sanitize');
 
-// Path to the S3 configuration file
-const S3_CONFIG_PATH = path.join(__dirname, '../config/s3-config.json');
+// Updated path to store in data directory instead of config directory
+const S3_CONFIG_PATH = path.join(__dirname, '../data/s3-config.json');
 
-// Ensure config directory exists
-const ensureConfigDir = async () => {
-  const configDir = path.dirname(S3_CONFIG_PATH);
+// Ensure data directory exists - it should already exist, but checking to be safe
+const ensureDataDir = async () => {
+  const dataDir = path.dirname(S3_CONFIG_PATH);
   try {
-    await fs.access(configDir);
+    await fs.access(dataDir);
   } catch (error) {
-    console.log('Creating config directory');
-    await fs.mkdir(configDir, { recursive: true });
+    console.log('Creating data directory');
+    await fs.mkdir(dataDir, { recursive: true });
   }
 };
 
 // Get S3 configuration
 const getS3Config = async (req, res) => {
   try {
-    // Ensure config directory exists
-    await ensureConfigDir();
+    // Ensure data directory exists
+    await ensureDataDir();
 
     // Check if config file exists
     try {
@@ -96,8 +96,8 @@ const saveS3Config = async (req, res) => {
       }
     }
 
-    // Ensure config directory exists
-    await ensureConfigDir();
+    // Ensure data directory exists
+    await ensureDataDir();
 
     // Try to read existing config
     let currentConfig = { enabled: false };
@@ -120,7 +120,7 @@ const saveS3Config = async (req, res) => {
       prefix: prefix || currentConfig.prefix || 'logs/'
     };
 
-    // Save to file
+    // Save to file - now in data directory
     await fs.writeFile(S3_CONFIG_PATH, JSON.stringify(newConfig, null, 2));
 
     // Log configuration change
@@ -218,14 +218,10 @@ const getPresignedUrl = async (req, res) => {
       
       // Load AWS SDK on server side
       const AWS = require('aws-sdk');
-      const fs = require('fs').promises;
-      const path = require('path');
       
-      // Load S3 config
-      const configPath = path.join(__dirname, '../config/s3-config.json');
-      
+      // Load S3 config - UPDATED PATH
       try {
-        await fs.access(configPath);
+        await fs.access(S3_CONFIG_PATH);
       } catch (error) {
         return res.status(404).json({ 
           error: 'S3 configuration not found',
@@ -233,7 +229,7 @@ const getPresignedUrl = async (req, res) => {
         });
       }
       
-      const s3ConfigData = await fs.readFile(configPath, 'utf8');
+      const s3ConfigData = await fs.readFile(S3_CONFIG_PATH, 'utf8');
       const s3Config = JSON.parse(s3ConfigData);
       
       if (!s3Config.enabled || !s3Config.bucket || !s3Config.accessKeyId || !s3Config.secretAccessKey) {
@@ -296,10 +292,9 @@ const getPresignedUrl = async (req, res) => {
     }
   };
   
-  // Make sure to add this to the exports at the bottom of the file:
-  module.exports = {
-    getS3Config,
-    saveS3Config,
-    testS3Connection,
-    getPresignedUrl
-  };
+module.exports = {
+  getS3Config,
+  saveS3Config,
+  testS3Connection,
+  getPresignedUrl
+};

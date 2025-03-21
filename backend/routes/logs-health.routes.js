@@ -117,10 +117,10 @@ router.get('/', authenticateJwt, verifyAdmin, async (req, res) => {
       maxLogsPerFile: logRotationManager.maxLogsPerFile
     };
     
-    // Check S3 configuration status
+    // Check S3 configuration status - UPDATED PATH TO DATA DIRECTORY
     let s3Enabled = false;
     try {
-      const s3ConfigPath = path.join(__dirname, '../config/s3-config.json');
+      const s3ConfigPath = path.join(__dirname, '../data/s3-config.json');
       await fs.access(s3ConfigPath);
       const s3ConfigData = await fs.readFile(s3ConfigPath, 'utf8');
       const s3Config = JSON.parse(s3ConfigData);
