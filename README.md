@@ -65,6 +65,7 @@ For detailed information about Clio, please refer to our documentation:
 - [User Guide](./docs/user-guide.md) - How to use the application
 - [API Documentation](./docs/api-guide.md) - Working with the Clio API
 - [Using Log Forwarders](./log_exporter/README.md) - Forwarding of logs for C2s
+- [Google OAuth Integration](./docs/sso-integration.md) - How to set up and use Google SSO
 
 ## License
 
