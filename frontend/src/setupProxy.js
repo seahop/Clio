@@ -37,11 +37,51 @@ module.exports = function(app) {
           });
           proxyRes.headers['set-cookie'] = cookies;
         }
+        
+        // Special handling for Google OAuth redirects
+        // If the backend sends a redirect, we need to ensure it uses the frontend URL
+        if (proxyRes.headers.location && 
+            (req.path.includes('/auth/google') || 
+             proxyRes.headers.location.includes('google.com'))) {
+          
+          // Log the original redirect for debugging
+          if (debug) {
+            console.log('[OAuth] Original redirect:', proxyRes.headers.location);
+          }
+          
+          // Don't modify Google's own redirects
+          if (proxyRes.headers.location.startsWith('https://accounts.google.com')) {
+            if (debug) {
+              console.log('[OAuth] Preserving Google redirect');
+            }
+          } 
+          // Only adjust backend redirects to frontend
+          else if (proxyRes.headers.location.includes('backend:3001')) {
+            // Replace backend URL with frontend URL
+            const frontendUrl = process.env.FRONTEND_URL || 'https://localhost:3000';
+            const backendUrl = 'https://backend:3001';
+            
+            proxyRes.headers.location = proxyRes.headers.location.replace(
+              backendUrl, 
+              frontendUrl
+            );
+            
+            if (debug) {
+              console.log('[OAuth] Modified redirect:', proxyRes.headers.location);
+            }
+          }
+        }
       },
       onProxyReq: function(proxyReq, req, res) {
         // Copy auth cookies from frontend to the backend
         if (req.headers.cookie) {
           proxyReq.setHeader('Cookie', req.headers.cookie);
+        }
+        
+        // Log OAuth-related requests for debugging
+        if (debug && req.path.includes('/auth/google')) {
+          console.log('[OAuth] Proxying request:', req.method, req.path);
+          console.log('[OAuth] Query params:', req.query);
         }
       }
     })

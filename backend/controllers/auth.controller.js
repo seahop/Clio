@@ -514,6 +514,55 @@ const changeOwnPassword = async (req, res) => {
   }
 };
 
+// Google login callback handler
+const googleLoginCallback = async (req, res) => {
+  try {
+    // User has been authenticated via Google and attached to req.user
+    const user = req.user;
+    
+    if (!user) {
+      // This shouldn't happen with proper Passport setup, but just in case
+      throw new Error('No user data provided by Google authentication');
+    }
+    
+    // Create JWT token
+    const tokenData = await createJwtToken(user);
+    
+    if (!tokenData) {
+      throw new Error('Failed to create authentication token');
+    }
+    
+    // Set the JWT token in a cookie
+    res.cookie('auth_token', tokenData.token, SESSION_OPTIONS);
+    
+    // Log successful login
+    await eventLogger.logSecurityEvent('google_login_success', user.username, {
+      ip: req.ip,
+      userAgent: req.get('User-Agent'),
+      timestamp: new Date().toISOString()
+    });
+    
+    // Redirect to the frontend
+    // IMPORTANT: Use the root path instead of the full URL
+    // Let the proxy handle the proper domain translation
+    return res.redirect('/');
+  } catch (error) {
+    console.error('Google auth callback error:', error);
+    
+    // Log the error
+    await eventLogger.logSecurityEvent('google_login_error', 'unknown', {
+      error: error.message,
+      ip: req.ip,
+      userAgent: req.get('User-Agent'),
+      timestamp: new Date().toISOString()
+    });
+    
+    // Redirect to login with error
+    // IMPORTANT: Use relative path to let proxy handle domain translation
+    return res.redirect('/login?error=google_auth_failed');
+  }
+};
+
 module.exports = {
   loginUser,
   logoutUser,
@@ -521,5 +570,6 @@ module.exports = {
   revokeAllSessions: revokeAllUserSessions,
   changePassword,
   forcePasswordReset,
-  changeOwnPassword
+  changeOwnPassword,
+  googleLoginCallback
 };

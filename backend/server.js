@@ -23,6 +23,8 @@ const { csrfProtection, csrfTokenEndpoint } = require('./middleware/csrf.middlew
 const { authenticateJwt, verifyAdmin } = require('./middleware/jwt.middleware');
 const db = require('./db');
 const url = require('url');
+const passport = require('passport');
+const { initializeGoogleSSO } = require('./lib/passport-google');
 
 const app = express();
 
@@ -34,6 +36,14 @@ app.set('serverInstanceId', security.SERVER_INSTANCE_ID);
 // Middleware setup
 app.use(bodyParser.json({ limit: '1mb' }));
 app.use(cookieParser());
+app.use(passport.initialize());
+
+if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
+  initializeGoogleSSO();
+  console.log('Google SSO initialized');
+} else {
+  console.log('Google SSO not configured - skipping initialization');
+}
 
 // Enhanced CORS configuration
 app.use(cors({

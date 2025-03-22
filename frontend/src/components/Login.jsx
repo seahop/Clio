@@ -6,6 +6,7 @@ import PasswordChangeForm from './auth/PasswordChangeForm';
 const Login = ({ onLoginSuccess, csrfToken }) => {
   const [showPasswordChange, setShowPasswordChange] = useState(false);
   const [username, setUsername] = useState('');
+  const [error, setError] = useState('');
 
   // Check for stored password change requirement on mount
   useEffect(() => {
@@ -19,6 +20,14 @@ const Login = ({ onLoginSuccess, csrfToken }) => {
         console.error('Error parsing password change data:', error);
         localStorage.removeItem('passwordChangeRequired');
       }
+    }
+
+    // Check for error parameters in URL on mount
+    const urlParams = new URLSearchParams(window.location.search);
+    const errorParam = urlParams.get('error');
+    
+    if (errorParam === 'google_auth_failed') {
+      setError('Google authentication failed. Please try again or use username/password login.');
     }
   }, []);
 
@@ -45,6 +54,7 @@ const Login = ({ onLoginSuccess, csrfToken }) => {
     <LoginForm
       onLoginSuccess={handleLoginSuccess}
       csrfToken={csrfToken}
+      initialError={error}
     />
   );
 };

@@ -2,6 +2,7 @@
 import React, { useState } from 'react';
 import { LogIn } from 'lucide-react';
 import { validateLoginInput } from '../../utils/passwordValidation';
+import GoogleLoginButton from './GoogleLoginButton';
 
 const LoginForm = ({ onLoginSuccess, csrfToken }) => {
   const [username, setUsername] = useState('');
@@ -154,6 +155,20 @@ const LoginForm = ({ onLoginSuccess, csrfToken }) => {
                 Please wait while security is initialized...
               </p>
             )}
+          </div>
+          
+          {/* Google SSO option */}
+          <div className="mt-5 relative">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-gray-600"></div>
+            </div>
+            <div className="relative flex justify-center text-sm">
+              <span className="px-3 bg-gray-900 text-gray-400">Or continue with</span>
+            </div>
+          </div>
+
+          <div className="mt-4">
+            <GoogleLoginButton />
           </div>
         </form>
       </div>
