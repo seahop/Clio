@@ -203,6 +203,26 @@ Admins can configure S3 storage for log archives:
 4. Click "Test Connection" to verify your settings
 5. Click "Save Configuration" to store your settings
 
+Please make sure on the bucket side to update the CORS configuration for the S3 bucket:
+[
+    {
+        "AllowedHeaders": [
+            "*"
+        ],
+        "AllowedMethods": [
+            "PUT",
+            "POST",
+            "GET"
+        ],
+        "AllowedOrigins": [
+            "https://yourdomain.com"
+        ],
+        "ExposeHeaders": [
+            "ETag"
+        ]
+    }
+]
+
 Once enabled, log archives will be automatically uploaded to S3 during log rotation. You can also:
 
 - Manually rotate logs with S3 export by clicking "Rotate Logs with S3 Export"

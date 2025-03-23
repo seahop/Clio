@@ -4,8 +4,8 @@ services:
       context: ./frontend
       args:
         - NODE_ENV=production
-    ports:
-      - "${BIND_ADDRESS:-0.0.0.0}:3000:3000"
+    expose:
+      - "3000"
     volumes:
       - type: bind
         source: ./certs
@@ -191,6 +191,20 @@ services:
       timeout: 5s
       retries: 5
     restart: unless-stopped
+
+  nginx-proxy:
+      build: ./nginx-proxy
+      ports:
+        - "80:80"
+        - "443:443"
+      volumes:
+        - ./certs:/etc/nginx/certs:ro
+      networks:
+        - frontend-network
+      restart: unless-stopped
+      depends_on:
+        - frontend
+        - backend
 
 volumes:
   redis_data:
