@@ -204,6 +204,7 @@ Admins can configure S3 storage for log archives:
 5. Click "Save Configuration" to store your settings
 
 Please make sure on the bucket side to update the CORS configuration for the S3 bucket:
+```json
 [
     {
         "AllowedHeaders": [
@@ -222,6 +223,7 @@ Please make sure on the bucket side to update the CORS configuration for the S3 
         ]
     }
 ]
+```
 
 Once enabled, log archives will be automatically uploaded to S3 during log rotation. You can also:
 
