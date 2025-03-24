@@ -166,7 +166,7 @@ To ensure system stability, API requests are rate-limited:
 ### cURL Example
 
 ```bash
-curl -k -X POST https://your-IP-or-Host:3000/ingest/logs \
+curl -k -X POST https://your-IP-or-Host/ingest/logs \
   -H "Content-Type: application/json" \
   -H "X-API-Key: rtl_yourkey_abc123" \
   -d '{
@@ -192,7 +192,7 @@ import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 def send_log(api_key, log_data):
-    url = "https://your-IP-or-Host:3000/ingest/logs"
+    url = "https://your-IP-or-Host/ingest/logs"
     headers = {
         "Content-Type": "application/json",
         "X-API-Key": api_key
@@ -221,7 +221,7 @@ print(result)
 # Disable SSL certificate validation for self-signed certs
 [System.Net.ServicePointManager]::ServerCertificateValidationCallback = {$true}
 
-$url = "https://your-IP-or-Host:3000/ingest/logs"
+$url = "https://your-IP-or-Host/ingest/logs"
 $headers = @{
     "Content-Type" = "application/json"
     "X-API-Key" = "rtl_yourkey_abc123"

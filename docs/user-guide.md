@@ -6,7 +6,7 @@ This guide explains how to use the Clio Logging Platform for red team operations
 
 ### Authentication
 
-1. Access the application at https://localhost:3000 (or your configured domain)
+1. Access the application at https://localhost (or your configured domain)
 2. Log in with your provided credentials:
    - For the first login, use the credentials generated during setup
    - You will be prompted to change your password on first login

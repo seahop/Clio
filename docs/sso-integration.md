@@ -42,10 +42,10 @@ Before configuring Google SSO in Clio, you need to set up OAuth 2.0 credentials 
    - Select "Web application" as the application type
    - Name your OAuth client
    - Add Authorized JavaScript origins:
-     - Standard setup: `https://your-hostname:3000`
+     - Standard setup: `https://your-hostname`
      - Ngrok setup: `https://your-subdomain.ngrok-free.app` (no port)
    - Add Authorized redirect URIs:
-     - Standard setup: `https://your-hostname:3000/api/auth/google/callback`
+     - Standard setup: `https://your-hostname/api/auth/google/callback`
      - Ngrok setup: `https://your-subdomain.ngrok-free.app/api/auth/google/callback` (no port)
    - Click "Create"
 
@@ -76,22 +76,22 @@ python3 generate-env.py [frontend_url] --google-client-id=CLIENT_ID --google-cli
 
 1. **Local development setup**:
    ```bash
-   python3 generate-env.py https://localhost:3000 --google-client-id=123456789.apps.googleusercontent.com --google-client-secret=abcdef123456
+   python3 generate-env.py https://localhost --google-client-id=123456789.apps.googleusercontent.com --google-client-secret=abcdef123456
    ```
 
 2. **Setup with IP address (for local network access)**:
    ```bash
-   python3 generate-env.py https://192.168.1.113:3000 --google-client-id=123456789.apps.googleusercontent.com --google-client-secret=abcdef123456
+   python3 generate-env.py https://192.168.1.113 --google-client-id=123456789.apps.googleusercontent.com --google-client-secret=abcdef123456
    ```
 
 3. **Setup with IP and ngrok for Google Auth**:
    ```bash
-   python3 generate-env.py https://192.168.1.113:3000 --google-client-id=123456789.apps.googleusercontent.com --google-client-secret=abcdef123456 --google-callback-url=https://your-subdomain.ngrok-free.app/api/auth/google/callback
+   python3 generate-env.py https://192.168.1.113 --google-client-id=123456789.apps.googleusercontent.com --google-client-secret=abcdef123456 --google-callback-url=https://your-subdomain.ngrok-free.app/api/auth/google/callback
    ```
 
 4. **Production setup with custom domain**:
    ```bash
-   python3 generate-env.py https://clio.example.com:3000 --google-client-id=123456789.apps.googleusercontent.com --google-client-secret=abcdef123456
+   python3 generate-env.py https://clio.example.com --google-client-id=123456789.apps.googleusercontent.com --google-client-secret=abcdef123456
    ```
 
 If you don't specify a callback URL, the script will automatically generate one based on your frontend URL's hostname, which works for local development but not with ngrok tunnels.
@@ -102,14 +102,14 @@ Ngrok is useful for exposing your local development environment to the internet,
 
 ### Step-by-Step Ngrok Setup
 
-1. **Start ngrok pointing to port 3000**:
+1. **Start ngrok pointing to port 443**:
    ```bash
-   ngrok http https://yourIPorHostname:3000
+   ngrok http https://yourIPorHostname
    ```
    
    For a more consistent experience, use a fixed subdomain (requires ngrok account):
    ```bash
-   ngrok http https://yourIPorHostname:3000 --subdomain=your-subdomain
+   ngrok http https://yourIPorHostname --subdomain=your-subdomain
    ```
 
 2. **Note your ngrok URL** (e.g., `https://abcd-123-45-67-89.ngrok-free.app`)
@@ -120,7 +120,7 @@ Ngrok is useful for exposing your local development environment to the internet,
 
 4. **Generate your environment with your local IP/hostname and ngrok callback URL**:
    ```bash
-   python3 generate-env.py https://192.168.1.1:3000 --google-client-id=YOUR_CLIENT_ID --google-client-secret=YOUR_CLIENT_SECRET --google-callback-url=https://your-subdomain.ngrok-free.app/api/auth/google/callback
+   python3 generate-env.py https://192.168.1.1 --google-client-id=YOUR_CLIENT_ID --google-client-secret=YOUR_CLIENT_SECRET --google-callback-url=https://your-subdomain.ngrok-free.app/api/auth/google/callback
    ```
 
    Note: The first URL is your local IP/hostname, while the callback URL is your ngrok URL.
@@ -138,14 +138,14 @@ When starting ngrok, you can use either:
 
 ```bash
 # Basic usage - just specify the port
-ngrok http 3000
+ngrok http 443
 ```
 
 Or, for a system where your Clio is configured with a specific local IP:
 
 ```bash
 # Point to specific IP and port
-ngrok http https://192.168.1.1:3000
+ngrok http https://192.168.1.1
 ```
 
 Both approaches will work, but the first one is simpler and usually sufficient.
@@ -156,7 +156,7 @@ Here's a complete working example with the correct order of operations:
 
 ```bash
 # 1. Start ngrok
-ngrok http https://192.168.1.1:3000
+ngrok http https://192.168.1.1
 
 # 2. Get your ngrok URL (e.g., https://abcd-123-45-67-89.ngrok-free.app)
 # 3. Set this URL in Google Cloud Console for JavaScript origin and redirect URI
@@ -164,7 +164,7 @@ The Javascript origin might look like this:https://abcd-123-45-67-89.ngrok-free.
 The Redirect URL might look like this: https://abcd-123-45-67-89.ngrok-free.app/api/auth/google/callback
 
 # 4. Generate environment with local IP and ngrok callback
-python3 generate-env.py https://192.168.1.1:3000 --google-client-id=123456789.apps.googleusercontent.com --google-client-secret=GOCSPX-abcdefghijklmno --google-callback-url=https://abcd-123-45-67-89.ngrok-free.app/api/auth/google/callback
+python3 generate-env.py https://192.168.1.1 --google-client-id=123456789.apps.googleusercontent.com --google-client-secret=GOCSPX-abcdefghijklmno --google-callback-url=https://abcd-123-45-67-89.ngrok-free.app/api/auth/google/callback
 
 # 5. Start the application
 docker-compose up --build
@@ -182,7 +182,7 @@ docker-compose up --build
   3. Restart your application
 - The ngrok tunnel must be running whenever you want to use Google SSO
 - Remember: Your local setup URL (first parameter) and Google callback URL (optional parameter) serve different purposes:
-  - The local URL (e.g., `https://192.168.1.1:3000`) is for certificate generation and where your application runs
+  - The local URL (e.g., `https://192.168.1.1`) is for certificate generation and where your application runs
   - The callback URL (e.g., `https://abcd-123-45-67-89.ngrok-free.app/api/auth/google/callback`) is where Google redirects after authentication
 
 ## How It Works

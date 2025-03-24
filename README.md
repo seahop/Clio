@@ -30,6 +30,7 @@ A secure, collaborative logging system designed for red team operations and secu
    ```bash
    git clone https://github.com/seahop/Clio.git
    cd Clio
+   ./setup.sh
    ```
 
 2. Generate environment variables and security keys:
@@ -42,7 +43,11 @@ A secure, collaborative logging system designed for red team operations and secu
    pip install -r requirements.txt
 
    # Generate certs and env
-   python generate-env.py https://yourIPorHost:3000
+   python generate-env.py https://yourIPorHost
+   ```
+   or for production style
+   ```bash
+   sudo python3 generate-env.py https://yourdomain.com --letsencrypt --domain=yourdomain.com --email=your@email.com --google-client-id=123456.your.client.id --google-client-secret=YOUR-SECRET --google-callback-url=https://yourdomain.com/api/auth/google/callback
    ```
 
 3. Build and start the containers:
@@ -52,7 +57,7 @@ A secure, collaborative logging system designed for red team operations and secu
    ```
 
 4. Access the application at:
-   - https://localhost:3000 (or your custom domain/IP)
+   - https://localhost (or your custom domain/IP)
 
 The default admin and user passwords will be displayed in the console output and saved in a credentials backup file.
 
