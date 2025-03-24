@@ -43,7 +43,7 @@ A secure, collaborative logging system designed for red team operations and secu
    pip install -r requirements.txt
 
    # Generate certs and env
-   python generate-env.py https://yourIPorHost
+   sudo python generate-env.py https://yourIPorHost
    ```
    or for production style
    ```bash

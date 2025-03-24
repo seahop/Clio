@@ -5,10 +5,10 @@ from urllib.parse import urlparse
 
 # Help text to display in the CLI
 HELP_TEXT = """
-RedTeamLogger Environment Generator
+Clio Environment Generator
 
 This script generates the necessary environment configuration, security keys, 
-and SSL certificates for the RedTeamLogger application.
+and SSL certificates for the Clio application.
 
 Basic usage:
     sudo python3 generate-env.py [frontend_url]
@@ -45,7 +45,7 @@ Notes:
 def parse_arguments():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(
-        description='Generate environment configuration for RedTeamLogger',
+        description='Generate environment configuration for Clio',
         epilog=HELP_TEXT,
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
