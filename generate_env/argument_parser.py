@@ -11,25 +11,26 @@ This script generates the necessary environment configuration, security keys,
 and SSL certificates for the RedTeamLogger application.
 
 Basic usage:
-    python3 generate-env.py [frontend_url]
+    sudo python3 generate-env.py [frontend_url]
 
 Advanced usage with Let's Encrypt:
-    python3 generate-env.py [frontend_url] --letsencrypt --dns-challenge --domain=myapp.example.com --email=admin@example.com
+    sudo python3 generate-env.py [frontend_url] --letsencrypt --dns-challenge --domain=myapp.example.com --email=admin@example.com
 
 Advanced usage with Google SSO:
-    python3 generate-env.py [frontend_url] --google-client-id=CLIENT_ID --google-client-secret=CLIENT_SECRET
+    sudo python3 generate-env.py [frontend_url] --google-client-id=CLIENT_ID --google-client-secret=CLIENT_SECRET
 
 Combined usage:
-    python3 generate-env.py [frontend_url] --letsencrypt --dns-challenge --domain=myapp.example.com --email=admin@example.com --google-client-id=CLIENT_ID --google-client-secret=CLIENT_SECRET
+    sudo python3 generate-env.py [frontend_url] --letsencrypt --dns-challenge --domain=myapp.example.com --email=admin@example.com --google-client-id=CLIENT_ID --google-client-secret=CLIENT_SECRET
 
 Examples:
-    python3 generate-env.py https://localhost:3000
-    python3 generate-env.py https://192.168.1.100:3000
-    python3 generate-env.py https://myapp.example.com --letsencrypt --dns-challenge --domain=myapp.example.com --email=admin@example.com
-    python3 generate-env.py https://myapp.example.com --google-client-id=123456789.apps.googleusercontent.com --google-client-secret=abcdef123456
+    sudo python3 generate-env.py https://localhost
+    sudo python3 generate-env.py https://192.168.1.100
+    sudo python3 generate-env.py https://myapp.example.com --letsencrypt --dns-challenge --domain=myapp.example.com --email=admin@example.com
+    sudo python3 generate-env.py https://myapp.example.com --google-client-id=123456789.apps.googleusercontent.com --google-client-secret=abcdef123456
+    sudo python3 generate-env.py https://yourdomain.com --letsencrypt --domain=yourdomain.com --email=your@email.com --google-client-id=123456.your.client.id --google-client-secret=YOUR-SECRET --google-callback-url=https://yourdomain.com/api/auth/google/callback
 
 Notes:
-    - If no frontend URL is provided, https://localhost:3000 will be used by default
+    - If no frontend URL is provided, https://localhost will be used by default
     - For Let's Encrypt certificate generation:
         - --letsencrypt flag enables Let's Encrypt
         - --dns-challenge uses the DNS challenge method (recommended for VPN environments)
@@ -48,8 +49,8 @@ def parse_arguments():
         epilog=HELP_TEXT,
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    parser.add_argument('frontend_url', nargs='?', default='https://localhost:3000', 
-                        help='Frontend URL (default: https://localhost:3000)')
+    parser.add_argument('frontend_url', nargs='?', default='https://localhost', 
+                        help='Frontend URL (default: https://localhost)')
     parser.add_argument('--self-signed', action='store_true', default=True,
                         help='Generate self-signed certificates (default)')
     parser.add_argument('--letsencrypt', action='store_true', default=False,
