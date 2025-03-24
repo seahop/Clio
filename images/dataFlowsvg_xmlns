@@ -10,12 +10,12 @@
   <text x="60" y="160" font-family="Arial" font-size="10" fill="#9ca3af">Docker Host</text>
   
   <!-- Frontend Network Boundary - Draw second -->
-  <rect x="100" y="170" width="600" height="200" rx="10" ry="10" stroke="#3b82f6" stroke-width="2" stroke-dasharray="10,5" fill="#3b82f610"/>
+  <rect x="100" y="170" width="600" height="240" rx="10" ry="10" stroke="#3b82f6" stroke-width="2" stroke-dasharray="10,5" fill="#3b82f610"/>
   <text x="120" y="190" font-family="Arial" font-size="14" fill="#3b82f6">Frontend Network</text>
   
   <!-- Backend Network Boundary - Draw third -->
-  <rect x="100" y="400" width="600" height="340" rx="10" ry="10" stroke="#64748b" stroke-width="2" stroke-dasharray="5,3" fill="#64748b10"/>
-  <text x="405" y="420" font-family="Arial" font-size="14" fill="#64748b">Backend Network (Internal, No External Access)</text>
+  <rect x="100" y="440" width="600" height="340" rx="10" ry="10" stroke="#64748b" stroke-width="2" stroke-dasharray="5,3" fill="#64748b10"/>
+  <text x="405" y="460" font-family="Arial" font-size="14" fill="#64748b">Backend Network (Internal, No External Access)</text>
   
   <!-- Legend -->
   <g transform="translate(550, 60)">
@@ -40,106 +40,120 @@
     <text x="0" y="-5" font-family="Arial" font-size="16" text-anchor="middle" fill="#f8fafc">User</text>
     <text x="0" y="10" font-family="Arial" font-size="14" text-anchor="middle" fill="#f8fafc">(Browser)</text>
   </g>
+
+  <!-- Nginx Proxy - New Component -->
+  <g transform="translate(400, 210)">
+    <rect x="-90" y="-40" width="180" height="80" rx="5" ry="5" fill="#7c3aed" stroke="#8b5cf6" stroke-width="2"/>
+    <text x="0" y="0" font-family="Arial" font-size="16" text-anchor="middle" fill="#f8fafc">Nginx Proxy</text>
+    <text x="0" y="25" font-family="Arial" font-size="14" text-anchor="middle" fill="#f8fafc">(Ports 80, 443)</text>
+  </g>
   
   <!-- Frontend Service - Only in Frontend Network -->
-  <g transform="translate(400, 260)">
+  <g transform="translate(400, 320)">
     <rect x="-90" y="-40" width="180" height="80" rx="5" ry="5" fill="#1e40af" stroke="#3b82f6" stroke-width="2"/>
     <text x="0" y="0" font-family="Arial" font-size="16" text-anchor="middle" fill="#f8fafc">Frontend</text>
     <text x="0" y="25" font-family="Arial" font-size="14" text-anchor="middle" fill="#f8fafc">React (Port 3000)</text>
   </g>
   
   <!-- Backend Service - Spans both networks -->
-  <g transform="translate(250, 470)">
+  <g transform="translate(250, 530)">
     <rect x="-90" y="-40" width="180" height="80" rx="5" ry="5" fill="#1e40af" stroke="#3b82f6" stroke-width="2"/>
     <text x="0" y="0" font-family="Arial" font-size="16" text-anchor="middle" fill="#f8fafc">Backend</text>
     <text x="0" y="25" font-family="Arial" font-size="14" text-anchor="middle" fill="#f8fafc">Express (Port 3001)</text>
   </g>
   
   <!-- Relation Service - Spans both networks -->
-  <g transform="translate(550, 470)">
+  <g transform="translate(550, 530)">
     <rect x="-90" y="-40" width="180" height="80" rx="5" ry="5" fill="#1e40af" stroke="#3b82f6" stroke-width="2"/>
     <text x="0" y="0" font-family="Arial" font-size="16" text-anchor="middle" fill="#f8fafc">Relation Service</text>
     <text x="0" y="25" font-family="Arial" font-size="14" text-anchor="middle" fill="#f8fafc">Express (Port 3002)</text>
   </g>
   
   <!-- PostgreSQL - Firmly in Backend Network -->
-  <g transform="translate(500, 620)">
+  <g transform="translate(500, 680)">
     <rect x="-80" y="-40" width="160" height="80" rx="5" ry="5" fill="#0f766e" stroke="#14b8a6" stroke-width="2"/>
     <text x="0" y="0" font-family="Arial" font-size="16" text-anchor="middle" fill="#f8fafc">PostgreSQL</text>
     <text x="0" y="25" font-family="Arial" font-size="14" text-anchor="middle" fill="#f8fafc">(Port 5432)</text>
   </g>
   
   <!-- Redis - Firmly in Backend Network -->
-  <g transform="translate(250, 620)">
+  <g transform="translate(250, 680)">
     <rect x="-80" y="-40" width="160" height="80" rx="5" ry="5" fill="#b45309" stroke="#f59e0b" stroke-width="2"/>
     <text x="0" y="0" font-family="Arial" font-size="16" text-anchor="middle" fill="#f8fafc">Redis</text>
     <text x="0" y="25" font-family="Arial" font-size="14" text-anchor="middle" fill="#f8fafc">(Port 6379)</text>
   </g>
   
   <!-- Connection lines -->
-  <!-- User to Frontend -->
-  <line x1="400" y1="140" x2="400" y2="220" stroke="#22c55e" stroke-width="4"/>
-  <text x="425" y="190" font-family="Arial" font-size="12" fill="#f8fafc">HTTPS</text>
+  <!-- User to Nginx Proxy -->
+  <line x1="400" y1="140" x2="400" y2="170" stroke="#22c55e" stroke-width="4"/>
+  <text x="415" y="160" font-family="Arial" font-size="12" fill="#f8fafc">HTTPS</text>
+  
+  <!-- Nginx Proxy to Frontend -->
+  <line x1="400" y1="250" x2="400" y2="280" stroke="#22c55e" stroke-width="4"/>
+  <text x="415" y="270" font-family="Arial" font-size="12" fill="#f8fafc">HTTPS</text>
+  <text x="415" y="255" font-family="Arial" font-size="10" fill="#f8fafc">All Traffic</text>
   
   <!-- Frontend to Backend -->
-  <line x1="350" y1="300" x2="280" y2="430" stroke="#22c55e" stroke-width="4"/>
-  <text x="330" y="350" font-family="Arial" font-size="12" fill="#f8fafc">HTTPS</text>
+  <line x1="350" y1="360" x2="280" y2="490" stroke="#22c55e" stroke-width="4"/>
+  <text x="330" y="425" font-family="Arial" font-size="12" fill="#f8fafc">HTTPS</text>
+  <text x="330" y="410" font-family="Arial" font-size="10" fill="#f8fafc">/api</text>
   
   <!-- Frontend to Relation Service -->
-  <line x1="450" y1="300" x2="520" y2="430" stroke="#22c55e" stroke-width="4"/>
-  <text x="490" y="350" font-family="Arial" font-size="12" fill="#f8fafc">HTTPS</text>
+  <line x1="450" y1="360" x2="520" y2="490" stroke="#22c55e" stroke-width="4"/>
+  <text x="490" y="425" font-family="Arial" font-size="12" fill="#f8fafc">HTTPS</text>
+  <text x="450" y="410" font-family="Arial" font-size="10" fill="#f8fafc">/relation-service</text>
   
   <!-- Backend to Relation Service -->
-  <line x1="340" y1="470" x2="460" y2="470" stroke="#22c55e" stroke-width="4"/>
-  <text x="380" y="460" font-family="Arial" font-size="12" fill="#f8fafc">HTTPS</text>
+  <line x1="340" y1="530" x2="460" y2="530" stroke="#22c55e" stroke-width="4"/>
+  <text x="400" y="520" font-family="Arial" font-size="12" fill="#f8fafc">HTTPS</text>
   
   <!-- Backend to PostgreSQL -->
-  <line x1="280" y1="510" x2="440" y2="580" stroke="#22c55e" stroke-width="4"/>
-  <text x="360" y="540" font-family="Arial" font-size="12" fill="#f8fafc">SSL</text>
+  <line x1="280" y1="570" x2="440" y2="640" stroke="#22c55e" stroke-width="4"/>
+  <text x="360" y="605" font-family="Arial" font-size="12" fill="#f8fafc">SSL</text>
   
   <!-- Relation Service to PostgreSQL -->
-  <line x1="520" y1="510" x2="500" y2="580" stroke="#22c55e" stroke-width="4"/>
-  <text x="530" y="540" font-family="Arial" font-size="12" fill="#f8fafc">SSL</text>
+  <line x1="520" y1="570" x2="500" y2="640" stroke="#22c55e" stroke-width="4"/>
+  <text x="530" y="605" font-family="Arial" font-size="12" fill="#f8fafc">SSL</text>
   
   <!-- Backend to Redis -->
-  <line x1="220" y1="510" x2="250" y2="580" stroke="#22c55e" stroke-width="4"/>
-  <text x="205" y="550" font-family="Arial" font-size="12" fill="#f8fafc">TLS</text>
+  <line x1="220" y1="570" x2="250" y2="640" stroke="#22c55e" stroke-width="4"/>
+  <text x="205" y="605" font-family="Arial" font-size="12" fill="#f8fafc">TLS</text>
   
   <!-- Data Flow Annotations -->
   <!-- User Auth Flow -->
-  <path d="M400,140 C400,160 350,220 350,260 C350,310 250,390 240,430 C240,470 210,540 250,580" stroke="#f59e0b" stroke-width="2" stroke-dasharray="5,3" fill="none"/>
-  <text x="230" y="210" font-family="Arial" font-size="12" fill="#f59e0b">User Authentication Flow</text>
+  <path d="M400,140 C400,160 400,185 400,210 C400,230 400,250 400,280 C350,310 250,390 240,490 C240,530 240,610 250,640" stroke="#f59e0b" stroke-width="2" stroke-dasharray="5,3" fill="none"/>
+  <text x="135" y="400" font-family="Arial" font-size="12" fill="#f59e0b">User Authentication Flow</text>
 
   <!-- Log Data Flow - Now with clearer continuity and branching -->
-  <path d="M400,140 C400,160 450,220 450,260 C450,310 350,390 320,430 C310,450 310,490 290,510 C280,530 350,570 500,580" stroke="#f59e0b" stroke-width="2" stroke-dasharray="5,3" fill="none"/>
-  <text x="440" y="210" font-family="Arial" font-size="12" fill="#f59e0b">Log Data Flow</text>
+  <path d="M400,140 C400,160 400,185 400,210 C400,230 400,250 400,280 C450,310 550,390 550,490 C550,530 530,610 500,640" stroke="#f59e0b" stroke-width="2" stroke-dasharray="5,3" fill="none"/>
+  <text x="530" y="400" font-family="Arial" font-size="12" fill="#f59e0b">Log Data Flow</text>
 
   <!-- Relation Data Flow - Connected to the Backend flow -->
-  <path d="M320,480 C350,490 450,490 480,470 C520,510 520,540 510,570 C505,575 502,580 500,580" stroke="#f59e0b" stroke-width="2" stroke-dasharray="5,3" fill="none"/>
-  <text x="400" y="510" font-family="Arial" font-size="12" fill="#f59e0b">Real-time Relation Analysis</text>
-  
-  <!-- Notes Section -->
-  <g transform="translate(400, 730)">
-    <rect x="-300" y="-30" width="600" height="70" rx="5" ry="5" fill="#374151" stroke="#6b7280" stroke-width="1"/>
-    <text x="0" y="-10" font-family="Arial" font-size="14" text-anchor="middle" fill="#f8fafc">Security Features:</text>
-    <text x="-255" y="8" font-family="Arial" font-size="12" fill="#f8fafc">• Self-signed certificates</text>
-    <text x="-80" y="8" font-family="Arial" font-size="12" fill="#f8fafc">• Encrypted Redis data at rest</text>
-    <text x="120" y="8" font-family="Arial" font-size="12" fill="#f8fafc">• PostgreSQL SSL connections</text>
-    <text x="0" y="30" font-family="Arial" font-size="12" text-anchor="middle" fill="#f8fafc">• All database services isolated in internal backend network</text>
-  </g>
+  <path d="M280,530 C350,550 450,550 480,530 C520,570 510,630 500,640" stroke="#f59e0b" stroke-width="2" stroke-dasharray="5,3" fill="none"/>
+  <text x="360" y="580" font-family="Arial" font-size="12" fill="#f59e0b">Real-time Relation Analysis</text>
   
   <!-- Port exposition indicators -->
-  <g transform="translate(400, 320)">
+  <g transform="translate(350, 210)">
+    <circle cx="-115" cy="0" r="12" fill="#f8fafc" fill-opacity="0.2" stroke="#f8fafc" stroke-width="1"/>
+    <text x="-115" y="3" font-family="Arial" font-size="10" text-anchor="middle" fill="#f8fafc">80</text>
+  </g>
+  
+  <g transform="translate(350, 210)">
+    <circle cx="-85" cy="0" r="12" fill="#f8fafc" fill-opacity="0.2" stroke="#f8fafc" stroke-width="1"/>
+    <text x="-85" y="3" font-family="Arial" font-size="10" text-anchor="middle" fill="#f8fafc">443</text>
+  </g>
+
+  <g transform="translate(400, 380)">
     <circle cx="90" cy="-10" r="12" fill="#f8fafc" fill-opacity="0.2" stroke="#f8fafc" stroke-width="1"/>
     <text x="90" y="-8" font-family="Arial" font-size="10" text-anchor="middle" fill="#f8fafc">3000</text>
   </g>
   
-  <g transform="translate(250, 510)">
+  <g transform="translate(250, 570)">
     <circle cx="90" cy="0" r="12" fill="#f8fafc" fill-opacity="0.2" stroke="#f8fafc" stroke-width="1"/>
     <text x="90" y="3" font-family="Arial" font-size="10" text-anchor="middle" fill="#f8fafc">3001</text>
   </g>
   
-  <g transform="translate(550, 510)">
+  <g transform="translate(550, 570)">
     <circle cx="90" cy="0" r="12" fill="#f8fafc" fill-opacity="0.2" stroke="#f8fafc" stroke-width="1"/>
     <text x="90" y="3" font-family="Arial" font-size="10" text-anchor="middle" fill="#f8fafc">3002</text>
   </g>
