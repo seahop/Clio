@@ -17,6 +17,7 @@ def create_environment_config(args, credentials):
             'user_password': credentials['user_password'],
             'redis_password': credentials['redis_password'],
             'postgres_password': credentials['postgres_password'],
+            'field_encryption_key': credentials.get('field_encryption_key', generate_fallback_field_encryption_key()),
         }
         
         # Create .env files for each service
@@ -33,6 +34,11 @@ def create_environment_config(args, credentials):
     
     # Add entries to .gitignore
     update_gitignore()
+
+def generate_fallback_field_encryption_key():
+    """Generate a fallback field encryption key if not provided in credentials."""
+    import secrets
+    return secrets.token_hex(32)
 
 def create_core_env(args, creds):
     """Generate the core .env file with minimal environment variables for docker-compose."""
@@ -69,6 +75,9 @@ ADMIN_PASSWORD={creds['admin_password']}
 USER_PASSWORD={creds['user_password']}
 REDIS_PASSWORD={creds['redis_password']}
 REDIS_SSL=true
+
+# Field-level encryption for sensitive data (passwords)
+FIELD_ENCRYPTION_KEY={creds['field_encryption_key']}
 
 # PostgreSQL Configuration
 POSTGRES_USER=postgres

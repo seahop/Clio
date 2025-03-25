@@ -34,6 +34,9 @@ def generate_security_credentials(args):
         credentials['redis_password'] = generate_secure_password(16)
         credentials['postgres_password'] = generate_secure_password(32)
         
+        # Add field encryption key for sensitive data
+        credentials['field_encryption_key'] = generate_secure_key(32)
+        
         # Create a backup of the credentials
         backup_filename = create_credentials_backup(credentials, args)
         credentials['backup_file'] = backup_filename
@@ -62,7 +65,8 @@ Database Password: {credentials['postgres_password']}
 Redis Password: {credentials['redis_password']}
 Redis Encryption Key: {credentials['redis_encryption_key']}
 Redis SSL: true
-JWT Secret: {credentials['jwt_secret']}"""
+JWT Secret: {credentials['jwt_secret']}
+Field Encryption Key: {credentials['field_encryption_key']}"""
 
     # Add Google SSO credentials to the backup if provided
     if args.google_client_id and args.google_client_secret:

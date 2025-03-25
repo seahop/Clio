@@ -1,11 +1,68 @@
-// models/logs.js
+// models/logs.js - Updated with encryption
 const db = require('../db');
 const { redactSensitiveData } = require('../utils/sanitize');
+const fieldEncryption = require('../utils/encryption');
 
 // List of fields that should be protected in logs and responses
 const SENSITIVE_FIELDS = ['secrets'];
 
+// Fields that should be encrypted in the database
+const ENCRYPTED_FIELDS = ['secrets'];
+
 const LogsModel = {
+  /**
+   * Process an object before saving to database - encrypts sensitive fields
+   * @param {Object} data - The data object to process
+   * @returns {Object} - The processed data with encrypted fields
+   */
+  _processForStorage(data) {
+    const processed = { ...data };
+    
+    // Encrypt fields that need encryption
+    ENCRYPTED_FIELDS.forEach(field => {
+      if (processed[field] !== undefined && processed[field] !== null) {
+        processed[field] = JSON.stringify(fieldEncryption.encrypt(processed[field]));
+      }
+    });
+    
+    return processed;
+  },
+  
+  /**
+   * Process a database record before returning to client - decrypts encrypted fields
+   * @param {Object} record - The database record
+   * @returns {Object} - The processed record with decrypted fields
+   */
+  _processFromStorage(record) {
+    if (!record) return record;
+    
+    const processed = { ...record };
+    
+    // Decrypt fields that are encrypted
+    ENCRYPTED_FIELDS.forEach(field => {
+      if (processed[field]) {
+        try {
+          const encryptedData = JSON.parse(processed[field]);
+          processed[field] = fieldEncryption.decrypt(encryptedData);
+        } catch (error) {
+          // If we can't parse as JSON, it might not be encrypted yet
+          console.log(`Field ${field} does not appear to be encrypted`);
+        }
+      }
+    });
+    
+    return processed;
+  },
+  
+  /**
+   * Process multiple records from storage
+   * @param {Array} records - Array of database records
+   * @returns {Array} - Processed records with decrypted fields
+   */
+  _processMultipleFromStorage(records) {
+    return records.map(record => this._processFromStorage(record));
+  },
+
   async getAllLogs(includeSecrets = true) {
     try {
       // Always include all fields - we'll only redact for logging purposes
@@ -14,8 +71,11 @@ const LogsModel = {
          ORDER BY timestamp DESC, id DESC`  // Added id as secondary sort
       );
       
+      // Process records to decrypt any encrypted fields
+      const processedLogs = this._processMultipleFromStorage(result.rows);
+      
       // Return the logs with actual secrets intact
-      return result.rows;
+      return processedLogs;
     } catch (error) {
       console.error('Error getting logs:', error);
       throw error;
@@ -34,8 +94,11 @@ const LogsModel = {
         return null;
       }
       
+      // Process record to decrypt any encrypted fields
+      const processedLog = this._processFromStorage(result.rows[0]);
+      
       // Return the log with actual secrets intact
-      return result.rows[0];
+      return processedLog;
     } catch (error) {
       console.error('Error getting log by ID:', error);
       throw error;
@@ -44,6 +107,9 @@ const LogsModel = {
 
   async createLog(logData) {
     try {
+      // Process data for storage (encrypt sensitive fields)
+      const processedData = this._processForStorage(logData);
+      
       const result = await db.query(
         `INSERT INTO logs (
           timestamp, internal_ip, external_ip, mac_address, hostname,
@@ -53,25 +119,28 @@ const LogsModel = {
         RETURNING *`,
         [
           new Date(),
-          logData.internal_ip,
-          logData.external_ip,
-          logData.mac_address,
-          logData.hostname,
-          logData.domain,
-          logData.username,
-          logData.command,
-          logData.notes,
-          logData.filename,
-          logData.status,
-          logData.secrets,
-          logData.analyst,
-          logData.hash_algorithm,
-          logData.hash_value
+          processedData.internal_ip,
+          processedData.external_ip,
+          processedData.mac_address,
+          processedData.hostname,
+          processedData.domain,
+          processedData.username,
+          processedData.command,
+          processedData.notes,
+          processedData.filename,
+          processedData.status,
+          processedData.secrets,
+          processedData.analyst,
+          processedData.hash_algorithm,
+          processedData.hash_value
         ]
       );
       
+      // Process the returned record to decrypt fields
+      const createdLog = this._processFromStorage(result.rows[0]);
+      
       // Return the actual log with secrets intact for the UI
-      return result.rows[0];
+      return createdLog;
     } catch (error) {
       console.error('Error creating log:', error);
       throw error;
@@ -86,12 +155,15 @@ const LogsModel = {
         'secrets', 'locked', 'locked_by', 'hash_algorithm', 'hash_value'
       ];
 
+      // Process updates for storage (encrypt sensitive fields)
+      const processedUpdates = this._processForStorage(updates);
+
       // Filter out any fields that aren't in allowedUpdates
-      const filteredUpdates = Object.keys(updates)
+      const filteredUpdates = Object.keys(processedUpdates)
         .filter(key => allowedUpdates.includes(key))
         .reduce((obj, key) => {
           // Handle empty strings - convert to null for database
-          obj[key] = updates[key] === '' ? null : updates[key];
+          obj[key] = processedUpdates[key] === '' ? null : processedUpdates[key];
           return obj;
         }, {});
 
@@ -115,8 +187,15 @@ const LogsModel = {
         values
       );
 
+      if (result.rows.length === 0) {
+        return null;
+      }
+
+      // Process the returned record to decrypt fields
+      const updatedLog = this._processFromStorage(result.rows[0]);
+      
       // Return the updated log with actual secrets intact for the UI
-      return result.rows[0];
+      return updatedLog;
     } catch (error) {
       console.error('Error updating log:', error);
       throw error;
@@ -141,8 +220,8 @@ const LogsModel = {
         [id]
       );
       
-      // For return to UI, keep the original data
-      const deletedLog = getResult.rows[0];
+      // Process record to decrypt any encrypted fields
+      const deletedLog = this._processFromStorage(getResult.rows[0]);
       
       // Also create a redacted version for logging purposes
       const redactedLog = redactSensitiveData(deletedLog, SENSITIVE_FIELDS);
@@ -173,7 +252,10 @@ const LogsModel = {
 
   // Add a helper method to get a redacted version
   getRedactedLog(log) {
-    return redactSensitiveData(log, SENSITIVE_FIELDS);
+    // First make sure encrypted fields are decrypted
+    const processedLog = typeof log === 'object' ? this._processFromStorage(log) : log;
+    // Then redact sensitive data
+    return redactSensitiveData(processedLog, SENSITIVE_FIELDS);
   }
 };
 
