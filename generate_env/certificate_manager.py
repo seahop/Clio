@@ -98,7 +98,7 @@ def generate_self_signed_certificate(args):
         subject = issuer = x509.Name([
             x509.NameAttribute(NameOID.COMMON_NAME, args.hostname),
             x509.NameAttribute(NameOID.COUNTRY_NAME, "US"),
-            x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Red Team Logger Development"),
+            x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Clio Logging Platform"),
         ])
         
         # Certificate validity
@@ -143,7 +143,7 @@ def generate_self_signed_certificate(args):
         os.chmod(cert_path, 0o644)
         
         # Create symbolic links or copy files for service-specific names with correct permissions
-        for service in ['frontend', 'backend', 'db', 'redis', 'relation-service']:
+        for service in ['redis', 'backend']:
             service_key_path = certs_dir / f"{service}.key"
             service_cert_path = certs_dir / f"{service}.crt"
             
