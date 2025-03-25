@@ -76,6 +76,10 @@ def print_success_message(args, credentials):
         print("- Google SSO has been configured with the provided credentials")
         print(f"- Callback URL: {args.google_callback_url}")
     
+    print("\n\033[33mEnvironment Setup:\033[0m")
+    print("- Service-specific .env files have been created in each service directory")
+    print("- Each service only has access to the environment variables it needs")
+    
     print("\n\033[33mNext steps:\033[0m")
     print("1. Run docker-compose up --build to start the application")
     print("2. Access the application at " + args.frontend_url)

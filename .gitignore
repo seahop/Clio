@@ -1,5 +1,5 @@
 */node_modules/*
-.env
+*.env
 credentials-backup-*.txt
 certs/*
 package-lock.json
@@ -13,3 +13,6 @@ backend/data/logs.json
 backend/data/auth_logs.json
 server.crt 
 server.key
+*__pycache__*
+.env
+server.crt

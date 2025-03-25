@@ -11,6 +11,8 @@ services:
         source: ./certs
         target: /app/certs
         read_only: true
+    env_file:
+      - ./frontend/.env
     environment:
       - NODE_ENV=production
       - HTTPS=true
@@ -51,7 +53,7 @@ services:
         target: /app/exports
       - evidence_files:/app/evidence
     env_file:
-      - .env
+      - ./backend/.env
     environment:
       - NODE_ENV=production
       - PORT=3001
@@ -96,7 +98,7 @@ services:
         source: ./relation-service/logs
         target: /app/src/logs
     env_file:
-      - .env
+      - ./relation-service/.env
     environment:
       - NODE_ENV=production
       - PORT=3002
@@ -133,6 +135,8 @@ services:
     volumes:
       - redis_data:/data
       - ./certs:/certs:ro
+    env_file:
+      - ./redis/.env
     command: >
       redis-server 
       --requirepass "${REDIS_PASSWORD}" 
@@ -146,9 +150,6 @@ services:
       --tls-key-file /certs/redis.key
       --tls-ca-cert-file /certs/server.crt
       --tls-auth-clients no
-    environment:
-      - REDIS_PASSWORD=${REDIS_PASSWORD}
-      - REDIS_ENCRYPTION_KEY=${REDIS_ENCRYPTION_KEY}
     networks:
       - backend-network
     restart: unless-stopped
@@ -172,11 +173,10 @@ services:
       - ./backend/db/init:/docker-entrypoint-initdb.d
       - ./certs/server.crt:/tmp/certs/server.crt:ro
       - ./certs/server.key:/tmp/certs/server.key:ro
+    env_file:
+      - ./db/.env
     environment:
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-      - POSTGRES_DB=${POSTGRES_DB}
-      - POSTGRES_USER=${POSTGRES_USER}
-      - POSTGRES_SSL=${POSTGRES_SSL}
+      - POSTGRES_SSL=${POSTGRES_SSL:-true}
     networks:
       - backend-network
     command: postgres
@@ -186,7 +186,7 @@ services:
         max-size: "10m"
         max-file: "3"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
       interval: 10s
       timeout: 5s
       retries: 5
