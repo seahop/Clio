@@ -1,4 +1,4 @@
-// backend/controllers/export/evidence.controller.js
+// backend/controllers/export/evidence.controller.js - Modified with encryption support
 const fs = require('fs').promises;
 const path = require('path');
 const { createWriteStream } = require('fs');
@@ -10,6 +10,7 @@ const https = require('https');
 const fetch = require('node-fetch');
 
 const db = require('../../db');
+const LogsModel = require('../../models/logs'); // Import for decryption
 const EvidenceModel = require('../../models/evidence');
 const eventLogger = require('../../lib/eventLogger');
 const evidenceService = require('../../services/export/evidence.service');
@@ -27,7 +28,8 @@ const exportEvidence = async (req, res) => {
       selectedColumns = [], 
       includeEvidence = true, 
       includeRelations = true,
-      includeHashes = true 
+      includeHashes = true,
+      decryptSensitiveData = false // New option for decrypting sensitive data
     } = req.body;
     
     if (!selectedColumns || !selectedColumns.length) {
@@ -71,13 +73,28 @@ const exportEvidence = async (req, res) => {
     const logsQuery = `SELECT id, ${columnsToExport.join(', ')} FROM logs ORDER BY timestamp DESC`;
     const logsResult = await db.query(logsQuery);
     
+    // Process data - apply decryption if requested
+    let processedLogs = logsResult.rows;
+    
+    if (decryptSensitiveData) {
+      console.log("Decrypting sensitive data for evidence export...");
+      // Use the LogsModel to properly decrypt fields
+      processedLogs = LogsModel._processMultipleFromStorage(logsResult.rows);
+      
+      // Log this decryption event
+      await eventLogger.logAuditEvent('decrypt_sensitive_evidence_export', req.user.username, {
+        exportedColumns: columnsToExport,
+        timestamp: new Date().toISOString()
+      });
+    }
+    
     // 2. Get all evidence files if requested
     let evidenceFiles = [];
     let logsWithEvidenceCount = 0;
     
     if (includeEvidence) {
       // Get all log IDs
-      const logIds = logsResult.rows.map(log => log.id);
+      const logIds = processedLogs.map(log => log.id);
       
       // Fetch all evidence files for these logs
       for (const logId of logIds) {
@@ -96,11 +113,12 @@ const exportEvidence = async (req, res) => {
       JSON.stringify(
         { 
           exportDate: new Date().toISOString(),
-          logs: logsResult.rows,
-          totalLogs: logsResult.rows.length,
+          logs: processedLogs,
+          totalLogs: processedLogs.length,
           logsWithEvidence: logsWithEvidenceCount,
           totalEvidenceFiles: evidenceFiles.length,
-          includesHashes: includeHashes
+          includesHashes: includeHashes,
+          includesDecryptedData: decryptSensitiveData
         }, 
         null, 
         2
@@ -109,7 +127,7 @@ const exportEvidence = async (req, res) => {
     
     // 4. Create CSV version too using the evidence service
     const csvFilePath = path.join(exportPackageDir, 'logs.csv');
-    const csvContent = await evidenceService.generateCsvFromLogs(logsResult.rows, ['id', ...columnsToExport]);
+    const csvContent = await evidenceService.generateCsvFromLogs(processedLogs, ['id', ...columnsToExport]);
     await fs.writeFile(csvFilePath, csvContent);
     
     // 5. Copy evidence files and create manifest
@@ -224,7 +242,7 @@ const exportEvidence = async (req, res) => {
     // 7. Create an HTML report for easy viewing
     await htmlReportService.createHtmlReport(
       exportPackageDir, 
-      logsResult.rows, 
+      processedLogs, 
       evidenceManifest, 
       columnsToExport,
       relationData,
@@ -258,10 +276,11 @@ const exportEvidence = async (req, res) => {
     await eventLogger.logAuditEvent('evidence_export', req.user.username, {
       exportId,
       selectedColumns: columnsToExport,
-      logCount: logsResult.rows.length,
+      logCount: processedLogs.length,
       evidenceCount: evidenceManifest.length,
       includesRelations: includeRelations,
       includesHashes: includeHashes,
+      includesDecryptedData: decryptSensitiveData,
       timestamp: new Date().toISOString()
     });
     
@@ -272,11 +291,12 @@ const exportEvidence = async (req, res) => {
       details: {
         filePath: zipFilePath.replace(/\\/g, '/'), // Normalize path for display
         filename: zipFilename,
-        logCount: logsResult.rows.length,
+        logCount: processedLogs.length,
         evidenceCount: evidenceManifest.length,
         logsWithEvidenceCount,
         includesRelations: includeRelations,
         includesHashes: includeHashes,
+        includesDecryptedData: decryptSensitiveData,
         timestamp: new Date().toISOString()
       }
     });

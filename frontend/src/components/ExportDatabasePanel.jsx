@@ -1,4 +1,4 @@
-// frontend/src/components/ExportDatabasePanel.jsx
+// frontend/src/components/ExportDatabasePanel.jsx - With decryption option
 import React, { useState, useEffect } from 'react';
 import { 
   Download, 
@@ -12,7 +12,9 @@ import {
   Database,
   Archive,
   Network,
-  Lock
+  Lock,
+  Unlock,
+  Shield
 } from 'lucide-react';
 
 const ExportDatabasePanel = ({ csrfToken }) => {
@@ -27,8 +29,9 @@ const ExportDatabasePanel = ({ csrfToken }) => {
   const [expandInstructions, setExpandInstructions] = useState(false);
   const [exportMode, setExportMode] = useState('csv'); // 'csv' or 'evidence'
   const [includeEvidence, setIncludeEvidence] = useState(true);
-  const [includeRelations, setIncludeRelations] = useState(true); // New state for relations toggle
+  const [includeRelations, setIncludeRelations] = useState(true);
   const [includeHashes, setIncludeHashes] = useState(true);
+  const [decryptSensitiveData, setDecryptSensitiveData] = useState(false); // New state for decryption option
 
   useEffect(() => {
     fetchColumns();
@@ -145,7 +148,8 @@ const ExportDatabasePanel = ({ csrfToken }) => {
           selectedColumns: columnsToExport,
           includeEvidence: exportMode === 'evidence' ? includeEvidence : false,
           includeRelations: exportMode === 'evidence' ? includeRelations : false,
-          includeHashes: exportMode === 'evidence' ? includeHashes : false
+          includeHashes: exportMode === 'evidence' ? includeHashes : false,
+          decryptSensitiveData: decryptSensitiveData // Send the decrypt option
         })
       });
   
@@ -165,9 +169,16 @@ const ExportDatabasePanel = ({ csrfToken }) => {
         if (data.details.includesHashes) {
           successMessage += ' Hash information included.';
         }
+        if (data.details.includesDecryptedData) {
+          successMessage += ' Sensitive data was decrypted.';
+        }
         setMessage(successMessage);
       } else {
-        setMessage(`CSV export completed successfully! ${data.details.rowCount} rows exported to ${data.details.filePath}`);
+        let successMessage = `CSV export completed successfully! ${data.details.rowCount} rows exported to ${data.details.filePath}`;
+        if (data.details.includedDecryptedData) {
+          successMessage += ' with decrypted sensitive data.';
+        }
+        setMessage(successMessage);
       }
       
       // Refresh the exports list
@@ -234,6 +245,9 @@ const ExportDatabasePanel = ({ csrfToken }) => {
       return new Date().toLocaleString();
     }
   };
+
+  // Determine if export has sensitive data
+  const hasSensitiveData = selectedColumns.includes('secrets');
 
   return (
     <div>
@@ -302,51 +316,87 @@ const ExportDatabasePanel = ({ csrfToken }) => {
               </div>
             </div>
             
-            {exportMode === 'evidence' && (
-              <div className="mt-2 pt-2 border-t border-gray-700">
+            {/* Options section */}
+            <div className="mt-2 pt-2 border-t border-gray-700">
+              {/* Decryption option - available regardless of export mode */}
+              {hasSensitiveData && (
                 <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer mb-2">
                   <input
                     type="checkbox"
-                    checked={includeEvidence}
-                    onChange={(e) => setIncludeEvidence(e.target.checked)}
-                    className="rounded border-gray-600 bg-gray-700 text-blue-500 focus:ring-blue-500"
-                  />
-                  Include evidence files in the export
-                </label>
-                
-                {/* New checkbox for hash information */}
-                <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer mb-2">
-                  <input
-                    type="checkbox"
-                    checked={includeHashes}
-                    onChange={(e) => setIncludeHashes(e.target.checked)}
+                    checked={decryptSensitiveData}
+                    onChange={(e) => setDecryptSensitiveData(e.target.checked)}
                     className="rounded border-gray-600 bg-gray-700 text-blue-500 focus:ring-blue-500"
                   />
                   <div className="flex items-center gap-1">
-                    <Lock size={14} className="text-purple-400" />
-                    Include hash information in the export
+                    {decryptSensitiveData ? (
+                      <Unlock size={14} className="text-green-400" />
+                    ) : (
+                      <Lock size={14} className="text-red-400" />
+                    )}
+                    Decrypt sensitive data in export
                   </div>
                 </label>
-                
-                {/* Existing relations checkbox */}
-                <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={includeRelations}
-                    onChange={(e) => setIncludeRelations(e.target.checked)}
-                    className="rounded border-gray-600 bg-gray-700 text-blue-500 focus:ring-blue-500"
-                  />
-                  <div className="flex items-center gap-1">
-                    <Network size={14} className="text-blue-400" />
-                    Include relation data in the export
-                  </div>
-                </label>
+              )}
+              
+              {exportMode === 'evidence' && (
+                <>
+                  <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer mb-2">
+                    <input
+                      type="checkbox"
+                      checked={includeEvidence}
+                      onChange={(e) => setIncludeEvidence(e.target.checked)}
+                      className="rounded border-gray-600 bg-gray-700 text-blue-500 focus:ring-blue-500"
+                    />
+                    Include evidence files in the export
+                  </label>
+                  
+                  {/* Hash information checkbox */}
+                  <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer mb-2">
+                    <input
+                      type="checkbox"
+                      checked={includeHashes}
+                      onChange={(e) => setIncludeHashes(e.target.checked)}
+                      className="rounded border-gray-600 bg-gray-700 text-blue-500 focus:ring-blue-500"
+                    />
+                    <div className="flex items-center gap-1">
+                      <Lock size={14} className="text-purple-400" />
+                      Include hash information in the export
+                    </div>
+                  </label>
+                  
+                  {/* Relations checkbox */}
+                  <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={includeRelations}
+                      onChange={(e) => setIncludeRelations(e.target.checked)}
+                      className="rounded border-gray-600 bg-gray-700 text-blue-500 focus:ring-blue-500"
+                    />
+                    <div className="flex items-center gap-1">
+                      <Network size={14} className="text-blue-400" />
+                      Include relation data in the export
+                    </div>
+                  </label>
 
-                <p className="text-xs text-gray-400 mt-2">
-                  Creates an HTML viewer and ZIP package with all logs, evidence files, and optional relation data
-                </p>
-              </div>
-            )}
+                  <p className="text-xs text-gray-400 mt-2">
+                    Creates an HTML viewer and ZIP package with all logs, evidence files, and optional relation data
+                  </p>
+                </>
+              )}
+              
+              {/* Security warning about decryption */}
+              {decryptSensitiveData && (
+                <div className="mt-3 p-2 bg-red-900/30 border border-red-800 rounded-md">
+                  <div className="flex items-center gap-2 text-red-300">
+                    <Shield size={14} />
+                    <span className="text-xs font-medium">Security Warning</span>
+                  </div>
+                  <p className="text-xs text-red-300 mt-1">
+                    Decrypted exports contain sensitive data in plaintext. Handle with caution and delete after use.
+                  </p>
+                </div>
+              )}
+            </div>
           </div>
           
           {/* Column selection */}
@@ -400,11 +450,13 @@ const ExportDatabasePanel = ({ csrfToken }) => {
                       <Archive size={16} className="mr-2" />
                       Export with Evidence
                       {includeRelations && <Network size={14} className="ml-2" />}
+                      {decryptSensitiveData && <Unlock size={14} className="ml-2" />}
                     </>
                   ) : (
                     <>
                       <Download size={16} className="mr-2" />
                       Export Selected Columns
+                      {decryptSensitiveData && <Unlock size={14} className="ml-2" />}
                     </>
                   )}
                 </>
@@ -431,6 +483,9 @@ const ExportDatabasePanel = ({ csrfToken }) => {
                       <p className="mb-2">Including relation data will add network relationships, user commands, and other correlation data from the relation service to your export.</p>
                     )}
                   </>
+                )}
+                {decryptSensitiveData && (
+                  <p className="mb-2 text-yellow-300">Decrypted exports will contain sensitive data in plaintext. Handle with appropriate security precautions.</p>
                 )}
                 <p>Use care when selecting sensitive columns like "secrets" that may contain credentials.</p>
               </div>
