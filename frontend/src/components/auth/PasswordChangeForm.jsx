@@ -1,17 +1,47 @@
-// frontend/src/components/auth/PasswordChangeForm.jsx
-import React, { useState } from 'react';
+// Modified PasswordChangeForm.jsx
+import React, { useState, useEffect } from 'react';
 import { Key } from 'lucide-react';
 import { validateNewPassword } from '../../utils/passwordValidation';
 
-// No need for API_URL with proxy
-// const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:3001';
-
-const PasswordChangeForm = ({ username, onPasswordChanged }) => {
+const PasswordChangeForm = ({ username, onPasswordChanged, csrfToken }) => {
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [localCsrfToken, setLocalCsrfToken] = useState(csrfToken || window.csrfToken);
+
+  // Refresh CSRF token on component mount
+  useEffect(() => {
+    const refreshToken = async () => {
+      try {
+        const response = await fetch(`/api/csrf-token`, {
+          credentials: 'include',
+          headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+          },
+          mode: 'cors',
+          cache: 'no-cache',
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          if (data.csrfToken) {
+            setLocalCsrfToken(data.csrfToken);
+            window.csrfToken = data.csrfToken;
+            console.log("CSRF token refreshed successfully for password change");
+          }
+        } else {
+          console.error("Failed to refresh CSRF token:", response.status);
+        }
+      } catch (error) {
+        console.error("Error refreshing CSRF token:", error);
+      }
+    };
+
+    refreshToken();
+  }, []);
 
   const handlePasswordChange = async (e) => {
     e.preventDefault();
@@ -31,12 +61,21 @@ const PasswordChangeForm = ({ username, onPasswordChanged }) => {
     setError('');
 
     try {
+      // Get the most up-to-date CSRF token
+      const tokenToUse = localCsrfToken || window.csrfToken;
+      
+      if (!tokenToUse) {
+        throw new Error('CSRF token is missing. Please refresh the page and try again.');
+      }
+      
+      console.log("Using CSRF token for password change:", tokenToUse.substring(0, 8) + "...");
+      
       // Use relative URL with proxy
       const response = await fetch(`/api/auth/change-password`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'CSRF-Token': window.csrfToken
+          'CSRF-Token': tokenToUse
         },
         credentials: 'include',
         body: JSON.stringify({
@@ -136,13 +175,15 @@ const PasswordChangeForm = ({ username, onPasswordChanged }) => {
           <div>
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || !localCsrfToken}
               className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
             >
               <span className="absolute left-0 inset-y-0 flex items-center pl-3">
                 <Key className="h-5 w-5 text-blue-500 group-hover:text-blue-400" />
               </span>
-              {loading ? 'Changing password...' : 'Change Password'}
+              {loading ? 'Changing password...' : 
+               !localCsrfToken ? 'Loading security token...' :
+               'Change Password'}
             </button>
           </div>
         </form>

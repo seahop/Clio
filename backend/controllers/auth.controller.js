@@ -292,20 +292,12 @@ const getCurrentUser = async (req, res) => {
       userAgent: req.get('User-Agent')
     });
 
-    // Return password change requirement if either condition is true
-    if (isFirstTime || passwordResetRequired) {
-      // Return 200 instead of 401 to keep the user authenticated for other actions
-      // but still signal that a password change is required
-      return res.status(200).json({
-        username: req.user.username,
-        role: req.user.role,
-        requiresPasswordChange: true
-      });
-    }
-
+    // Return user data with the requiresPasswordChange flag if needed
+    // Keep using 200 status to maintain smooth auth flow
     res.json({
       username: req.user.username,
-      role: req.user.role
+      role: req.user.role,
+      requiresPasswordChange: isFirstTime || passwordResetRequired
     });
   } catch (error) {
     console.error('Error checking password status:', error);

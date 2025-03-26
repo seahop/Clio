@@ -155,7 +155,7 @@ function App() {
   // Check authentication status and get CSRF token
   const checkAuth = useCallback(async () => {
     console.log(`Starting auth check (attempt ${initializationAttempts + 1})...`);
-
+  
     try {
       // Fetch CSRF token
       const token = await fetchCsrfToken();
@@ -167,7 +167,7 @@ function App() {
       }
       
       setCsrfToken(token);
-
+  
       // Check authentication - use relative URL with proxy
       console.log('Checking authentication...');
       const response = await fetch(`/api/auth/me`, {
@@ -176,33 +176,36 @@ function App() {
           'CSRF-Token': token
         }
       });
-
+  
       console.log('Auth check response:', {
         status: response.status,
         ok: response.ok,
         statusText: response.statusText
       });
-
+  
       if (response.ok) {
         const userData = await response.json();
         console.log('Auth check successful:', userData);
-        setUser(userData);
-        localStorage.setItem('user', JSON.stringify(userData));
-      } else {
-        const errorData = await response.json();
-        console.log('Auth check failed:', errorData);
         
-        if (errorData.requiresPasswordChange) {
-          setUser(null);
+        if (userData.requiresPasswordChange) {
+          // Store flag for password change in localStorage
           localStorage.setItem('passwordChangeRequired', JSON.stringify({
-            username: errorData.username,
-            role: errorData.role
+            username: userData.username,
+            role: userData.role
           }));
-        } else {
-          localStorage.removeItem('user');
-          localStorage.removeItem('passwordChangeRequired');
+          // Clear user data to force login screen
           setUser(null);
+        } else {
+          // Normal authenticated user
+          localStorage.removeItem('passwordChangeRequired');
+          setUser(userData);
+          localStorage.setItem('user', JSON.stringify(userData));
         }
+      } else {
+        // Not authenticated
+        localStorage.removeItem('user');
+        localStorage.removeItem('passwordChangeRequired');
+        setUser(null);
       }
     } catch (error) {
       console.error('Auth check failed:', {
