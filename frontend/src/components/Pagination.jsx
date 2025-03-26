@@ -1,10 +1,10 @@
-// components/LoggerTable/TablePagination.jsx
+// frontend/src/components/Pagination.jsx
 import React from 'react';
 import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
 
 const rowsPerPageOptions = [25, 50, 100, 150, 200];
 
-const TablePagination = ({ 
+const Pagination = ({ 
   currentPage, 
   totalPages, 
   rowsPerPage, 
@@ -73,4 +73,4 @@ const TablePagination = ({
   );
 };
 
-export default TablePagination;
+export default Pagination;

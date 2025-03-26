@@ -10,7 +10,7 @@ import ApiKeyManager from './ApiKeyManager';
 import ApiDocumentation from './ApiDocumentation';
 import LogManagement from './LogManagement';
 import UserSettings from './UserSettings';
-import { useLoggerOperations } from '../hooks/useLoggerOperations';
+import useLoggerOperations from '../hooks/useLoggerOperations';
 
 const RedTeamLogger = ({ currentUser, csrfToken }) => {
   const [activeView, setActiveView] = useState('logs');

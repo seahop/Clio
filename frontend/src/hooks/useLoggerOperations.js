@@ -8,25 +8,12 @@ export const useLoggerOperations = (currentUser, csrfToken) => {
   const storedUser = JSON.parse(localStorage.getItem('user') || '{}');
   const isAdmin = storedUser.role === 'admin' || currentUser?.role === 'admin';
 
-  const getInitialRowsPerPage = () => {
-    try {
-      const username = currentUser?.username;
-      if (!username) return 25;
-      const savedPreference = localStorage.getItem(`${username}_rowsPerPage`);
-      return savedPreference ? parseInt(savedPreference) : 25;
-    } catch {
-      return 25;
-    }
-  };
-
   // State
   const [logs, setLogs] = useState([]);
   const [editingCell, setEditingCell] = useState(null);
   const [editingValue, setEditingValue] = useState('');
   const [loading, setLoading] = useState(true);
   const [expandedCell, setExpandedCell] = useState(null);
-  const [currentPage, setCurrentPage] = useState(1);
-  const [rowsPerPage, setRowsPerPage] = useState(getInitialRowsPerPage());
 
   const {
     error,
@@ -59,32 +46,9 @@ export const useLoggerOperations = (currentUser, csrfToken) => {
     loadLogs();
     const interval = setInterval(loadLogs, 3000);
     return () => clearInterval(interval);
-  }, [csrfToken]);
+  }, [csrfToken]); // Removed fetchLogs from the dependency array to prevent infinite loops
 
-  // Handlers
-  const handlePageChange = (newPage) => {
-    setCurrentPage(newPage);
-    setEditingCell(null);
-    setEditingValue('');
-    setExpandedCell(null);
-  };
-
-  const handleRowsPerPageChange = (newRowsPerPage) => {
-    try {
-      const username = currentUser?.username;
-      if (username) {
-        localStorage.setItem(`${username}_rowsPerPage`, newRowsPerPage.toString());
-      }
-    } catch (error) {
-      console.error('Failed to save row preference:', error);
-    }
-    setRowsPerPage(newRowsPerPage);
-    setCurrentPage(1);
-    setEditingCell(null);
-    setEditingValue('');
-    setExpandedCell(null);
-  };
-
+  // Cell editing handlers
   const handleCellClick = (rowId, field) => {
     if (field === 'analyst') return;
     const row = logs.find(log => log.id === rowId);
@@ -92,7 +56,6 @@ export const useLoggerOperations = (currentUser, csrfToken) => {
       setEditingCell({ rowId, field });
       
       // Make sure we're working with a string to avoid issues with special characters
-      // This is critical for fields that might contain backslashes or special chars
       setEditingValue(row[field] !== null && row[field] !== undefined ? String(row[field]) : '');
       
       console.log(`Editing ${field} with value:`, row[field]);
@@ -101,7 +64,6 @@ export const useLoggerOperations = (currentUser, csrfToken) => {
 
   const handleCellChange = (e) => {
     // Directly use the event target value without any transformation
-    // This preserves all characters including special chars and backslashes
     setEditingValue(e.target.value);
   };
 
@@ -115,7 +77,6 @@ export const useLoggerOperations = (currentUser, csrfToken) => {
         console.log(`Updating ${field} with value:`, editingValue);
         
         // Send the raw value to the server without any processing
-        // We don't want to transform it in any way
         const result = await updateLog(rowId, { [field]: editingValue });
         
         // Update the local logs state with the exact same value we sent
@@ -271,29 +232,17 @@ export const useLoggerOperations = (currentUser, csrfToken) => {
     );
   };
 
-  // Calculate pagination values
-  const totalPages = Math.ceil(logs.length / rowsPerPage);
-  const startIndex = (currentPage - 1) * rowsPerPage;
-  const endIndex = startIndex + rowsPerPage;
-  const currentLogs = logs.slice(startIndex, endIndex);
-
   return {
-    logs: currentLogs,
+    logs,
     loading,
     error,
     isAdmin,
     tableState: {
       editingCell,
       editingValue,
-      expandedCell,
-      currentPage,
-      totalPages,
-      rowsPerPage,
-      totalRows: logs.length
+      expandedCell
     },
     handlers: {
-      handlePageChange,
-      handleRowsPerPageChange,
       handleCellClick,
       handleCellChange,
       handleCellBlur,
@@ -305,3 +254,5 @@ export const useLoggerOperations = (currentUser, csrfToken) => {
     }
   };
 };
+
+export default useLoggerOperations;

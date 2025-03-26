@@ -1,13 +1,12 @@
 // frontend/src/components/LoggerCardView.jsx
 import React, { useState, useEffect } from 'react';
-import { Layout, Table, List, Plus, Filter, AlertCircle } from 'lucide-react';
+import { Layout, List, Plus, Filter, AlertCircle } from 'lucide-react';
 import LogRowCard from './LogRowCard';
-import TablePagination from './LoggerTable/TablePagination';
-import LoggerTableHeader from './LoggerTable/LoggerTableHeader';
-import LoggerRow from './LoggerTable/LoggerRow';
+import Pagination from './Pagination';
 import DateRangeFilter from './DateRangeFilter';
 import SearchFilter from './SearchFilter';
 import { COLUMNS } from '../utils/constants';
+import usePagination from '../hooks/usePagination';
 
 const LoggerCardView = ({
   logs,
@@ -17,7 +16,7 @@ const LoggerCardView = ({
   handlers,
   csrfToken
 }) => {
-  const [viewMode, setViewMode] = useState('card'); // 'card' or 'table'
+  const [viewMode, setViewMode] = useState('card'); // 'card' is the only mode now
   const [filteredLogs, setFilteredLogs] = useState(logs);
   const [dateRange, setDateRange] = useState({ start: null, end: null });
   const [searchFilter, setSearchFilter] = useState({ query: '', field: 'all' });
@@ -76,6 +75,9 @@ const LoggerCardView = ({
     setFilteredLogs(filtered);
   }, [logs, dateRange, searchFilter]);
   
+  // Use our custom pagination hook
+  const pagination = usePagination(filteredLogs, { username: currentUser });
+  
   // Handle date range filter changes
   const handleDateFilterChange = (range) => {
     setDateRange(range);
@@ -94,33 +96,16 @@ const LoggerCardView = ({
   
   return (
     <div className="bg-gray-800 shadow-lg rounded-lg w-full">
-      {/* Header with view toggle buttons */}
+      {/* Header */}
       <div className="flex justify-between items-center p-4 border-b border-gray-700">
         <div className="flex items-center space-x-2">
           <button
             onClick={() => setViewMode('card')}
-            className={`px-3 py-1.5 rounded-md flex items-center gap-2 transition-colors duration-200 ${
-              viewMode === 'card' 
-                ? 'bg-blue-600 text-white' 
-                : 'bg-gray-700 text-white hover:bg-gray-600'
-            }`}
+            className="px-3 py-1.5 rounded-md flex items-center gap-2 transition-colors duration-200 bg-blue-600 text-white"
             title="Card View"
           >
             <List size={16} />
             <span className="hidden sm:inline">Card View</span>
-          </button>
-          
-          <button
-            onClick={() => setViewMode('table')}
-            className={`px-3 py-1.5 rounded-md flex items-center gap-2 transition-colors duration-200 ${
-              viewMode === 'table' 
-                ? 'bg-blue-600 text-white' 
-                : 'bg-gray-700 text-white hover:bg-gray-600'
-            }`}
-            title="Table View"
-          >
-            <Layout size={16} />
-            <span className="hidden sm:inline">Table View</span>
           </button>
         </div>
         
@@ -166,111 +151,57 @@ const LoggerCardView = ({
       </div>
       
       {/* Content area */}
-      {viewMode === 'card' ? (
-        <div className="p-4">
-          {filteredLogs.length === 0 ? (
-            <div className="text-center py-8 text-gray-400">
-              {logs.length === 0 ? (
-                <p>No logs found. Click "Add Row" to create your first log entry.</p>
-              ) : (
-                <div>
-                  <AlertCircle className="w-10 h-10 text-yellow-400 mx-auto mb-2" />
-                  <p>No logs match your current filters.</p>
-                  <button
-                    onClick={clearAllFilters}
-                    className="mt-2 px-4 py-2 bg-gray-700 text-white rounded-md hover:bg-gray-600 transition-colors"
-                  >
-                    Clear Filters
-                  </button>
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="space-y-2 mb-4">
-              {filteredLogs.map(row => (
-                <LogRowCard
-                  key={row.id}
-                  row={row}
-                  isAdmin={isAdmin}
-                  currentUser={currentUser}
-                  editingCell={tableState.editingCell}
-                  editingValue={tableState.editingValue}
-                  expandedCell={tableState.expandedCell}
-                  onCellClick={handlers.handleCellClick}
-                  onCellChange={handlers.handleCellChange}
-                  onCellBlur={handlers.handleCellBlur}
-                  onKeyDown={handlers.handleKeyDown}
-                  onExpand={handlers.handleExpand}
-                  onToggleLock={handlers.handleToggleLock}
-                  onDelete={handlers.handleDeleteRow}
-                  csrfToken={csrfToken}
-                />
-              ))}
-            </div>
-          )}
-        </div>
-      ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full border-collapse min-w-max">
-            <LoggerTableHeader 
-              columns={COLUMNS}
-              isAdmin={isAdmin}
-            />
-            <tbody>
-              {filteredLogs.length === 0 ? (
-                <tr>
-                  <td colSpan={COLUMNS.length + 2} className="text-center py-8 text-gray-400">
-                    {logs.length === 0 ? (
-                      <p>No logs found. Click "Add Row" to create your first log entry.</p>
-                    ) : (
-                      <div>
-                        <AlertCircle className="w-8 h-8 text-yellow-400 mx-auto mb-2" />
-                        <p>No logs match your current filters.</p>
-                        <button
-                          onClick={clearAllFilters}
-                          className="mt-2 px-4 py-2 bg-gray-700 text-white rounded-md hover:bg-gray-600 transition-colors"
-                        >
-                          Clear Filters
-                        </button>
-                      </div>
-                    )}
-                  </td>
-                </tr>
-              ) : (
-                filteredLogs.map(row => (
-                  <LoggerRow
-                    key={row.id}
-                    row={row}
-                    columns={COLUMNS}
-                    isAdmin={isAdmin}
-                    currentUser={currentUser}
-                    editingCell={tableState.editingCell}
-                    editingValue={tableState.editingValue}
-                    expandedCell={tableState.expandedCell}
-                    onCellClick={handlers.handleCellClick}
-                    onCellChange={handlers.handleCellChange}
-                    onCellBlur={handlers.handleCellBlur}
-                    onKeyDown={handlers.handleKeyDown}
-                    onExpand={handlers.handleExpand}
-                    onToggleLock={handlers.handleToggleLock}
-                    onDelete={handlers.handleDeleteRow}
-                    csrfToken={csrfToken}
-                  />
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      )}
+      <div className="p-4">
+        {filteredLogs.length === 0 ? (
+          <div className="text-center py-8 text-gray-400">
+            {logs.length === 0 ? (
+              <p>No logs found. Click "Add Row" to create your first log entry.</p>
+            ) : (
+              <div>
+                <AlertCircle className="w-10 h-10 text-yellow-400 mx-auto mb-2" />
+                <p>No logs match your current filters.</p>
+                <button
+                  onClick={clearAllFilters}
+                  className="mt-2 px-4 py-2 bg-gray-700 text-white rounded-md hover:bg-gray-600 transition-colors"
+                >
+                  Clear Filters
+                </button>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="space-y-2 mb-4">
+            {pagination.paginatedItems.map(row => (
+              <LogRowCard
+                key={row.id}
+                row={row}
+                isAdmin={isAdmin}
+                currentUser={currentUser}
+                editingCell={tableState.editingCell}
+                editingValue={tableState.editingValue}
+                expandedCell={tableState.expandedCell}
+                onCellClick={handlers.handleCellClick}
+                onCellChange={handlers.handleCellChange}
+                onCellBlur={handlers.handleCellBlur}
+                onKeyDown={handlers.handleKeyDown}
+                onExpand={handlers.handleExpand}
+                onToggleLock={handlers.handleToggleLock}
+                onDelete={handlers.handleDeleteRow}
+                csrfToken={csrfToken}
+              />
+            ))}
+          </div>
+        )}
+      </div>
       
       {/* Pagination */}
-      <TablePagination
-        currentPage={tableState.currentPage}
-        totalPages={tableState.totalPages}
-        rowsPerPage={tableState.rowsPerPage}
-        totalRows={filteredLogs.length}
-        onPageChange={handlers.handlePageChange}
-        onRowsPerPageChange={handlers.handleRowsPerPageChange}
+      <Pagination
+        currentPage={pagination.currentPage}
+        totalPages={pagination.totalPages}
+        rowsPerPage={pagination.rowsPerPage}
+        totalRows={pagination.totalRows}
+        onPageChange={pagination.handlePageChange}
+        onRowsPerPageChange={pagination.handleRowsPerPageChange}
       />
     </div>
   );
