@@ -42,15 +42,62 @@ const PRESERVE_SPECIAL_CHARS_FIELDS = ['command', 'notes', 'filename', 'secrets'
 const sanitizeString = (str, fieldName = '') => {
   if (typeof str !== 'string') return '';
   
-  // For fields that need to preserve special characters - particularly command and notes
-  if (PRESERVE_SPECIAL_CHARS_FIELDS.includes(fieldName)) {
-    // Use a lighter sanitization approach that preserves quotes and command syntax
-    // but still blocks XSS
-    const sanitized = xss(str, {
+  try {
+    // For fields that need to preserve special characters - particularly command and notes
+    if (PRESERVE_SPECIAL_CHARS_FIELDS.includes(fieldName)) {
+      // Use enhanced sanitization approach for command-like fields
+      return sanitizeCommandField(str);
+    }
+    
+    // Standard sanitization for other fields (enhanced)
+    let sanitized = str
+      .replace(/javascript:/gi, '')
+      .replace(/data:/gi, '')
+      .replace(/vbscript:/gi, '')
+      .replace(/on\w+=/gi, '')
+      .replace(/[\u0000-\u001F\u007F-\u009F]/g, '') // Remove control characters
+      .trim();
+    
+    sanitized = xss(sanitized, {
+      whiteList: {},
+      stripIgnoreTag: true,
+      stripIgnoreTagBody: ['script', 'style', 'xml'],
+      css: false
+    });
+
+    return sanitized;
+  } catch (error) {
+    console.error('String sanitization error:', error);
+    // Fallback to very basic sanitization on error
+    return String(str).replace(/[<>'"&]/g, '');
+  }
+};
+
+/**
+ * Enhanced sanitization for command fields and other special content
+ * Preserves important command syntax while removing dangerous elements
+ * @param {string} str - The string to sanitize
+ * @returns {string} - The sanitized string
+ */
+const sanitizeCommandField = (str) => {
+  if (!str) return '';
+  
+  try {
+    // Remove potentially dangerous character sequences while preserving syntax
+    let sanitized = str
+      .replace(/<script/gi, '&lt;script')
+      .replace(/javascript:/gi, 'javascript&#58;')
+      .replace(/data:/gi, 'data&#58;')
+      .replace(/\bon\w+=/gi, 'data-on-')  // handle onclick, onload, etc.
+      .replace(/[\u0000-\u001F\u007F-\u009F]/g, ''); // control chars
+    
+    // Use a custom escaper that preserves quotes and backslashes
+    // but blocks HTML tags formation
+    sanitized = xss(sanitized, {
       whiteList: {}, // No HTML tags allowed
       stripIgnoreTag: true,
       stripIgnoreTagBody: ['script', 'style'],
-      // Critical change: Use a custom escaper that preserves quotes and backslashes
+      // Critical change: Use a custom escaper that preserves command syntax
       escapeHtml: function(html) {
         // Only escape < and > for command strings, as these could form HTML tags
         return html
@@ -60,24 +107,11 @@ const sanitizeString = (str, fieldName = '') => {
     });
     
     return sanitized;
+  } catch (error) {
+    console.error('Command sanitization error:', error);
+    // Fallback to more aggressive sanitization in case of error
+    return String(str).replace(/[<>'"&]/g, '');
   }
-  
-  // Standard sanitization for other fields (unchanged)
-  let sanitized = str
-    .replace(/javascript:/gi, '')
-    .replace(/data:/gi, '')
-    .replace(/vbscript:/gi, '')
-    .replace(/on\w+=/gi, '')
-    .trim();
-  
-  sanitized = xss(sanitized, {
-    whiteList: {},
-    stripIgnoreTag: true,
-    stripIgnoreTagBody: ['script', 'style', 'xml'],
-    css: false
-  });
-
-  return sanitized;
 };
 
 /**
@@ -89,39 +123,73 @@ const sanitizeString = (str, fieldName = '') => {
 const validateInput = (value, field) => {
   if (!value) return true;
   
-  // Fields that should allow any characters
-  if (PRESERVE_SPECIAL_CHARS_FIELDS.includes(field)) {
-    // Just check length constraints instead of character constraints
-    const maxLengths = {
-      command: 254,
-      notes: 254,
-      filename: 254,
-      secrets: 254
-    };
-    
-    if (maxLengths[field] && value.length > maxLengths[field]) {
-      return false;
+  try {
+    // Fields that should allow any characters
+    if (PRESERVE_SPECIAL_CHARS_FIELDS.includes(field)) {
+      // Just check length constraints instead of character constraints
+      const maxLengths = {
+        command: 254,
+        notes: 254,
+        filename: 254,
+        secrets: 254
+      };
+      
+      if (maxLengths[field] && value.length > maxLengths[field]) {
+        return false;
+      }
+      
+      return true;
     }
     
+    // For other fields, apply standard constraints
+    const constraints = {
+      internal_ip: /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$|^([0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}$/,
+      external_ip: /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$|^([0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}$/,
+      // Standardized on dash format for MAC addresses
+      mac_address: /^([0-9A-Fa-f]{2}-){5}([0-9A-Fa-f]{2})$/, 
+      hostname: /^[a-zA-Z0-9][a-zA-Z0-9-_.]{0,73}[a-zA-Z0-9]$/,
+      domain: /^[a-zA-Z0-9][a-zA-Z0-9-_.]{0,73}[a-zA-Z0-9]$/,
+      username: /^[a-zA-Z0-9_-]{1,75}$/,
+      status: /^[a-zA-Z0-9_-]{1,75}$/,
+      hash_algorithm: /^[A-Za-z0-9_-]{1,20}$/,
+      hash_value: /^[A-Za-z0-9_+/=.-]{1,128}$/
+    };
+
+    if (constraints[field]) {
+      return constraints[field].test(value);
+    }
+
     return true;
+  } catch (error) {
+    console.error(`Validation error for field ${field}:`, error);
+    // Always return false on validation errors to be safe
+    return false; 
   }
+};
+
+/**
+ * Normalizes a MAC address to the standard dash format
+ * @param {string} mac - The MAC address to normalize
+ * @returns {string} - Normalized MAC address or original string if invalid
+ */
+const normalizeMacAddress = (mac) => {
+  if (!mac || typeof mac !== 'string') return mac;
   
-  // For other fields, apply standard constraints
-  const constraints = {
-    internal_ip: /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$|^([0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}$/,
-    external_ip: /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$|^([0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}$/,
-    mac_address: /^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$/, // New MAC Address validation
-    hostname: /^[a-zA-Z0-9][a-zA-Z0-9-_.]{0,73}[a-zA-Z0-9]$/,
-    domain: /^[a-zA-Z0-9][a-zA-Z0-9-_.]{0,73}[a-zA-Z0-9]$/,
-    username: /^[a-zA-Z0-9_-]{1,75}$/,
-    status: /^[a-zA-Z0-9_-]{1,75}$/
-  };
-
-  if (constraints[field]) {
-    return constraints[field].test(value);
+  try {
+    // Remove any separators and convert to uppercase
+    const cleanMac = mac.toUpperCase().replace(/[:-]/g, '');
+    
+    // Check if it's a valid MAC address format
+    if (!/^[0-9A-F]{12}$/.test(cleanMac)) {
+      return mac; // Return original if not valid
+    }
+    
+    // Format with dashes
+    return cleanMac.match(/.{1,2}/g).join('-');
+  } catch (error) {
+    console.error('MAC address normalization error:', error);
+    return mac; // Return original on error
   }
-
-  return true;
 };
 
 /**
@@ -132,24 +200,64 @@ const validateInput = (value, field) => {
 const sanitizeObject = (obj) => {
   if (typeof obj !== 'object' || obj === null) return {};
 
-  return Object.keys(obj).reduce((acc, key) => {
-    const value = obj[key];
-    
-    if (typeof value === 'string') {
-      // Pass the field name for specialized handling
-      acc[key] = sanitizeString(value, key);
-    } else if (Array.isArray(value)) {
-      acc[key] = value.map(item => 
-        typeof item === 'string' ? sanitizeString(item) : item
-      );
-    } else if (typeof value === 'object' && value !== null) {
-      acc[key] = sanitizeObject(value);
-    } else {
-      acc[key] = value;
+  try {
+    return Object.keys(obj).reduce((acc, key) => {
+      const value = obj[key];
+      
+      if (key === 'mac_address' && value) {
+        // Always normalize MAC addresses
+        acc[key] = normalizeMacAddress(value);
+      } else if (typeof value === 'string') {
+        // Pass the field name for specialized handling
+        acc[key] = sanitizeString(value, key);
+      } else if (Array.isArray(value)) {
+        acc[key] = value.map(item => 
+          typeof item === 'string' ? sanitizeString(item) : 
+          typeof item === 'object' ? sanitizeObject(item) : item
+        );
+      } else if (typeof value === 'object' && value !== null) {
+        acc[key] = sanitizeObject(value);
+      } else {
+        acc[key] = value;
+      }
+      
+      return acc;
+    }, {});
+  } catch (error) {
+    console.error('Object sanitization error:', error);
+    // Return a safe empty object on error
+    return {};
+  }
+};
+
+/**
+ * Comprehensive validation for log data submission
+ * @param {object} logData - The log data to validate
+ * @returns {object} - Validation result with isValid flag and errors
+ */
+const validateLogData = (logData) => {
+  const errors = {};
+  
+  // Check each field against field-specific validation
+  Object.entries(logData).forEach(([field, value]) => {
+    if (value && !validateInput(value, field)) {
+      errors[field] = `Invalid ${field} format`;
     }
-    
-    return acc;
-  }, {});
+  });
+  
+  // Additional validation for MAC address format if present
+  if (logData.mac_address) {
+    const normalizedMac = normalizeMacAddress(logData.mac_address);
+    if (normalizedMac !== logData.mac_address) {
+      // Not an error, just note that it was normalized
+      console.log(`MAC address normalized from ${logData.mac_address} to ${normalizedMac}`);
+    }
+  }
+  
+  return {
+    isValid: Object.keys(errors).length === 0,
+    errors
+  };
 };
 
 /**
@@ -198,5 +306,8 @@ module.exports = {
   sanitizeObject,
   sanitizeLogData,
   validateInput,
-  redactSensitiveData
+  redactSensitiveData,
+  normalizeMacAddress,
+  validateLogData,
+  sanitizeCommandField
 };
