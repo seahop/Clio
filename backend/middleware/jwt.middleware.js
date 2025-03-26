@@ -1,4 +1,4 @@
-// backend/middleware/jwt.middleware.js
+// middleware/jwt.middleware.js
 const jwt = require('jsonwebtoken'); 
 const JwtHandler = require('../lib/jwtHandler');
 const security = require('../config/security');
@@ -7,8 +7,98 @@ const eventLogger = require('../lib/eventLogger');
 const crypto = require('crypto');
 const { redisClient } = require('../lib/redis');
 
+// JWT configuration constants
+const JWT_EXPIRY = 8 * 60 * 60; // 8 hours in seconds
+const JWT_REFRESH_THRESHOLD_PERCENTAGE = 0.75; // Refresh when 75% of lifetime has passed
+const MAX_REFRESH_ATTEMPTS = 5;
+const REFRESH_WINDOW_MS = 10 * 60 * 1000; // 10 minutes
+
+// Rate limiting for token refresh
+const refreshAttempts = new Map();
+
 // Initialize JWT handler
 const jwtHandler = new JwtHandler(security.JWT_SECRET, security.SERVER_INSTANCE_ID);
+
+// Helper function to create standardized error responses
+const createErrorResponse = (code, message) => {
+  return {
+    error: 'Authentication failed',
+    code,
+    message
+  };
+};
+
+// Wrap Redis operations with timeout and retry logic
+const redisOperation = async (operation, maxRetries = 3, timeout = 1000) => {
+  let attempts = 0;
+  let lastError;
+  
+  while (attempts < maxRetries) {
+    try {
+      // Create a promise that rejects after timeout
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('Redis operation timed out')), timeout);
+      });
+      
+      // Race the operation against the timeout
+      return await Promise.race([operation(), timeoutPromise]);
+    } catch (error) {
+      lastError = error;
+      attempts++;
+      
+      if (attempts < maxRetries) {
+        await new Promise(resolve => setTimeout(resolve, 100 * attempts));
+      }
+    }
+  }
+  
+  throw lastError;
+};
+
+// Refresh token with rate limiting
+const refreshToken = async (token, userId) => {
+  // Check rate limit
+  const key = userId || token.substring(0, 16);
+  const now = Date.now();
+  
+  if (!refreshAttempts.has(key)) {
+    refreshAttempts.set(key, { count: 1, timestamp: now });
+  } else {
+    const attempt = refreshAttempts.get(key);
+    
+    // Reset counter if window has passed
+    if (now - attempt.timestamp > REFRESH_WINDOW_MS) {
+      attempt.count = 1;
+      attempt.timestamp = now;
+    } else {
+      attempt.count++;
+      
+      // Enforce rate limit
+      if (attempt.count > MAX_REFRESH_ATTEMPTS) {
+        throw new Error('Token refresh rate limit exceeded');
+      }
+    }
+    
+    refreshAttempts.set(key, attempt);
+  }
+  
+  // Actual token refresh logic
+  return await jwtHandler.refreshToken(token);
+};
+
+// Clean up the refresh attempts map periodically
+const cleanupRefreshAttempts = () => {
+  const now = Date.now();
+  
+  for (const [key, attempt] of refreshAttempts.entries()) {
+    if (now - attempt.timestamp > REFRESH_WINDOW_MS) {
+      refreshAttempts.delete(key);
+    }
+  }
+};
+
+// Set up periodic cleanup
+setInterval(cleanupRefreshAttempts, 60 * 60 * 1000); // Every hour
 
 /**
  * Authentication middleware using JWT with Redis validation
@@ -30,32 +120,93 @@ const authenticateJwt = async (req, res, next) => {
     }
     
     if (!token) {
-      return res.status(401).json({ error: 'No token provided' });
+      return res.status(401).json(createErrorResponse(
+        'token_missing',
+        'No token provided'
+      ));
     }
     
-    // Verify the token
+    // First decode without verification to get the token ID
+    let decoded;
+    try {
+      decoded = jwt.decode(token);
+    } catch (error) {
+      res.clearCookie('auth_token', SESSION_OPTIONS);
+      return res.status(401).json(createErrorResponse(
+        'token_malformed',
+        'Invalid token format'
+      ));
+    }
+    
+    // Check if token has a valid structure
+    if (!decoded || !decoded.jti || !decoded.exp || !decoded.iat) {
+      res.clearCookie('auth_token', SESSION_OPTIONS);
+      return res.status(401).json(createErrorResponse(
+        'token_invalid',
+        'Invalid token structure'
+      ));
+    }
+    
+    // Check expiration directly (fast check before Redis)
+    const now = Math.floor(Date.now() / 1000);
+    if (decoded.exp < now) {
+      res.clearCookie('auth_token', SESSION_OPTIONS);
+      return res.status(401).json(createErrorResponse(
+        'token_expired',
+        'Token has expired'
+      ));
+    }
+    
+    // Check in Redis if the token has been revoked (faster than verification)
+    try {
+      const tokenKey = `jwt:${decoded.jti}`;
+      const tokenExists = await redisOperation(
+        () => redisClient.exists(tokenKey),
+        3,
+        500
+      );
+      
+      if (!tokenExists) {
+        res.clearCookie('auth_token', SESSION_OPTIONS);
+        return res.status(401).json(createErrorResponse(
+          'token_revoked',
+          'Session has been revoked or expired'
+        ));
+      }
+    } catch (redisError) {
+      console.error('Redis check error:', redisError);
+      // Continue with token verification as fallback
+    }
+    
+    // Now verify the token cryptographically
     const decodedToken = await jwtHandler.verifyToken(token);
     
     if (!decodedToken) {
       res.clearCookie('auth_token', SESSION_OPTIONS);
-      return res.status(401).json({ error: 'Invalid or expired token' });
+      return res.status(401).json(createErrorResponse(
+        'token_invalid',
+        'Invalid or expired token'
+      ));
     }
     
     // Check server instance binding
     if (decodedToken.serverInstanceId !== security.SERVER_INSTANCE_ID) {
       res.clearCookie('auth_token', SESSION_OPTIONS);
-      return res.status(401).json({ error: 'Server instance mismatch, please log in again' });
+      return res.status(401).json(createErrorResponse(
+        'server_mismatch',
+        'Server instance mismatch, please log in again'
+      ));
     }
     
-    // Auto-refresh token if it's nearing expiration (within 15 minutes)
-    const nowInSeconds = Math.floor(Date.now() / 1000);
-    const tokenExp = decodedToken.exp;
-    const refreshThreshold = 15 * 60; // 15 minutes in seconds
+    // Auto-refresh token if it's nearing expiration using relative threshold
+    const totalLifetime = decodedToken.exp - decodedToken.iat;
+    const refreshThreshold = Math.floor(totalLifetime * JWT_REFRESH_THRESHOLD_PERCENTAGE);
     
-    if (tokenExp - nowInSeconds < refreshThreshold) {
+    if (decodedToken.exp - now < refreshThreshold) {
       try {
-        // Token is nearing expiration, refresh it
-        const refreshedToken = await jwtHandler.refreshToken(token);
+        // Rate limited token refresh
+        const userId = decodedToken.id;
+        const refreshedToken = await refreshToken(token, userId);
         
         if (refreshedToken) {
           res.cookie('auth_token', refreshedToken.token, SESSION_OPTIONS);
@@ -63,7 +214,8 @@ const authenticateJwt = async (req, res, next) => {
           // Log token refresh
           await eventLogger.logSecurityEvent('token_auto_refresh', decodedToken.username, {
             username: decodedToken.username,
-            tokenAge: nowInSeconds - decodedToken.iat
+            tokenAge: now - decodedToken.iat,
+            remainingValidity: decodedToken.exp - now
           });
         }
       } catch (refreshError) {
@@ -91,7 +243,10 @@ const authenticateJwt = async (req, res, next) => {
   } catch (error) {
     console.error('JWT authentication error:', error);
     res.clearCookie('auth_token', SESSION_OPTIONS);
-    res.status(500).json({ error: 'Authentication failed' });
+    res.status(500).json(createErrorResponse(
+      'auth_error',
+      'Authentication failed'
+    ));
   }
 };
 
