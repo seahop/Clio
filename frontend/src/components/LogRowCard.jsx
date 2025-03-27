@@ -85,6 +85,93 @@ const LogRowCard = ({
     return <span className="text-white break-words whitespace-pre-wrap">{value}</span>;
   };
 
+  // Modified handleKeyDown to improve tab behavior
+  const handleTabKeyDown = (e, rowId, field) => {
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      moveToNextCell(rowId, field, editingValue, e.shiftKey);
+    } else if (e.key === 'Enter' && e.shiftKey) {
+      e.preventDefault();
+      setEditingValue(prev => prev + '\n');
+    }
+  };
+
+  // Improved function to move to the next cell in sequence
+  const moveToNextCell = async (currentRowId, currentField, currentValue, isReverse = false) => {
+    if (currentField === 'analyst') return;
+    
+    // Define the tab order explicitly
+    const tabOrder = [
+      // Network column
+      'internal_ip', 'external_ip', 'mac_address', 'hostname', 'domain',
+      // Content column
+      'username', 'command', 'notes', 'secrets',
+      // Status column
+      'filename', 'hash_algorithm', 'hash_value', 'status'
+    ];
+    
+    // Find the current position in the tab order
+    const currentIndex = tabOrder.indexOf(currentField);
+    if (currentIndex === -1) return;
+    
+    // Calculate the next or previous index based on direction
+    let nextIndex;
+    if (isReverse) {
+      // Go to previous field
+      nextIndex = currentIndex - 1;
+      if (nextIndex < 0) nextIndex = tabOrder.length - 1; // Wrap around
+    } else {
+      // Go to next field
+      nextIndex = currentIndex + 1;
+      if (nextIndex >= tabOrder.length) nextIndex = 0; // Wrap around
+    }
+    
+    const nextField = tabOrder[nextIndex];
+    
+    try {
+      // Save the current cell value
+      if (currentField !== 'analyst') {
+        // Try to save the current value
+        await onCellBlur({ target: { value: currentValue } }, currentRowId, currentField);
+      }
+      
+      // Find the next editable cell
+      let nextEditableIndex = nextIndex;
+      let attempts = 0;
+      const maxAttempts = tabOrder.length; // Prevent infinite loops
+      
+      while (attempts < maxAttempts) {
+        // Check if the next field is editable
+        if (isFieldEditable(tabOrder[nextEditableIndex])) {
+          break;
+        }
+        
+        // Move to the next field in the direction we're going
+        if (isReverse) {
+          nextEditableIndex--;
+          if (nextEditableIndex < 0) nextEditableIndex = tabOrder.length - 1;
+        } else {
+          nextEditableIndex++;
+          if (nextEditableIndex >= tabOrder.length) nextEditableIndex = 0;
+        }
+        
+        attempts++;
+      }
+      
+      // If we found an editable field, focus it
+      if (attempts < maxAttempts) {
+        const nextEditableField = tabOrder[nextEditableIndex];
+        
+        // Allow a small delay for the DOM to update
+        setTimeout(() => {
+          onCellClick(currentRowId, nextEditableField);
+        }, 10);
+      }
+    } catch (err) {
+      console.error('Failed to navigate to next cell:', err);
+    }
+  };
+
   // Render the input field when editing
   const renderEditField = (field, value) => {
     if (field === 'status') {
@@ -104,8 +191,10 @@ const LogRowCard = ({
             console.log('Status onBlur with value:', e.target.value);
             onCellBlur(e, parseInt(row.id), field);
           }}
+          onKeyDown={(e) => handleTabKeyDown(e, parseInt(row.id), field)}
           className="w-full p-1 border rounded bg-gray-700 text-white border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
           onClick={(e) => e.stopPropagation()}
+          autoFocus
         >
           <option value="">Select a status</option>
           {statusOptions.map(option => (
@@ -127,8 +216,10 @@ const LogRowCard = ({
           value={editingValue || ''}
           onChange={onCellChange}
           onBlur={(e) => onCellBlur(e, parseInt(row.id), field)}
+          onKeyDown={(e) => handleTabKeyDown(e, parseInt(row.id), field)}
           className="w-full p-1 border rounded bg-gray-700 text-white border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
           onClick={(e) => e.stopPropagation()}
+          autoFocus
         >
           <option value="">Select an algorithm</option>
           {hashAlgorithmOptions.map(option => (
@@ -156,12 +247,13 @@ const LogRowCard = ({
             const newEvent = { ...e, target: { ...e.target, value: formattedValue } };
             onCellBlur(newEvent, parseInt(row.id), field);
           }}
-          onKeyDown={(e) => onKeyDown(e, parseInt(row.id), field)}
+          onKeyDown={(e) => handleTabKeyDown(e, parseInt(row.id), field)}
           onClick={(e) => e.stopPropagation()}
           className="w-full p-1 border rounded bg-gray-700 text-white border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
           placeholder="XX-XX-XX-XX-XX-XX"
           pattern="([0-9A-Fa-f]{2}-){5}([0-9A-Fa-f]{2})"
           title="Please enter a valid MAC address (e.g., AA-BB-CC-DD-EE-FF)"
+          autoFocus
         />
       );
     }
@@ -173,7 +265,7 @@ const LogRowCard = ({
           value={editingValue || ''}
           onChange={onCellChange}
           onBlur={(e) => onCellBlur(e, parseInt(row.id), field)}
-          onKeyDown={(e) => onKeyDown(e, parseInt(row.id), field)}
+          onKeyDown={(e) => handleTabKeyDown(e, parseInt(row.id), field)}
           onClick={(e) => e.stopPropagation()}
           autoFocus
           className="w-full p-1 border rounded min-h-[72px] bg-gray-700 text-white border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -191,7 +283,7 @@ const LogRowCard = ({
         value={editingValue || ''}
         onChange={onCellChange}
         onBlur={(e) => onCellBlur(e, parseInt(row.id), field)}
-        onKeyDown={(e) => onKeyDown(e, parseInt(row.id), field)}
+        onKeyDown={(e) => handleTabKeyDown(e, parseInt(row.id), field)}
         onClick={(e) => e.stopPropagation()}
         autoFocus
         className="w-full p-1 border rounded bg-gray-700 text-white border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -354,6 +446,13 @@ const LogRowCard = ({
                           onCellClick(row.id, field);
                         }
                       }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && isFieldEditable(field)) {
+                          e.preventDefault();
+                          setIsClickingCell(true);
+                          onCellClick(row.id, field);
+                        }
+                      }}
                     >
                       {isEditing ? 
                         renderEditField(field, row[field]) : 
@@ -382,6 +481,13 @@ const LogRowCard = ({
                       onClick={(e) => {
                         if (isFieldEditable(field)) {
                           e.stopPropagation(); // Stop event from bubbling up to the parent
+                          setIsClickingCell(true);
+                          onCellClick(row.id, field);
+                        }
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && isFieldEditable(field)) {
+                          e.preventDefault();
                           setIsClickingCell(true);
                           onCellClick(row.id, field);
                         }
@@ -427,6 +533,13 @@ const LogRowCard = ({
                       onClick={(e) => {
                         if (isFieldEditable(field)) {
                           e.stopPropagation(); // Stop event from bubbling up to the parent
+                          setIsClickingCell(true);
+                          onCellClick(row.id, field);
+                        }
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && isFieldEditable(field)) {
+                          e.preventDefault();
                           setIsClickingCell(true);
                           onCellClick(row.id, field);
                         }
