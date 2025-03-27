@@ -29,7 +29,10 @@ class S3UploadService {
         method: 'GET',
         credentials: 'include',
         mode: 'cors', // Ensure CORS mode is set
-        cache: 'no-cache'
+        cache: 'no-cache',
+        headers: {
+          'Accept': 'application/octet-stream', // Explicitly request binary content
+        }
       });
       
       if (!fileResponse.ok) {
@@ -46,6 +49,12 @@ class S3UploadService {
       // If the blob is empty, something went wrong
       if (fileBlob.size === 0) {
         throw new Error('Downloaded file is empty');
+      }
+      
+      // If we received HTML instead of a zip file, something went wrong
+      if (fileBlob.type.includes('text/html')) {
+        console.error('Received HTML instead of expected zip file');
+        throw new Error('Received HTML instead of the expected file type. The server might be returning a redirect or error page.');
       }
       
       // Extract filename from the path
@@ -75,7 +84,7 @@ class S3UploadService {
         Bucket: s3Config.bucket,
         Key: objectKey,
         Body: fileBlob,
-        ContentType: fileBlob.type || 'application/zip'
+        ContentType: 'application/zip' // Force the correct content type
       };
       
       console.log('Starting S3 upload with params:', {
@@ -137,8 +146,18 @@ class S3UploadService {
   async uploadToS3UsingPresignedUrl(serverFilePath, onProgress = null) {
     try {
       // First fetch the file from server
-      const fullPath = serverFilePath.startsWith('/') ? 
-        `${window.location.origin}${serverFilePath}` : serverFilePath;
+      let fullPath = serverFilePath;
+      
+      // Make sure the path uses the /exports/ prefix if it's a backend-exported file
+      if (serverFilePath.includes('evidence_export_') && !serverFilePath.startsWith('/exports/')) {
+        // If it doesn't start with /exports/ but contains an export filename pattern, fix the path
+        fullPath = `/exports/${serverFilePath.split('/').pop()}`;
+      }
+      
+      // Now convert to absolute URL if it's a relative path
+      if (fullPath.startsWith('/')) {
+        fullPath = `${window.location.origin}${fullPath}`;
+      }
       
       console.log(`Fetching file from: ${fullPath}`);
       
@@ -146,7 +165,10 @@ class S3UploadService {
         method: 'GET',
         credentials: 'include',
         mode: 'cors',
-        cache: 'no-cache'
+        cache: 'no-cache',
+        headers: {
+          'Accept': 'application/octet-stream', // Explicitly request binary content
+        }
       });
       
       if (!fileResponse.ok) {
@@ -156,7 +178,15 @@ class S3UploadService {
       const fileBlob = await fileResponse.blob();
       const filename = serverFilePath.split('/').pop();
       
-      console.log(`File fetched successfully: ${filename}, size: ${fileBlob.size} bytes`);
+      // Check if we received HTML instead of the expected file
+      if (fileBlob.type.includes('text/html')) {
+        const htmlText = await fileBlob.text();
+        console.error('Received HTML instead of expected file. HTML content preview:', 
+          htmlText.substring(0, 200) + '...');
+        throw new Error('Received HTML instead of the expected file type. The server might be returning a redirect or error page.');
+      }
+      
+      console.log(`File fetched successfully: ${filename}, size: ${fileBlob.size} bytes, type: ${fileBlob.type || 'application/zip'}`);
       
       // Request pre-signed URL from server
       const presignedUrlResponse = await fetch('/api/logs/s3-config/presigned-url', {
@@ -168,7 +198,7 @@ class S3UploadService {
         },
         body: JSON.stringify({
           fileName: filename,
-          contentType: fileBlob.type || 'application/zip'
+          contentType: 'application/zip' // Force the correct content type
         })
       });
       
@@ -213,7 +243,7 @@ class S3UploadService {
           };
           
           xhr.open('PUT', url);
-          xhr.setRequestHeader('Content-Type', fileBlob.type || 'application/zip');
+          xhr.setRequestHeader('Content-Type', 'application/zip'); // Force the correct content type
           xhr.send(fileBlob);
         });
       } else {
@@ -222,7 +252,7 @@ class S3UploadService {
           method: 'PUT',
           body: fileBlob,
           headers: {
-            'Content-Type': fileBlob.type || 'application/zip'
+            'Content-Type': 'application/zip' // Force the correct content type
           }
         });
         

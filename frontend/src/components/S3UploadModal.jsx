@@ -1,4 +1,4 @@
-// frontend/src/components/S3UploadModal.jsx
+// frontend/src/components/S3UploadModal.jsx - Updated for correct path handling
 import React, { useState, useEffect } from 'react';
 import { X, CloudUpload, CheckCircle, AlertCircle, RefreshCw } from 'lucide-react';
 import s3UploadService from '../services/s3UploadService';
@@ -26,6 +26,28 @@ const S3UploadModal = ({ show, onClose, archivePath, onSuccess }) => {
       // Extract file name from path for status tracking
       const archiveFileName = archivePath.split('/').pop();
       
+      console.log('Starting upload for archive:', {
+        originalPath: archivePath,
+        fileName: archiveFileName
+      });
+      
+      // Process the archive path to ensure it's in the correct format
+      let processedPath = archivePath;
+      
+      // Handle paths based on where the file is coming from
+      if (processedPath.includes('/app/data/archives/')) {
+        // For files in the archives directory
+        const filename = processedPath.split('/').pop();
+        processedPath = `/archives/${filename}`;
+        console.log('Corrected archives path to:', processedPath);
+      } else if (!processedPath.startsWith('/exports/') && !processedPath.startsWith('/archives/') && processedPath.includes('.zip')) {
+        // For other ZIP files that don't have proper prefixes
+        const filename = processedPath.split('/').pop();
+        // Try the archives path first
+        processedPath = `/archives/${filename}`;
+        console.log('Using archives path:', processedPath);
+      }
+      
       // Fetch S3 configuration
       const config = await s3UploadService.getS3Config();
       setS3Config(config);
@@ -47,13 +69,13 @@ const S3UploadModal = ({ show, onClose, archivePath, onSuccess }) => {
       if (usePresignedUrl) {
         // Use pre-signed URL approach (more reliable)
         result = await s3UploadService.uploadToS3UsingPresignedUrl(
-          archivePath,
+          processedPath,
           handleProgress
         );
       } else {
         // Use direct SDK approach
         result = await s3UploadService.uploadToS3(
-          archivePath,
+          processedPath,
           config,
           handleProgress
         );
@@ -62,7 +84,7 @@ const S3UploadModal = ({ show, onClose, archivePath, onSuccess }) => {
       setUploadResult(result);
       setUploadStatus('success');
       
-      // Update status on the backend - THIS IS THE NEW CODE
+      // Update status on the backend
       try {
         await s3UploadService.updateUploadStatus(archiveFileName, 'success', {
           location: result.location,

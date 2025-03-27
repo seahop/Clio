@@ -249,8 +249,15 @@ class LogRotationManager {
       // Create a zip archive
       await this.createArchive(logFiles, archivePath);
       
+      console.log(`Copying archive to exports directory for frontend access: ${exportPath}`);
       // Create a copy in exports directory
-      await fs.copyFile(archivePath, exportPath);
+      try {
+        await fs.copyFile(archivePath, exportPath);
+        console.log(`Successfully copied archive to exports directory at ${exportPath}`);
+      } catch (copyError) {
+        console.error(`Error copying archive to exports directory: ${copyError.message}`);
+        // Continue execution even if copy fails
+      }
       
       // Reset each log file
       const resets = [];
@@ -287,8 +294,9 @@ class LogRotationManager {
         success: true,
         rotatedFiles: logFiles,
         archiveFile: archiveFileName,
-        archivePath,
-        exportPath,
+        archivePath: archivePath,
+        // Return the web-accessible path instead of the filesystem path
+        exportPath: `/exports/${archiveFileName}`,  // Changed to return the web path
         s3Export: options.useS3 || false
       };
     } catch (error) {
