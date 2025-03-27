@@ -114,13 +114,14 @@ const encryptForS3 = async (req, res) => {
       timestamp: new Date().toISOString()
     });
     
-    // Return web paths for the frontend
-    // Convert file paths to web paths
+    // Return web paths for the frontend with filenames for status tracking
     const webPathPrefix = '/exports/';
     res.json({
       encryptedFilePath: webPathPrefix + encryptedFileName,
       keyFilePath: webPathPrefix + keyFileName,
-      originalFileName: sourceFileName
+      originalFileName: sourceFileName,
+      encryptedFileName: encryptedFileName,
+      keyFileName: keyFileName
     });
   } catch (error) {
     console.error('Error encrypting file for S3:', error);

@@ -15,7 +15,12 @@ import {
   Lock,
   Unlock,
   Shield,
-  CloudUpload
+  CloudUpload,
+  CloudCheck,
+  Key,
+  FileLock,
+  Info,
+  Clock
 } from 'lucide-react';
 import S3UploadModal from './S3UploadModal';
 import s3UploadService from '../services/s3UploadService';
@@ -105,51 +110,179 @@ const ExportDatabasePanel = ({ csrfToken }) => {
           'CSRF-Token': csrfToken
         }
       });
-
+  
       if (!response.ok) {
         throw new Error('Failed to fetch exports');
       }
-
+  
       const data = await response.json();
+      
+      // Fetch S3 status information separately
+      let s3StatusData = {};
+      let fileRelationships = {};
+      try {
+        const s3StatusResponse = await fetch('/api/export/s3-status', {
+          credentials: 'include',
+          headers: {
+            'CSRF-Token': csrfToken
+          }
+        });
+        
+        if (s3StatusResponse.ok) {
+          s3StatusData = await s3StatusResponse.json();
+          console.log('Fetched S3 status information:', Object.keys(s3StatusData).length);
+  
+          // Extract file relationships from the status data
+          Object.keys(s3StatusData).forEach(filename => {
+            const fileStatus = s3StatusData[filename];
+            
+            // If this is an original file that has been encrypted
+            if (fileStatus.status === 'encrypted' && fileStatus.encryptedFiles) {
+              fileRelationships[filename] = fileStatus.encryptedFiles;
+            }
+            
+            // If this is an encrypted or key file
+            if (fileStatus.originalFile) {
+              if (!fileRelationships[fileStatus.originalFile]) {
+                fileRelationships[fileStatus.originalFile] = {};
+              }
+              
+              // Determine if this is an encrypted or key file based on filename or details
+              if (filename.includes('.encrypted.') || 
+                  (fileStatus.details && fileStatus.details.isEncrypted)) {
+                fileRelationships[fileStatus.originalFile].encryptedFile = filename;
+              } else if (filename.includes('.key.') || 
+                        (fileStatus.details && fileStatus.details.isKeyFile)) {
+                fileRelationships[fileStatus.originalFile].keyFile = filename;
+              }
+            }
+          });
+          
+          console.log('Extracted file relationships:', fileRelationships);
+        }
+      } catch (s3StatusError) {
+        console.error('Error fetching S3 status information:', s3StatusError);
+        // Continue with empty S3 status data
+      }
       
       // Process exports to include S3 status information
       const processedExports = data.map(exportFile => {
         // Default S3 status display (will be overridden if status exists)
         let s3Status = null;
         let s3StatusClass = '';
+        let fileType = exportFile.type || 'unknown';
+        let isValid = true; // Assume all files are valid by default
         
-        // Check if this export has S3 status info
-        if (exportFile.s3Status) {
-          s3Status = exportFile.s3Status;
-          // Set appropriate style based on status
-          switch (exportFile.s3Status) {
-            case 'success':
-            case 'uploaded':
-              s3Status = 'Uploaded';
-              s3StatusClass = 'text-green-300';
-              break;
-            case 'pending':
-              s3Status = 'Pending';
-              s3StatusClass = 'text-yellow-300';
-              break;
-            case 'failed':
-              s3Status = 'Failed';
-              s3StatusClass = 'text-red-300';
-              break;
-            default:
-              s3Status = exportFile.s3Status;
-              s3StatusClass = 'text-blue-300';
+        // Check if this file has been encrypted and replaced by encrypted versions
+        const isEncrypted = fileRelationships[exportFile.name] !== undefined;
+        if (isEncrypted) {
+          // This is an original file that has been encrypted
+          fileType = 'original-encrypted';
+          s3Status = 'Encrypted';
+          s3StatusClass = 'text-purple-300';
+          isValid = false; // Mark original as invalid since it's been encrypted
+        }
+        
+        // Check if this file is an encrypted version or key file
+        const isEncryptedVersion = exportFile.name.includes('.encrypted.');
+        const isKeyFile = exportFile.name.includes('.key.');
+        
+        if (isEncryptedVersion) {
+          fileType = 'encrypted';
+        } else if (isKeyFile) {
+          fileType = 'key';
+        }
+        
+        // Check for explicit status from the S3 status endpoint
+        if (s3StatusData[exportFile.name]) {
+          const fileStatus = s3StatusData[exportFile.name];
+          
+          // Only apply status if this file is still valid (not replaced by encrypted versions)
+          if (isValid || fileType === 'encrypted' || fileType === 'key') {
+            // Set appropriate style based on status
+            switch (fileStatus.status) {
+              case 'success':
+                s3Status = 'Uploaded';
+                s3StatusClass = 'text-green-300';
+                break;
+              case 'pending':
+                s3Status = 'Pending';
+                s3StatusClass = 'text-yellow-300';
+                break;
+              case 'failed':
+                s3Status = 'Failed';
+                s3StatusClass = 'text-red-300';
+                break;
+              case 'encrypted':
+                s3Status = 'Encrypted';
+                s3StatusClass = 'text-purple-300';
+                isValid = false; // Mark as invalid since it's been encrypted
+                break;
+              default:
+                s3Status = fileStatus.status;
+                s3StatusClass = 'text-blue-300';
+            }
+          }
+        } 
+        // Then check the export file's own properties
+        else if (exportFile.s3Status) {
+          // Only apply status if this file is still valid
+          if (isValid) {
+            s3Status = exportFile.s3Status;
+            // Set appropriate style based on status
+            switch (exportFile.s3Status) {
+              case 'success':
+              case 'uploaded':
+                s3Status = 'Uploaded';
+                s3StatusClass = 'text-green-300';
+                break;
+              case 'pending':
+                s3Status = 'Pending';
+                s3StatusClass = 'text-yellow-300';
+                break;
+              case 'failed':
+                s3Status = 'Failed';
+                s3StatusClass = 'text-red-300';
+                break;
+              default:
+                s3Status = exportFile.s3Status;
+                s3StatusClass = 'text-blue-300';
+            }
           }
         }
         
         return {
           ...exportFile,
           s3Status,
-          s3StatusClass
+          s3StatusClass,
+          fileType,
+          isValid,
+          isEncrypted,
+          isEncryptedVersion,
+          isKeyFile,
+          s3Details: s3StatusData[exportFile.name]?.details || exportFile.s3Details,
+          relationshipInfo: isEncrypted ? fileRelationships[exportFile.name] : null,
+          originalFile: (isEncryptedVersion || isKeyFile) && s3StatusData[exportFile.name]?.originalFile 
+            ? s3StatusData[exportFile.name].originalFile 
+            : null
         };
       });
       
-      setExports(processedExports);
+      // Filter out invalid files if needed (optional)
+      // const validExports = processedExports.filter(file => file.isValid);
+      
+      // Sort exports by creation time, but keep related files together
+      const sortedExports = [...processedExports].sort((a, b) => {
+        // If a is related to b or vice versa, keep them together
+        if (a.originalFile === b.name || b.originalFile === a.name) {
+          return 0;
+        }
+        
+        // Otherwise sort by timestamp (newest first)
+        return new Date(b.timestamp || b.created) - new Date(a.timestamp || a.created);
+      });
+      
+      setExports(sortedExports);
     } catch (error) {
       console.error('Error fetching exports:', error);
       setError('Failed to fetch existing exports. Please try again.');
@@ -692,47 +825,83 @@ const ExportDatabasePanel = ({ csrfToken }) => {
           </div>
           
           {loadingExports ? (
-            <div className="flex justify-center items-center py-8">
-              <RefreshCw className="animate-spin text-blue-400" />
-              <span className="ml-2 text-gray-300">Loading exports...</span>
-            </div>
-          ) : exports.length === 0 ? (
-            <div className="text-center py-8 text-gray-400">
-              <div className="mb-2">No exports found</div>
-              <div className="text-sm">Exported files will appear here</div>
-            </div>
-          ) : (
-            <div className="max-h-80 overflow-y-auto">
-              <table className="w-full text-sm text-left text-gray-300">
-                <thead className="text-xs text-gray-400 uppercase bg-gray-700/50">
-                  <tr>
-                    <th className="px-3 py-2 w-6"></th>
-                    <th className="px-3 py-2">Filename</th>
-                    <th className="px-3 py-2">Size</th>
-                    <th className="px-3 py-2">Created</th>
-                    <th className="px-3 py-2">S3 Status</th>
-                    <th className="px-3 py-2 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {exports.map((file, index) => (
-                    <tr key={file.name} className={`border-b border-gray-700 ${index % 2 === 0 ? 'bg-gray-800/30' : ''}`}>
+          <div className="flex justify-center items-center py-8">
+            <RefreshCw className="animate-spin text-blue-400" />
+            <span className="ml-2 text-gray-300">Loading exports...</span>
+          </div>
+        ) : exports.length === 0 ? (
+          <div className="text-center py-8 text-gray-400">
+            <div className="mb-2">No exports found</div>
+            <div className="text-sm">Exported files will appear here</div>
+          </div>
+        ) : (
+          <div className="max-h-80 overflow-y-auto">
+            <table className="w-full text-sm text-left text-gray-300">
+              <thead className="text-xs text-gray-400 uppercase bg-gray-700/50">
+                <tr>
+                  <th className="px-3 py-2 w-6"></th>
+                  <th className="px-3 py-2">Filename</th>
+                  <th className="px-3 py-2">Size</th>
+                  <th className="px-3 py-2">Created</th>
+                  <th className="px-3 py-2">S3 Status</th>
+                  <th className="px-3 py-2 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {exports.map((file, index) => {
+                  // Decide what icon and class to use based on file type and status
+                  let fileIcon = <FileText size={16} className="text-blue-400" title="CSV Export" />;
+                  let rowClass = index % 2 === 0 ? 'bg-gray-800/30' : '';
+                  
+                  if (file.fileType === 'evidence') {
+                    fileIcon = <Archive size={16} className="text-purple-400" title="Evidence Export" />;
+                  } else if (file.fileType === 'encrypted') {
+                    fileIcon = <Lock size={16} className="text-green-400" title="Encrypted File" />;
+                  } else if (file.fileType === 'key') {
+                    fileIcon = <Key size={16} className="text-yellow-400" title="Encryption Key" />;
+                  } else if (file.fileType === 'original-encrypted') {
+                    fileIcon = <Lock size={16} className="text-gray-400" title="Original (Encrypted Version Available)" />;
+                    rowClass += ' opacity-50'; // Dim the original file since it's been replaced by encrypted version
+                  }
+                  
+                  // Don't show upload option for files that have been encrypted
+                  const showUploadOption = isS3Configured && 
+                                          !file.s3Status && 
+                                          file.isValid !== false && 
+                                          !file.isEncrypted;
+                  
+                  return (
+                    <tr key={file.name} className={`border-b border-gray-700 ${rowClass}`}>
                       <td className="px-3 py-2">
-                        {file.type === 'evidence' ? (
-                          <Archive size={16} className="text-purple-400" title="Evidence Export" />
-                        ) : (
-                          <FileText size={16} className="text-blue-400" title="CSV Export" />
-                        )}
+                        {fileIcon}
                       </td>
                       <td className="px-3 py-2 font-medium text-white">
                         {file.name}
+                        {file.isEncryptedVersion && file.originalFile && (
+                          <span className="ml-1 text-xs text-gray-400">
+                            (encrypted from {file.originalFile})
+                          </span>
+                        )}
+                        {file.isKeyFile && file.originalFile && (
+                          <span className="ml-1 text-xs text-gray-400">
+                            (key for {file.originalFile})
+                          </span>
+                        )}
+                        {file.isEncrypted && (
+                          <span className="ml-1 text-xs text-gray-400">
+                            (encrypted version available)
+                          </span>
+                        )}
                       </td>
                       <td className="px-3 py-2">{formatFileSize(file.size)}</td>
                       <td className="px-3 py-2">{formatDate(file.created)}</td>
                       <td className="px-3 py-2">
                         {file.s3Status ? (
                           <span className={`flex items-center gap-1 ${file.s3StatusClass || 'text-green-300'}`}>
-                            <CloudUpload size={14} />
+                            {file.s3Status === 'Uploaded' && <CheckSquare size={14} />}
+                            {file.s3Status === 'Pending' && <Clock size={14} />}
+                            {file.s3Status === 'Failed' && <AlertCircle size={14} />}
+                            {file.s3Status === 'Encrypted' && <Lock size={14} />}
                             {file.s3Status}
                           </span>
                         ) : (
@@ -741,8 +910,8 @@ const ExportDatabasePanel = ({ csrfToken }) => {
                       </td>
                       <td className="px-3 py-2 text-right">
                         <div className="flex gap-2 justify-end">
-                          {/* S3 Upload button - only for existing files if S3 is configured */}
-                          {isS3Configured && !file.s3Status && (
+                          {/* S3 Upload button - only for valid files if S3 is configured */}
+                          {showUploadOption && (
                             <button
                               onClick={() => handleUploadToS3(file.name)}
                               className="text-blue-400 hover:text-blue-300 p-1 rounded"
@@ -751,6 +920,7 @@ const ExportDatabasePanel = ({ csrfToken }) => {
                               <CloudUpload size={16} />
                             </button>
                           )}
+                          
                           <button
                             onClick={() => handleDeleteExport(file.name)}
                             className="text-red-400 hover:text-red-300 p-1 rounded"
@@ -761,11 +931,12 @@ const ExportDatabasePanel = ({ csrfToken }) => {
                         </div>
                       </td>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
           
           <div className="mt-4 text-xs text-gray-400">
             <p>File path: <code className="bg-gray-800 px-1 py-0.5 rounded">/app/exports/</code> inside container</p>

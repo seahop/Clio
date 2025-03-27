@@ -1,4 +1,4 @@
-// frontend/src/services/s3UploadService.js - Updated with CSRF Handling
+// frontend/src/services/s3UploadService.js - Updated with improved error handling
 import AWS from 'aws-sdk';
 
 /**
@@ -343,8 +343,8 @@ class S3UploadService {
       // Step 1: Request the server to encrypt the file
       console.log(`Requesting encryption for file: ${serverFilePath}`);
       
-      // Extract filename for better error messages
-      const filename = serverFilePath.split('/').pop();
+      // Extract original filename for status tracking
+      const originalFilename = serverFilePath.split('/').pop();
       
       // Request the server to encrypt the file
       const encryptResponse = await fetch('/api/export/encrypt-for-s3', {
@@ -356,7 +356,7 @@ class S3UploadService {
         },
         body: JSON.stringify({
           filePath: serverFilePath,
-          filename: filename
+          filename: originalFilename
         })
       });
       
@@ -374,13 +374,52 @@ class S3UploadService {
         throw new Error(`Failed to encrypt file: ${errorDetail}`);
       }
       
-      const { encryptedFilePath, keyFilePath, originalFileName } = await encryptResponse.json();
+      const { encryptedFilePath, keyFilePath, originalFileName, encryptedFileName, keyFileName } = await encryptResponse.json();
       
       console.log('File encrypted successfully:', {
         encryptedFilePath,
         keyFilePath,
-        originalFileName
+        originalFileName,
+        encryptedFileName, // New field for accurate tracking
+        keyFileName        // New field for accurate tracking
       });
+      
+      // Update status to mark original file as "encrypted" rather than uploading directly
+      try {
+        await this.refreshCsrfToken();
+        await this.updateExportStatus(originalFileName, 'encrypted', {
+          encryptedFileName,
+          keyFileName,
+          encryptedAt: new Date().toISOString(),
+          note: 'This file was encrypted for upload and will not be uploaded directly'
+        });
+        console.log(`Updated status for original file ${originalFileName} to 'encrypted'`);
+      } catch (statusError) {
+        console.warn(`Failed to update status for original file: ${statusError.message}`);
+        // Continue anyway, this is non-critical
+      }
+      
+      // Set pending status for both encrypted files
+      try {
+        await this.refreshCsrfToken();
+        await this.updateExportStatus(encryptedFileName, 'pending', {
+          originalFileName,
+          isEncrypted: true,
+          uploadStartedAt: new Date().toISOString()
+        });
+        console.log(`Set status for encrypted file ${encryptedFileName} to 'pending'`);
+        
+        await this.refreshCsrfToken();
+        await this.updateExportStatus(keyFileName, 'pending', {
+          originalFileName,
+          isKeyFile: true,
+          uploadStartedAt: new Date().toISOString()
+        });
+        console.log(`Set status for key file ${keyFileName} to 'pending'`);
+      } catch (statusError) {
+        console.warn(`Failed to set pending status for encrypted files: ${statusError.message}`);
+        // Continue anyway, this is non-critical
+      }
       
       // Refresh token again before upload
       await this.refreshCsrfToken();
@@ -401,11 +440,43 @@ class S3UploadService {
         // Update progress to 50% complete
         onProgress(50);
         
+        // Update status for encrypted file to success
+        try {
+          await this.refreshCsrfToken();
+          await this.updateExportStatus(encryptedFileName, 'success', {
+            originalFileName,
+            isEncrypted: true,
+            location: encryptedFileResult.location,
+            bucket: encryptedFileResult.bucket,
+            objectKey: encryptedFileResult.objectKey,
+            uploadedAt: new Date().toISOString()
+          });
+          console.log(`Updated status for encrypted file ${encryptedFileName} to 'success'`);
+        } catch (statusError) {
+          console.warn(`Failed to update status for encrypted file: ${statusError.message}`);
+        }
+        
         // Refresh token before key file upload
         await this.refreshCsrfToken();
         
         // Step 3: Upload the key file
         const keyFileResult = await this.uploadToS3UsingPresignedUrl(keyFilePath);
+        
+        // Update status for key file to success
+        try {
+          await this.refreshCsrfToken();
+          await this.updateExportStatus(keyFileName, 'success', {
+            originalFileName,
+            isKeyFile: true,
+            location: keyFileResult.location,
+            bucket: keyFileResult.bucket,
+            objectKey: keyFileResult.objectKey,
+            uploadedAt: new Date().toISOString()
+          });
+          console.log(`Updated status for key file ${keyFileName} to 'success'`);
+        } catch (statusError) {
+          console.warn(`Failed to update status for key file: ${statusError.message}`);
+        }
         
         // Update progress to 100% when both files are uploaded
         onProgress(100);
@@ -415,26 +486,124 @@ class S3UploadService {
           ...encryptedFileResult,
           keyFile: keyFileResult.objectKey,
           encrypted: true,
-          originalFileName
+          originalFileName,
+          encryptedFileName,
+          keyFileName
         };
       } else {
         // Upload both files without progress tracking
         const encryptedFileResult = await this.uploadToS3UsingPresignedUrl(encryptedFilePath);
+        
+        // Update status for encrypted file to success
+        try {
+          await this.refreshCsrfToken();
+          await this.updateExportStatus(encryptedFileName, 'success', {
+            originalFileName,
+            isEncrypted: true,
+            location: encryptedFileResult.location,
+            bucket: encryptedFileResult.bucket,
+            objectKey: encryptedFileResult.objectKey,
+            uploadedAt: new Date().toISOString()
+          });
+          console.log(`Updated status for encrypted file ${encryptedFileName} to 'success'`);
+        } catch (statusError) {
+          console.warn(`Failed to update status for encrypted file: ${statusError.message}`);
+        }
         
         // Refresh token before key file upload
         await this.refreshCsrfToken();
         
         const keyFileResult = await this.uploadToS3UsingPresignedUrl(keyFilePath);
         
+        // Update status for key file to success
+        try {
+          await this.refreshCsrfToken();
+          await this.updateExportStatus(keyFileName, 'success', {
+            originalFileName,
+            isKeyFile: true,
+            location: keyFileResult.location,
+            bucket: keyFileResult.bucket,
+            objectKey: keyFileResult.objectKey,
+            uploadedAt: new Date().toISOString()
+          });
+          console.log(`Updated status for key file ${keyFileName} to 'success'`);
+        } catch (statusError) {
+          console.warn(`Failed to update status for key file: ${statusError.message}`);
+        }
+        
         return {
           ...encryptedFileResult,
           keyFile: keyFileResult.objectKey,
           encrypted: true,
-          originalFileName
+          originalFileName,
+          encryptedFileName,
+          keyFileName
         };
       }
     } catch (error) {
       console.error('Encrypted S3 upload error:', error);
+      
+      // Try to extract filenames from the error context
+      let originalFilename = null;
+      let encryptedFileName = null;
+      let keyFileName = null;
+      
+      if (error.encryptedFileName) {
+        encryptedFileName = error.encryptedFileName;
+      }
+      if (error.keyFileName) {
+        keyFileName = error.keyFileName;
+      }
+      if (error.originalFileName) {
+        originalFilename = error.originalFileName;
+      } else if (serverFilePath) {
+        originalFilename = serverFilePath.split('/').pop();
+      }
+      
+      // Update status for any filenames we know about
+      if (originalFilename) {
+        try {
+          await this.refreshCsrfToken();
+          await this.updateExportStatus(originalFilename, 'failed', {
+            error: error.message,
+            errorCode: error.code,
+            failedAt: new Date().toISOString()
+          });
+        } catch (statusError) {
+          console.warn(`Failed to update failure status for original file: ${statusError.message}`);
+        }
+      }
+      
+      if (encryptedFileName) {
+        try {
+          await this.refreshCsrfToken();
+          await this.updateExportStatus(encryptedFileName, 'failed', {
+            originalFileName: originalFilename,
+            isEncrypted: true,
+            error: error.message,
+            errorCode: error.code,
+            failedAt: new Date().toISOString()
+          });
+        } catch (statusError) {
+          console.warn(`Failed to update failure status for encrypted file: ${statusError.message}`);
+        }
+      }
+      
+      if (keyFileName) {
+        try {
+          await this.refreshCsrfToken();
+          await this.updateExportStatus(keyFileName, 'failed', {
+            originalFileName: originalFilename,
+            isKeyFile: true,
+            error: error.message,
+            errorCode: error.code,
+            failedAt: new Date().toISOString()
+          });
+        } catch (statusError) {
+          console.warn(`Failed to update failure status for key file: ${statusError.message}`);
+        }
+      }
+      
       throw error;
     }
   }
@@ -487,15 +656,20 @@ class S3UploadService {
    */
   async updateUploadStatus(archiveFileName, status, details = {}) {
     try {
-      // Ensure CSRF token is valid
-      await this.refreshCsrfToken();
+      // Ensure CSRF token is valid by explicitly refreshing it
+      const token = await this.refreshCsrfToken();
+      if (!token) {
+        throw new Error('Failed to refresh CSRF token');
+      }
+      
+      console.log(`Updating upload status for ${archiveFileName} to ${status} with token: ${token.substring(0, 8)}...`);
       
       const response = await fetch('/api/logs/s3-config/upload-status', {
         method: 'POST',
         credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
-          'CSRF-Token': window.csrfToken
+          'CSRF-Token': token
         },
         body: JSON.stringify({
           archiveFileName,
@@ -506,7 +680,7 @@ class S3UploadService {
       
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to update upload status');
+        throw new Error(errorData.error || `Failed to update upload status: ${response.status}`);
       }
       
       return await response.json();
@@ -525,15 +699,20 @@ class S3UploadService {
    */
   async updateExportStatus(filename, status, details = {}) {
     try {
-      // Ensure CSRF token is valid
-      await this.refreshCsrfToken();
+      // Ensure CSRF token is valid by explicitly refreshing it
+      const token = await this.refreshCsrfToken();
+      if (!token) {
+        throw new Error('Failed to refresh CSRF token');
+      }
+      
+      console.log(`Updating export status for ${filename} to ${status} with token: ${token.substring(0, 8)}...`);
       
       const response = await fetch('/api/export/s3-status', {
         method: 'POST',
         credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
-          'CSRF-Token': window.csrfToken
+          'CSRF-Token': token
         },
         body: JSON.stringify({
           filename,
@@ -543,8 +722,15 @@ class S3UploadService {
       });
       
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to update export S3 status');
+        let errorMessage = `Failed to update export S3 status: ${response.status}`;
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.error || errorMessage;
+        } catch (parseError) {
+          // If we can't parse the response as JSON, just use the status code
+          console.warn('Could not parse error response as JSON:', parseError);
+        }
+        throw new Error(errorMessage);
       }
       
       return await response.json();

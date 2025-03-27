@@ -1,4 +1,4 @@
-// frontend/src/components/S3UploadModal.jsx - Updated with CSRF Handling
+// frontend/src/components/S3UploadModal.jsx - Updated with better status tracking
 import React, { useState, useEffect } from 'react';
 import { X, CloudUpload, CheckCircle, AlertCircle, RefreshCw, Lock } from 'lucide-react';
 import s3UploadService from '../services/s3UploadService';
@@ -32,6 +32,65 @@ const S3UploadModal = ({ show, onClose, archivePath, onSuccess }) => {
       setError('Failed to refresh security token. Please try refreshing the page.');
       return null;
     }
+  };
+
+  // Function to update both status tracking systems with retry logic
+  const updateBothStatusSystems = async (filename, status, details) => {
+    console.log(`Updating status for ${filename} to ${status}`, details);
+    let successful = false;
+    const maxRetries = 3;
+    
+    // Try to update both status systems with retries
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        // First refresh the CSRF token
+        await refreshCsrfToken();
+        
+        // Update both status tracking systems in sequence
+        try {
+          // Update log rotation tracking (for Log Management view)
+          await s3UploadService.updateUploadStatus(filename, status, details);
+          console.log(`- Log rotation status updated successfully (attempt ${attempt})`);
+        } catch (rotationError) {
+          console.warn(`- Log rotation status update failed (attempt ${attempt}):`, rotationError);
+        }
+        
+        // Always wait a short time between calls
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        // Refresh token again before second call
+        await refreshCsrfToken();
+        
+        try {
+          // Update export tracking (for Export view)
+          await s3UploadService.updateExportStatus(filename, status, details);
+          console.log(`- Export status updated successfully (attempt ${attempt})`);
+        } catch (exportError) {
+          console.warn(`- Export status update failed (attempt ${attempt}):`, exportError);
+          throw exportError; // Re-throw to trigger retry
+        }
+        
+        // If we get here, both updates succeeded or at least the export update worked
+        successful = true;
+        console.log('Status updates completed successfully');
+        break;
+      } catch (error) {
+        console.error(`Status update attempt ${attempt} failed:`, error);
+        
+        // Wait before retrying (with exponential backoff)
+        if (attempt < maxRetries) {
+          const delay = Math.pow(2, attempt) * 500;
+          console.log(`Retrying in ${delay}ms...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
+      }
+    }
+    
+    if (!successful) {
+      console.error('Failed to update statuses after all retries');
+    }
+    
+    return successful;
   };
 
   const startUpload = async () => {
@@ -85,6 +144,11 @@ const S3UploadModal = ({ show, onClose, archivePath, onSuccess }) => {
       // Make sure we have a valid CSRF token
       await refreshCsrfToken();
       
+      // Update status to pending before starting upload
+      await updateBothStatusSystems(archiveFileName, 'pending', {
+        startedAt: new Date().toISOString()
+      });
+      
       // Choose upload method based on encryption and URL preferences
       let result;
       if (useEncryption) {
@@ -114,36 +178,22 @@ const S3UploadModal = ({ show, onClose, archivePath, onSuccess }) => {
       setUploadResult(result);
       setUploadStatus('success');
       
-      // Refresh CSRF token before status updates
-      await refreshCsrfToken();
+      // Add encryption info to status tracking
+      const statusDetails = {
+        location: result.location,
+        bucket: result.bucket,
+        objectKey: result.objectKey,
+        uploadedAt: new Date().toISOString(),
+        encrypted: result.encrypted || false
+      };
       
-      // Update both status tracking systems
-      try {
-        // Add encryption info to status tracking
-        const statusDetails = {
-          location: result.location,
-          bucket: result.bucket,
-          objectKey: result.objectKey,
-          uploadedAt: new Date().toISOString(),
-          encrypted: result.encrypted || false
-        };
-        
-        // If encrypted, add key file info
-        if (result.keyFile) {
-          statusDetails.keyFile = result.keyFile;
-        }
-        
-        // Update the log rotation S3 status tracking (for Log Management view)
-        await s3UploadService.updateUploadStatus(archiveFileName, 'success', statusDetails);
-        
-        // Also update the export status tracking (for Export view)
-        await s3UploadService.updateExportStatus(archiveFileName, 'success', statusDetails);
-        
-        console.log('Updated both status tracking systems for S3 upload');
-      } catch (statusError) {
-        // Don't fail the whole operation if status updates fail
-        console.error('Failed to update one or more status systems:', statusError);
+      // If encrypted, add key file info
+      if (result.keyFile) {
+        statusDetails.keyFile = result.keyFile;
       }
+      
+      // Update status with retry logic
+      await updateBothStatusSystems(archiveFileName, 'success', statusDetails);
       
       // Notify parent component of success
       if (onSuccess) {
@@ -154,28 +204,15 @@ const S3UploadModal = ({ show, onClose, archivePath, onSuccess }) => {
       setError(err.message);
       setUploadStatus('error');
       
-      // Refresh CSRF token before status updates
-      await refreshCsrfToken();
+      // Extract file name from path
+      const archiveFileName = archivePath.split('/').pop();
       
-      // Update failure status on backend if possible
-      try {
-        const archiveFileName = archivePath.split('/').pop();
-        
-        // Update both status tracking systems
-        await s3UploadService.updateUploadStatus(archiveFileName, 'failed', {
-          error: err.message,
-          errorCode: err.code,
-          failedAt: new Date().toISOString()
-        });
-        
-        await s3UploadService.updateExportStatus(archiveFileName, 'failed', {
-          error: err.message, 
-          errorCode: err.code,
-          failedAt: new Date().toISOString()
-        });
-      } catch (statusError) {
-        console.error('Failed to update error status on backend:', statusError);
-      }
+      // Update failure status with retry logic
+      await updateBothStatusSystems(archiveFileName, 'failed', {
+        error: err.message,
+        errorCode: err.code,
+        failedAt: new Date().toISOString()
+      });
     }
   };
 
