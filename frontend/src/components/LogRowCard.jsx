@@ -89,15 +89,30 @@ const LogRowCard = ({
   const handleTabKeyDown = (e, rowId, field) => {
     if (e.key === 'Tab') {
       e.preventDefault();
-      moveToNextCell(rowId, field, editingValue, e.shiftKey);
-    } else if (e.key === 'Enter' && e.shiftKey) {
-      e.preventDefault();
-      setEditingValue(prev => prev + '\n');
+      // Whether Shift+Tab or regular Tab, always save the value
+      // Only difference is which direction we move (controlled by e.shiftKey)
+      moveToNextCell(rowId, field, editingValue, e.shiftKey, false);
+    } else if (e.key === 'Enter') {
+      // For textarea fields, shift+enter adds a new line
+      if (e.shiftKey && (field === 'notes' || field === 'command' || field === 'secrets' || field === 'hash_value')) {
+        e.preventDefault();
+        setEditingValue(prev => prev + '\n');
+      }
+      // For dropdowns, we'll handle it in the dropdown's onKeyDown
+      else if (field === 'status' || field === 'hash_algorithm') {
+        // Just prevent default, actual handling is in the dropdown
+        e.preventDefault();
+      }
+      // For other fields, Enter key should save and exit edit mode
+      else {
+        e.preventDefault();
+        onCellBlur(e, parseInt(rowId), field);
+      }
     }
   };
 
   // Improved function to move to the next cell in sequence
-  const moveToNextCell = async (currentRowId, currentField, currentValue, isReverse = false) => {
+  const moveToNextCell = async (currentRowId, currentField, currentValue, isReverse = false, skipSave = false) => {
     if (currentField === 'analyst') return;
     
     // Define the tab order explicitly
@@ -129,8 +144,8 @@ const LogRowCard = ({
     const nextField = tabOrder[nextIndex];
     
     try {
-      // Save the current cell value
-      if (currentField !== 'analyst') {
+      // Save the current cell value if not skipping save
+      if (!skipSave && currentField !== 'analyst') {
         // Try to save the current value
         await onCellBlur({ target: { value: currentValue } }, currentRowId, currentField);
       }
@@ -198,12 +213,24 @@ const LogRowCard = ({
               // 1. Capture the currently selected value (which may have been selected with arrow keys)
               const currentSelection = e.target.value;
               
-              // 2. First update the editingValue with the arrow-key selected option
+              // 2. Update the editingValue with the arrow-key selected option
               onCellChange({ target: { value: currentSelection } });
               
-              // 3. Call moveToNextCell to handle tabbing to the next field
-              //    but stay in edit mode (don't save/blur this field)
-              moveToNextCell(parseInt(row.id), field, currentSelection, false);
+              // 3. Save the current value and move to the next field
+              // This simulates a regular Tab press
+              moveToNextCell(parseInt(row.id), field, currentSelection, false, false);
+            } else if (e.key === 'Tab') {
+              e.preventDefault();
+              // When Tab is pressed in dropdown:
+              // 1. Capture the currently selected value (which may have been selected with arrow keys)
+              const currentSelection = e.target.value;
+              
+              // 2. Update the editingValue with the arrow-key selected option
+              onCellChange({ target: { value: currentSelection } });
+              
+              // 3. Move to next/previous field based on shift key
+              // Always save the value, whether going forward or backward
+              moveToNextCell(parseInt(row.id), field, currentSelection, e.shiftKey, false);
             } else {
               handleTabKeyDown(e, parseInt(row.id), field);
             }
@@ -239,12 +266,24 @@ const LogRowCard = ({
               // 1. Capture the currently selected value (which may have been selected with arrow keys)
               const currentSelection = e.target.value;
               
-              // 2. First update the editingValue with the arrow-key selected option
+              // 2. Update the editingValue with the arrow-key selected option
               onCellChange({ target: { value: currentSelection } });
               
-              // 3. Call moveToNextCell to handle tabbing to the next field
-              //    but stay in edit mode (don't save/blur this field)
-              moveToNextCell(parseInt(row.id), field, currentSelection, false);
+              // 3. Save the current value and move to the next field
+              // This simulates a regular Tab press
+              moveToNextCell(parseInt(row.id), field, currentSelection, false, false);
+            } else if (e.key === 'Tab') {
+              e.preventDefault();
+              // When Tab is pressed in dropdown:
+              // 1. Capture the currently selected value (which may have been selected with arrow keys)
+              const currentSelection = e.target.value;
+              
+              // 2. Update the editingValue with the arrow-key selected option
+              onCellChange({ target: { value: currentSelection } });
+              
+              // 3. Move to next/previous field based on shift key
+              // Always save the value, whether going forward or backward
+              moveToNextCell(parseInt(row.id), field, currentSelection, e.shiftKey, false);
             } else {
               handleTabKeyDown(e, parseInt(row.id), field);
             }
@@ -260,7 +299,7 @@ const LogRowCard = ({
         </select>
       );
     }
-
+  
     // MAC address field should use a specialized input with dash format
     if (field === 'mac_address') {
       return (
