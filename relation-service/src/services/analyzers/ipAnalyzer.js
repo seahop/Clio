@@ -6,6 +6,7 @@ const { BaseAnalyzer } = require('./baseAnalyzer');
 /**
  * Analyzer for IP relations
  * Identifies and stores relationships between internal and external IP addresses
+ * Enhanced to also track commands executed on IPs
  */
 class IPAnalyzer extends BaseAnalyzer {
   constructor() {
@@ -23,31 +24,64 @@ class IPAnalyzer extends BaseAnalyzer {
     // Extract IP relations from logs
     const ipRelations = this._extractIPRelations(logs);
     
-    if (ipRelations.length === 0) {
-      console.log('No IP relations found to analyze');
-      return true;
+    // Extract IP command relations - new enhancement
+    const ipCommandRelations = this._extractIPCommandRelations(logs);
+    
+    let processedCount = 0;
+    
+    if (ipRelations.length > 0) {
+      // Process the IP relations in batches
+      await this._processBatch(ipRelations, async (ipBatch) => {
+        // Process IP relations in parallel within each batch
+        await Promise.all(
+          ipBatch.map(data => 
+            RelationsModel.upsertRelation(
+              'ip',
+              data.internal,
+              'ip',
+              data.external,
+              {
+                type: 'ip_connection',
+                timestamp: data.lastSeen,
+                firstSeen: data.firstSeen
+              }
+            )
+          )
+        );
+      });
+      
+      processedCount += ipRelations.length;
     }
     
-    // Process the IP relations in batches
-    await this._processBatch(ipRelations, async (ipBatch) => {
-      // Process IP relations in parallel within each batch
-      await Promise.all(
-        ipBatch.map(data => 
-          RelationsModel.upsertRelation(
-            'ip',
-            data.internal,
-            'ip',
-            data.external,
-            {
-              type: 'ip_connection',
-              timestamp: data.lastSeen,
-              firstSeen: data.firstSeen
-            }
+    // Process the IP command relations - new enhancement
+    if (ipCommandRelations.length > 0) {
+      console.log(`Processing ${ipCommandRelations.length} IP command relations`);
+      
+      await this._processBatch(ipCommandRelations, async (batchItems) => {
+        // Process relations in parallel within each batch
+        await Promise.all(
+          batchItems.map(data => 
+            RelationsModel.upsertRelation(
+              'ip',
+              data.ip,
+              'command',
+              data.command,
+              {
+                type: 'ip_command',
+                username: data.username,
+                timestamp: data.lastSeen,
+                firstSeen: data.firstSeen,
+                ipType: data.ipType
+              }
+            )
           )
-        )
-      );
-    });
+        );
+      });
+      
+      processedCount += ipCommandRelations.length;
+    }
     
+    console.log(`IP analyzer processed ${processedCount} total relations`);
     return true;
   }
 
@@ -78,6 +112,81 @@ class IPAnalyzer extends BaseAnalyzer {
         };
       }
     });
+  }
+  
+  /**
+   * Extract IP command relations from logs - new method
+   * @param {Array} logs - Log entries
+   * @returns {Array} Formatted IP-command relations
+   * @private
+   */
+  _extractIPCommandRelations(logs) {
+    // Extract internal IP command relations
+    const internalIPCommands = this._extractFromLogs(logs, {
+      // Filter logs that have both command and internal_ip
+      filter: log => log.command && log.internal_ip && log.command.trim() !== '',
+      
+      // Group by IP and command to avoid duplicates
+      groupBy: log => `${log.internal_ip}:${log.command}`,
+      
+      // Map each group to a relation object
+      mapFn: (entries, key) => {
+        // Split by first colon only to preserve command content with colons
+        const colonIndex = key.indexOf(':');
+        if (colonIndex === -1) return null;
+        
+        const ip = key.substring(0, colonIndex);
+        const command = key.substring(colonIndex + 1);
+        
+        const timestamps = _.map(entries, 'timestamp');
+        const usernames = _.uniq(entries.map(entry => entry.username).filter(Boolean));
+        
+        return {
+          ip,
+          command,
+          username: usernames.length > 0 ? usernames[0] : null,
+          ipType: 'internal',
+          firstSeen: _.min(timestamps),
+          lastSeen: _.max(timestamps)
+        };
+      }
+    });
+    
+    // Extract external IP command relations
+    const externalIPCommands = this._extractFromLogs(logs, {
+      // Filter logs that have both command and external_ip
+      filter: log => log.command && log.external_ip && log.command.trim() !== '',
+      
+      // Group by IP and command to avoid duplicates
+      groupBy: log => `${log.external_ip}:${log.command}`,
+      
+      // Map each group to a relation object
+      mapFn: (entries, key) => {
+        // Split by first colon only to preserve command content with colons
+        const colonIndex = key.indexOf(':');
+        if (colonIndex === -1) return null;
+        
+        const ip = key.substring(0, colonIndex);
+        const command = key.substring(colonIndex + 1);
+        
+        const timestamps = _.map(entries, 'timestamp');
+        const usernames = _.uniq(entries.map(entry => entry.username).filter(Boolean));
+        
+        return {
+          ip,
+          command,
+          username: usernames.length > 0 ? usernames[0] : null,
+          ipType: 'external',
+          firstSeen: _.min(timestamps),
+          lastSeen: _.max(timestamps)
+        };
+      }
+    });
+    
+    // Filter out any null entries that might have been created
+    const combined = [...internalIPCommands, ...externalIPCommands].filter(item => item !== null);
+    
+    return combined;
   }
 }
 
