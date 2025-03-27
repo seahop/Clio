@@ -16,5 +16,6 @@ router.use(verifyAdmin);
 router.use('/csv', csvRoutes);
 router.use('/evidence', evidenceRoutes);
 router.use('/', commonRoutes);
+router.use('/s3-status', require('./export/s3-status.routes'));
 
 module.exports = router;

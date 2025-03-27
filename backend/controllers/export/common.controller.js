@@ -107,8 +107,36 @@ const listExports = async (req, res) => {
       })
     );
     
+    // Get S3 status information if available
+    let s3StatusData = {};
+    try {
+      const s3StatusPath = path.join(__dirname, '../../data/export-s3-status.json');
+      const s3StatusExists = await fs.access(s3StatusPath).then(() => true).catch(() => false);
+      
+      if (s3StatusExists) {
+        const s3StatusContent = await fs.readFile(s3StatusPath, 'utf8');
+        s3StatusData = JSON.parse(s3StatusContent);
+      }
+    } catch (error) {
+      console.error('Error reading S3 status data:', error);
+      // Continue without S3 status data
+    }
+
+    // Add S3 status to each file
+    const filesWithStatus = fileStats.map(file => {
+      // If we have S3 status for this file, add it
+      if (s3StatusData[file.name]) {
+        return {
+          ...file,
+          s3Status: s3StatusData[file.name].status,
+          s3Details: s3StatusData[file.name].details
+        };
+      }
+      return file;
+    });
+    
     // Return sorted by newest first using the numeric timestamp
-    res.json(fileStats.sort((a, b) => b.timestamp - a.timestamp));
+    res.json(filesWithStatus.sort((a, b) => b.timestamp - a.timestamp));
   } catch (error) {
     console.error('Error listing exports:', error);
     res.status(500).json({ error: 'Failed to list exports', details: error.message });

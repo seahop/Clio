@@ -345,6 +345,41 @@ class S3UploadService {
   }
   
   /**
+   * Update the S3 upload status for an exported file
+   * @param {string} filename - The name of the exported file
+   * @param {string} status - The upload status (success, failed, pending)
+   * @param {Object} details - Additional details about the upload
+   * @returns {Promise<Object>} Status update result
+   */
+  async updateExportStatus(filename, status, details = {}) {
+    try {
+      const response = await fetch('/api/export/s3-status', {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+          'CSRF-Token': window.csrfToken
+        },
+        body: JSON.stringify({
+          filename,
+          status,
+          details
+        })
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to update export S3 status');
+      }
+      
+      return await response.json();
+    } catch (error) {
+      console.error('Error updating export S3 status:', error);
+      throw error;
+    }
+  }
+  
+  /**
    * Test the S3 connection using the provided credentials
    * @param {Object} s3Config - The S3 configuration to test
    * @returns {Promise<Object>} Test result

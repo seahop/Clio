@@ -1,4 +1,4 @@
-// frontend/src/components/ExportDatabasePanel.jsx - With decryption option
+// frontend/src/components/ExportDatabasePanel.jsx
 import React, { useState, useEffect } from 'react';
 import { 
   Download, 
@@ -14,8 +14,11 @@ import {
   Network,
   Lock,
   Unlock,
-  Shield
+  Shield,
+  CloudUpload
 } from 'lucide-react';
+import S3UploadModal from './S3UploadModal';
+import s3UploadService from '../services/s3UploadService';
 
 const ExportDatabasePanel = ({ csrfToken }) => {
   const [loading, setLoading] = useState(false);
@@ -31,12 +34,36 @@ const ExportDatabasePanel = ({ csrfToken }) => {
   const [includeEvidence, setIncludeEvidence] = useState(true);
   const [includeRelations, setIncludeRelations] = useState(true);
   const [includeHashes, setIncludeHashes] = useState(true);
-  const [decryptSensitiveData, setDecryptSensitiveData] = useState(false); // New state for decryption option
+  const [decryptSensitiveData, setDecryptSensitiveData] = useState(false);
+  const [s3Config, setS3Config] = useState(null);
+  const [loadingS3Config, setLoadingS3Config] = useState(true);
+  const [uploadToS3, setUploadToS3] = useState(false);
+  const [showS3Modal, setShowS3Modal] = useState(false);
+  const [currentExportPath, setCurrentExportPath] = useState(null);
+  const [currentExportFilename, setCurrentExportFilename] = useState(null);
 
   useEffect(() => {
     fetchColumns();
     fetchExports();
+    fetchS3Config();
   }, []);
+
+  // Fetch S3 configuration to see if it's set up
+  const fetchS3Config = async () => {
+    try {
+      setLoadingS3Config(true);
+      const config = await s3UploadService.getS3Config();
+      setS3Config(config);
+      // Only enable S3 upload if S3 is properly configured
+      setUploadToS3(false); // Default to off, let user explicitly enable it
+    } catch (error) {
+      console.error('Error fetching S3 config:', error);
+      // Don't show an error to the user, just disable S3 option
+      setS3Config(null);
+    } finally {
+      setLoadingS3Config(false);
+    }
+  };
 
   const fetchColumns = async () => {
     try {
@@ -84,7 +111,45 @@ const ExportDatabasePanel = ({ csrfToken }) => {
       }
 
       const data = await response.json();
-      setExports(data);
+      
+      // Process exports to include S3 status information
+      const processedExports = data.map(exportFile => {
+        // Default S3 status display (will be overridden if status exists)
+        let s3Status = null;
+        let s3StatusClass = '';
+        
+        // Check if this export has S3 status info
+        if (exportFile.s3Status) {
+          s3Status = exportFile.s3Status;
+          // Set appropriate style based on status
+          switch (exportFile.s3Status) {
+            case 'success':
+            case 'uploaded':
+              s3Status = 'Uploaded';
+              s3StatusClass = 'text-green-300';
+              break;
+            case 'pending':
+              s3Status = 'Pending';
+              s3StatusClass = 'text-yellow-300';
+              break;
+            case 'failed':
+              s3Status = 'Failed';
+              s3StatusClass = 'text-red-300';
+              break;
+            default:
+              s3Status = exportFile.s3Status;
+              s3StatusClass = 'text-blue-300';
+          }
+        }
+        
+        return {
+          ...exportFile,
+          s3Status,
+          s3StatusClass
+        };
+      });
+      
+      setExports(processedExports);
     } catch (error) {
       console.error('Error fetching exports:', error);
       setError('Failed to fetch existing exports. Please try again.');
@@ -121,6 +186,10 @@ const ExportDatabasePanel = ({ csrfToken }) => {
       setLoading(true);
       setMessage(null);
       setError(null);
+      
+      // Clear any previous export path
+      setCurrentExportPath(null);
+      setCurrentExportFilename(null);
   
       // Determine endpoint based on export mode
       const endpoint = exportMode === 'evidence' ? '/api/export/evidence' : '/api/export/csv';
@@ -149,7 +218,7 @@ const ExportDatabasePanel = ({ csrfToken }) => {
           includeEvidence: exportMode === 'evidence' ? includeEvidence : false,
           includeRelations: exportMode === 'evidence' ? includeRelations : false,
           includeHashes: exportMode === 'evidence' ? includeHashes : false,
-          decryptSensitiveData: decryptSensitiveData // Send the decrypt option
+          decryptSensitiveData: decryptSensitiveData
         })
       });
   
@@ -174,7 +243,7 @@ const ExportDatabasePanel = ({ csrfToken }) => {
         }
         setMessage(successMessage);
       } else {
-        let successMessage = `CSV export completed successfully! ${data.details.rowCount} rows exported to ${data.details.filePath}`;
+        let successMessage = `CSV export completed successfully! ${data.details.rowCount} rows exported to ${data.details.filename || data.details.filePath.split('/').pop()}`;
         if (data.details.includedDecryptedData) {
           successMessage += ' with decrypted sensitive data.';
         }
@@ -182,7 +251,54 @@ const ExportDatabasePanel = ({ csrfToken }) => {
       }
       
       // Refresh the exports list
-      fetchExports();
+      await fetchExports();
+      
+      // If uploadToS3 is enabled and we have valid file details, prepare for S3 upload
+      if (uploadToS3 && data.details) {
+        // Extract filename from path and store for S3 upload
+        const fullPath = data.details.filePath;
+        const filename = data.details.filename || fullPath.split('/').pop();
+        
+        console.log('Export completed, preparing for S3 upload:', {
+          path: fullPath,
+          filename: filename
+        });
+        
+        // Store both the web path and the filename
+        setCurrentExportPath(`/exports/${filename}`);
+        setCurrentExportFilename(filename);
+        
+        // Add a longer delay to ensure the file is completely written and accessible
+        // and refresh the CSRF token before showing the modal
+        setTimeout(async () => {
+          try {
+            console.log('Refreshing CSRF token before S3 upload...');
+            
+            // Refresh CSRF token to ensure it's still valid
+            const csrfResponse = await fetch('/api/csrf-token', {
+              credentials: 'include',
+              headers: {
+                'Accept': 'application/json'
+              }
+            });
+            
+            if (csrfResponse.ok) {
+              const csrfData = await csrfResponse.json();
+              // Update the global CSRF token in the window object
+              if (csrfData.csrfToken) {
+                window.csrfToken = csrfData.csrfToken;
+                console.log('CSRF token refreshed successfully');
+              }
+            }
+            
+            console.log('Initiating S3 upload after delay for file:', filename);
+            setShowS3Modal(true);
+          } catch (tokenError) {
+            console.error('Error refreshing CSRF token:', tokenError);
+            setError('Failed to prepare S3 upload. Please try uploading manually.');
+          }
+        }, 1500); // 1.5 seconds for filesystem operations to complete
+      }
     } catch (error) {
       console.error('Error exporting data:', error);
       setError(error.message || 'Failed to export data. Please try again.');
@@ -246,8 +362,44 @@ const ExportDatabasePanel = ({ csrfToken }) => {
     }
   };
 
+  // Handle S3 upload success
+  const handleS3UploadSuccess = async (result) => {
+    setMessage(prev => `${prev} Successfully uploaded to S3 bucket: ${result.bucket}.`);
+    
+    // Update the status in the backend if we have a filename
+    if (currentExportFilename) {
+      try {
+        // Update the S3 status on the backend
+        await s3UploadService.updateExportStatus(currentExportFilename, 'success', {
+          location: result.location,
+          bucket: result.bucket,
+          objectKey: result.objectKey,
+          uploadedAt: new Date().toISOString()
+        });
+        
+        // Refresh exports list to show updated status
+        fetchExports();
+      } catch (statusError) {
+        console.error('Failed to update export S3 status:', statusError);
+        // Don't show an error, this is a non-critical operation
+      }
+    }
+    
+    setShowS3Modal(false);
+  };
+
+  // Start the S3 upload for an existing export
+  const handleUploadToS3 = (filename) => {
+    setCurrentExportPath(`/exports/${filename}`);
+    setCurrentExportFilename(filename);
+    setShowS3Modal(true);
+  };
+
   // Determine if export has sensitive data
   const hasSensitiveData = selectedColumns.includes('secrets');
+
+  // Check if S3 is properly configured
+  const isS3Configured = s3Config && s3Config.enabled && s3Config.bucket && s3Config.accessKeyId;
 
   return (
     <div>
@@ -315,6 +467,31 @@ const ExportDatabasePanel = ({ csrfToken }) => {
                 </button>
               </div>
             </div>
+            
+            {/* S3 Export Option */}
+            {!loadingS3Config && (
+              <div className="mb-2 pt-2 border-t border-gray-700">
+                <label className={`flex items-center gap-2 text-sm cursor-pointer ${isS3Configured ? 'text-gray-300' : 'text-gray-500'}`}>
+                  <input
+                    type="checkbox"
+                    checked={uploadToS3}
+                    onChange={(e) => setUploadToS3(e.target.checked)}
+                    disabled={!isS3Configured}
+                    className="rounded border-gray-600 bg-gray-700 text-blue-500 focus:ring-blue-500 disabled:opacity-50"
+                  />
+                  <div className="flex items-center gap-1">
+                    <CloudUpload size={14} className={isS3Configured ? "text-blue-400" : "text-gray-500"} />
+                    Upload to S3 after export
+                  </div>
+                </label>
+                
+                {!isS3Configured && (
+                  <p className="text-xs text-gray-500 mt-1 ml-6">
+                    S3 is not configured. Please configure S3 in Log Management to use this feature.
+                  </p>
+                )}
+              </div>
+            )}
             
             {/* Options section */}
             <div className="mt-2 pt-2 border-t border-gray-700">
@@ -451,12 +628,14 @@ const ExportDatabasePanel = ({ csrfToken }) => {
                       Export with Evidence
                       {includeRelations && <Network size={14} className="ml-2" />}
                       {decryptSensitiveData && <Unlock size={14} className="ml-2" />}
+                      {uploadToS3 && <CloudUpload size={14} className="ml-2" />}
                     </>
                   ) : (
                     <>
                       <Download size={16} className="mr-2" />
                       Export Selected Columns
                       {decryptSensitiveData && <Unlock size={14} className="ml-2" />}
+                      {uploadToS3 && <CloudUpload size={14} className="ml-2" />}
                     </>
                   )}
                 </>
@@ -483,6 +662,9 @@ const ExportDatabasePanel = ({ csrfToken }) => {
                       <p className="mb-2">Including relation data will add network relationships, user commands, and other correlation data from the relation service to your export.</p>
                     )}
                   </>
+                )}
+                {uploadToS3 && (
+                  <p className="mb-2">The export will be automatically uploaded to your configured S3 bucket after creation.</p>
                 )}
                 {decryptSensitiveData && (
                   <p className="mb-2 text-yellow-300">Decrypted exports will contain sensitive data in plaintext. Handle with appropriate security precautions.</p>
@@ -528,6 +710,7 @@ const ExportDatabasePanel = ({ csrfToken }) => {
                     <th className="px-3 py-2">Filename</th>
                     <th className="px-3 py-2">Size</th>
                     <th className="px-3 py-2">Created</th>
+                    <th className="px-3 py-2">S3 Status</th>
                     <th className="px-3 py-2 text-right">Actions</th>
                   </tr>
                 </thead>
@@ -546,14 +729,36 @@ const ExportDatabasePanel = ({ csrfToken }) => {
                       </td>
                       <td className="px-3 py-2">{formatFileSize(file.size)}</td>
                       <td className="px-3 py-2">{formatDate(file.created)}</td>
+                      <td className="px-3 py-2">
+                        {file.s3Status ? (
+                          <span className={`flex items-center gap-1 ${file.s3StatusClass || 'text-green-300'}`}>
+                            <CloudUpload size={14} />
+                            {file.s3Status}
+                          </span>
+                        ) : (
+                          <span className="text-gray-400">Not uploaded</span>
+                        )}
+                      </td>
                       <td className="px-3 py-2 text-right">
-                        <button
-                          onClick={() => handleDeleteExport(file.name)}
-                          className="text-red-400 hover:text-red-300 p-1 rounded"
-                          title="Delete export"
-                        >
-                          <Trash2 size={16} />
-                        </button>
+                        <div className="flex gap-2 justify-end">
+                          {/* S3 Upload button - only for existing files if S3 is configured */}
+                          {isS3Configured && !file.s3Status && (
+                            <button
+                              onClick={() => handleUploadToS3(file.name)}
+                              className="text-blue-400 hover:text-blue-300 p-1 rounded"
+                              title="Upload to S3"
+                            >
+                              <CloudUpload size={16} />
+                            </button>
+                          )}
+                          <button
+                            onClick={() => handleDeleteExport(file.name)}
+                            className="text-red-400 hover:text-red-300 p-1 rounded"
+                            title="Delete export"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -568,6 +773,16 @@ const ExportDatabasePanel = ({ csrfToken }) => {
           </div>
         </div>
       </div>
+
+      {/* S3 Upload Modal */}
+      {showS3Modal && (
+        <S3UploadModal
+          show={showS3Modal}
+          onClose={() => setShowS3Modal(false)}
+          archivePath={currentExportPath}
+          onSuccess={handleS3UploadSuccess}
+        />
+      )}
     </div>
   );
 };
