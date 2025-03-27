@@ -405,60 +405,96 @@ static async upsertFileStatus(fileData) {
     }
   }
 
-  /**
-   * Update a filename in all file status records
-   */
-  static async updateFilename(oldFilename, newFilename) {
-    try {
-      if (!oldFilename || !newFilename) {
-        return 0;
-      }
-      
-      console.log(`Updating filename from "${oldFilename}" to "${newFilename}"`);
-      
-      // Invalidate cache when data is updated
-      this.clearCache();
-      
-      // Start a transaction for consistency
-      const client = await db.pool.connect();
-      let totalUpdated = 0;
-      
-      try {
-        await client.query('BEGIN');
-        
-        // Update the main file status record
-        const fileStatusResult = await client.query(`
-          UPDATE file_status
-          SET filename = $1
-          WHERE filename = $2
-          RETURNING id
-        `, [newFilename, oldFilename]);
-        
-        // Update all history records
-        const historyResult = await client.query(`
-          UPDATE file_status_history
-          SET filename = $1
-          WHERE filename = $2
-          RETURNING id
-        `, [newFilename, oldFilename]);
-        
-        totalUpdated = fileStatusResult.rowCount + historyResult.rowCount;
-        
-        await client.query('COMMIT');
-        console.log(`Updated ${totalUpdated} file status records (${fileStatusResult.rowCount} main records, ${historyResult.rowCount} history records)`);
-      } catch (error) {
-        await client.query('ROLLBACK');
-        throw error;
-      } finally {
-        client.release();
-      }
-      
-      return totalUpdated;
-    } catch (error) {
-      console.error('Error updating filename in file status:', error);
-      throw error;
+/**
+ * Update a filename in all file status records
+ */
+static async updateFilename(oldFilename, newFilename) {
+  try {
+    if (!oldFilename || !newFilename || oldFilename === newFilename) {
+      return 0;
     }
+    
+    console.log(`Updating filename from "${oldFilename}" to "${newFilename}"`);
+    
+    // Invalidate cache when data is updated
+    this.clearCache();
+    
+    // Start a transaction for consistency
+    const client = await db.pool.connect();
+    let totalUpdated = 0;
+    
+    try {
+      await client.query('BEGIN');
+      
+      // Get current records for logging
+      const currentRecords = await client.query(`
+        SELECT id, hostname, internal_ip 
+        FROM file_status
+        WHERE filename = $1
+      `, [oldFilename]);
+      
+      console.log(`Found ${currentRecords.rowCount} file status records to update`);
+      
+      // For each existing record with the old filename, check if a record with 
+      // the new filename already exists for the same hostname/IP combination
+      for (const record of currentRecords.rows) {
+        // Check if a record with the new filename already exists for this hostname/IP
+        const existingRecord = await client.query(`
+          SELECT id FROM file_status
+          WHERE filename = $1
+            AND (hostname IS NOT DISTINCT FROM $2)
+            AND (internal_ip IS NOT DISTINCT FROM $3)
+        `, [newFilename, record.hostname, record.internal_ip]);
+        
+        if (existingRecord.rowCount > 0) {
+          // If a record with the new filename already exists, we should
+          // delete the old record to avoid duplication
+          console.log(`Record with new filename already exists for same host/IP, deleting old record`);
+          
+          await client.query(`
+            DELETE FROM file_status
+            WHERE id = $1
+          `, [record.id]);
+          
+          totalUpdated++;
+        } else {
+          // If no duplicate exists, update the existing record
+          await client.query(`
+            UPDATE file_status
+            SET filename = $1
+            WHERE id = $2
+            RETURNING id
+          `, [newFilename, record.id]);
+          
+          totalUpdated++;
+        }
+      }
+      
+      // Update all history records
+      const historyResult = await client.query(`
+        UPDATE file_status_history
+        SET filename = $1
+        WHERE filename = $2
+        RETURNING id
+      `, [newFilename, oldFilename]);
+      
+      totalUpdated += historyResult.rowCount;
+      
+      await client.query('COMMIT');
+      console.log(`Updated ${totalUpdated} file status records (${currentRecords.rowCount} main records, ${historyResult.rowCount} history records)`);
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+    
+    return totalUpdated;
+  } catch (error) {
+    console.error('Error updating filename in file status:', error);
+    throw error;
   }
+}
   
   /**
    * Batch insert multiple file status history records

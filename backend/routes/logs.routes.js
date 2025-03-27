@@ -239,8 +239,19 @@ router.put('/:id', authenticateJwt, async (req, res, next) => {
             timestamp: new Date().toISOString()
           });
           
-          // Only notify if the value actually changed and both values exist
-          if (oldValue !== newValue && oldValue && newValue) {
+          // Only notify if the value actually changed
+          // NOTE: Modified this condition to handle empty values properly
+          if (oldValue !== newValue && (oldValue || newValue)) {
+            // Make sure to explicitly handle filename changes
+            if (field === 'filename') {
+              console.log('Sending filename update to relation service:', {
+                fieldType: field,
+                oldValue: oldValue || '',  // Send empty string instead of null/undefined
+                newValue: newValue || '',  // Send empty string instead of null/undefined
+                username: req.user.username
+              });
+            }
+            
             // Do specific notifications for relation service
             if (['internal_ip', 'external_ip', 'hostname', 'domain', 'username', 'command', 'filename'].includes(field)) {
               console.log('Sending update to relation service:', {
@@ -259,8 +270,8 @@ router.put('/:id', authenticateJwt, async (req, res, next) => {
                 },
                 body: JSON.stringify({
                   fieldType: field,
-                  oldValue,
-                  newValue,
+                  oldValue: oldValue || '',  // Handle null/undefined values
+                  newValue: newValue || '',  // Handle null/undefined values
                   username: req.user.username
                 })
               });

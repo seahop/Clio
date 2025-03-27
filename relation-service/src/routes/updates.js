@@ -129,7 +129,6 @@ async function batchUpdateProcessor(batchItems) {
         case 'hostname':
         case 'domain':
         case 'command':
-        case 'filename':
           // Process updates with deduplication
           const uniqueUpdates = deduplicateUpdates(updates);
           console.log(`Processing ${uniqueUpdates.length} unique ${fieldType} updates`);
@@ -145,6 +144,40 @@ async function batchUpdateProcessor(batchItems) {
               updatedCount += updateCount;
             } catch (err) {
               console.error(`Error updating ${fieldType} relation:`, err);
+            }
+          }
+          break;
+        
+        case 'filename':
+          // Special handling for filename updates
+          const uniqueFilenameUpdates = deduplicateUpdates(updates);
+          console.log(`Processing ${uniqueFilenameUpdates.length} unique filename updates`);
+          
+          for (const update of uniqueFilenameUpdates) {
+            try {
+              // Skip if either old or new value is empty
+              if (!update.oldValue || !update.newValue) {
+                console.log('Skipping filename update with empty old or new value');
+                continue;
+              }
+              
+              // First update field value in relations table
+              const relationsCount = await RelationsModel.updateFieldValue(
+                relationType,
+                update.oldValue,
+                update.newValue
+              );
+              
+              // Then update file status records
+              const fileStatusCount = await FileStatusModel.updateFilename(
+                update.oldValue,
+                update.newValue
+              );
+              
+              updatedCount += relationsCount + fileStatusCount;
+              console.log(`Updated ${relationsCount} relation records and ${fileStatusCount} file status records for filename change`);
+            } catch (err) {
+              console.error('Error updating filename relations:', err);
             }
           }
           break;
@@ -188,34 +221,6 @@ async function batchUpdateProcessor(batchItems) {
       }
       
       totalUpdatedCount += updatedCount;
-      
-      // Handle filename updates for file status tracking
-      if (fieldType === 'filename') {
-        try {
-          const uniqueFilenameUpdates = deduplicateUpdates(updates);
-          console.log(`Processing ${uniqueFilenameUpdates.length} unique filename updates for file status`);
-          
-          let fileStatusUpdatedCount = 0;
-          for (const update of uniqueFilenameUpdates) {
-            try {
-              const fileStatusCount = await FileStatusModel.updateFilename(
-                update.oldValue, 
-                update.newValue
-              );
-              fileStatusUpdatedCount += fileStatusCount;
-            } catch (err) {
-              console.error('Error updating file status for filename change:', err);
-            }
-          }
-          
-          console.log(`Updated ${fileStatusUpdatedCount} file status records`);
-          totalUpdatedCount += fileStatusUpdatedCount;
-        } catch (err) {
-          console.error('Error processing file status updates:', err);
-        }
-      }
-      
-      console.log(`Completed ${fieldType} updates, modified ${updatedCount} records`);
     }));
     
     // Schedule targeted analysis based on updated types
