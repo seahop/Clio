@@ -191,7 +191,23 @@ const LogRowCard = ({
             console.log('Status onBlur with value:', e.target.value);
             onCellBlur(e, parseInt(row.id), field);
           }}
-          onKeyDown={(e) => handleTabKeyDown(e, parseInt(row.id), field)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              // When Enter is pressed in a dropdown:
+              // 1. Capture the currently selected value (which may have been selected with arrow keys)
+              const currentSelection = e.target.value;
+              
+              // 2. First update the editingValue with the arrow-key selected option
+              onCellChange({ target: { value: currentSelection } });
+              
+              // 3. Call moveToNextCell to handle tabbing to the next field
+              //    but stay in edit mode (don't save/blur this field)
+              moveToNextCell(parseInt(row.id), field, currentSelection, false);
+            } else {
+              handleTabKeyDown(e, parseInt(row.id), field);
+            }
+          }}
           className="w-full p-1 border rounded bg-gray-700 text-white border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
           onClick={(e) => e.stopPropagation()}
           autoFocus
@@ -216,7 +232,23 @@ const LogRowCard = ({
           value={editingValue || ''}
           onChange={onCellChange}
           onBlur={(e) => onCellBlur(e, parseInt(row.id), field)}
-          onKeyDown={(e) => handleTabKeyDown(e, parseInt(row.id), field)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              // When Enter is pressed in a dropdown:
+              // 1. Capture the currently selected value (which may have been selected with arrow keys)
+              const currentSelection = e.target.value;
+              
+              // 2. First update the editingValue with the arrow-key selected option
+              onCellChange({ target: { value: currentSelection } });
+              
+              // 3. Call moveToNextCell to handle tabbing to the next field
+              //    but stay in edit mode (don't save/blur this field)
+              moveToNextCell(parseInt(row.id), field, currentSelection, false);
+            } else {
+              handleTabKeyDown(e, parseInt(row.id), field);
+            }
+          }}
           className="w-full p-1 border rounded bg-gray-700 text-white border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
           onClick={(e) => e.stopPropagation()}
           autoFocus
