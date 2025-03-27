@@ -274,8 +274,7 @@ class LogRotationManager {
       
       // Set S3 upload status if requested
       if (options.useS3) {
-        this.s3Uploads.set(archiveFileName, {
-          status: 'pending',
+        await this.updateS3UploadStatus(archiveFileName, 'pending', {
           createdAt: new Date().toISOString()
         });
       }
@@ -401,12 +400,46 @@ class LogRotationManager {
    * @param {string} status - The new status (pending, success, failed)
    * @param {Object} details - Additional details
    */
-  updateS3UploadStatus(archiveFileName, status, details = {}) {
+  async updateS3UploadStatus(archiveFileName, status, details = {}) {
+    // Update the in-memory status map
     this.s3Uploads.set(archiveFileName, {
       status,
       ...details,
       updatedAt: new Date().toISOString()
     });
+
+    // Also update the export S3 status system used by the Export view
+    try {
+      // Path to the export S3 status file
+      const s3StatusPath = path.join(this.dataDir, 'export-s3-status.json');
+      
+      // Read existing status data or initialize new object
+      let statusData = {};
+      try {
+        const fileContent = await fs.readFile(s3StatusPath, 'utf8');
+        statusData = JSON.parse(fileContent);
+      } catch (err) {
+        // If file doesn't exist or is invalid, create a new one
+        statusData = {};
+      }
+      
+      // Update status for this file
+      statusData[archiveFileName] = {
+        status,
+        details,
+        updatedAt: new Date().toISOString(),
+        updatedBy: 'system'
+      };
+      
+      // Write updated status back to file
+      await fs.mkdir(path.dirname(s3StatusPath), { recursive: true });
+      await fs.writeFile(s3StatusPath, JSON.stringify(statusData, null, 2), 'utf8');
+      
+      console.log(`Updated both status tracking systems for ${archiveFileName} to ${status}`);
+    } catch (error) {
+      console.error(`Error updating export status file for ${archiveFileName}:`, error);
+      // Don't throw error, just log it - we don't want to fail the upload if status tracking fails
+    }
 
     console.log(`Updated S3 upload status for ${archiveFileName} to ${status}`);
   }

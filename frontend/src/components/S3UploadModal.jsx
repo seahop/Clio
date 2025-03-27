@@ -1,4 +1,4 @@
-// frontend/src/components/S3UploadModal.jsx - Updated for correct path handling
+// frontend/src/components/S3UploadModal.jsx
 import React, { useState, useEffect } from 'react';
 import { X, CloudUpload, CheckCircle, AlertCircle, RefreshCw } from 'lucide-react';
 import s3UploadService from '../services/s3UploadService';
@@ -84,19 +84,28 @@ const S3UploadModal = ({ show, onClose, archivePath, onSuccess }) => {
       setUploadResult(result);
       setUploadStatus('success');
       
-      // Update status on the backend
+      // Update both status tracking systems
       try {
+        // Update the log rotation S3 status tracking (for Log Management view)
         await s3UploadService.updateUploadStatus(archiveFileName, 'success', {
           location: result.location,
           bucket: result.bucket,
           objectKey: result.objectKey,
-          uploadMethod: usePresignedUrl ? 'presigned-url' : 'direct-sdk',
           uploadedAt: new Date().toISOString()
         });
-        console.log('Updated S3 upload status on backend');
+        
+        // Also update the export status tracking (for Export view)
+        await s3UploadService.updateExportStatus(archiveFileName, 'success', {
+          location: result.location,
+          bucket: result.bucket,
+          objectKey: result.objectKey,
+          uploadedAt: new Date().toISOString()
+        });
+        
+        console.log('Updated both status tracking systems for S3 upload');
       } catch (statusError) {
-        // Don't fail the whole operation if status update fails
-        console.error('Failed to update S3 upload status on backend:', statusError);
+        // Don't fail the whole operation if status updates fail
+        console.error('Failed to update one or more status systems:', statusError);
       }
       
       // Notify parent component of success
@@ -111,8 +120,16 @@ const S3UploadModal = ({ show, onClose, archivePath, onSuccess }) => {
       // Update failure status on backend if possible
       try {
         const archiveFileName = archivePath.split('/').pop();
+        
+        // Update both status tracking systems
         await s3UploadService.updateUploadStatus(archiveFileName, 'failed', {
           error: err.message,
+          errorCode: err.code,
+          failedAt: new Date().toISOString()
+        });
+        
+        await s3UploadService.updateExportStatus(archiveFileName, 'failed', {
+          error: err.message, 
           errorCode: err.code,
           failedAt: new Date().toISOString()
         });
