@@ -1,4 +1,4 @@
-// frontend/src/components/LogManagement.jsx
+// frontend/src/components/LogManagement.jsx - Updated with S3 status fetch
 import React, { useState, useEffect } from 'react';
 import { 
   HardDrive, 
@@ -12,7 +12,7 @@ import {
   Clock,
   ChevronDown,
   ChevronRight,
-  FileWarning // Import missing FileWarning component
+  FileWarning
 } from 'lucide-react';
 import S3ConfigPanel from './S3ConfigPanel';
 import S3UploadModal from './S3UploadModal';
@@ -28,6 +28,7 @@ const LogManagement = ({ csrfToken }) => {
   const [s3Enabled, setS3Enabled] = useState(false);
   const [showS3UploadModal, setShowS3UploadModal] = useState(false);
   const [currentArchivePath, setCurrentArchivePath] = useState(null);
+  const [s3Statuses, setS3Statuses] = useState({});
 
   // Fetch log status from the server
   const fetchLogStatus = async () => {
@@ -48,44 +49,8 @@ const LogManagement = ({ csrfToken }) => {
 
       const data = await response.json();
       
-      // Process S3 status for display
-      if (data.archives && data.archives.length > 0) {
-        // Make sure we display the current S3 status properly
-        data.archives = data.archives.map(archive => {
-          // Check if we have S3 status info
-          if (archive.s3Status) {
-            // Add a human-readable status for display
-            let statusDisplay = archive.s3Status;
-            let statusClass = '';
-            
-            switch (archive.s3Status) {
-              case 'success':
-                statusDisplay = 'Uploaded';
-                statusClass = 'text-green-300';
-                break;
-              case 'pending':
-                statusDisplay = 'Pending';
-                statusClass = 'text-yellow-300';
-                break;
-              case 'failed':
-                statusDisplay = 'Failed';
-                statusClass = 'text-red-300';
-                break;
-              default:
-                statusDisplay = archive.s3Status.charAt(0).toUpperCase() + archive.s3Status.slice(1);
-            }
-            
-            return {
-              ...archive,
-              s3StatusDisplay: statusDisplay,
-              s3StatusClass: statusClass
-            };
-          }
-          return archive;
-        });
-      }
-      
-      setLogStatus(data);
+      // Process archives data - will add S3 status info later
+      const processedData = { ...data };
       
       // Check if S3 export is enabled
       try {
@@ -99,11 +64,18 @@ const LogManagement = ({ csrfToken }) => {
         if (s3Response.ok) {
           const s3Data = await s3Response.json();
           setS3Enabled(s3Data.enabled || false);
+          
+          // If S3 is enabled, fetch upload statuses
+          if (s3Data.enabled) {
+            await fetchS3UploadStatuses();
+          }
         }
       } catch (s3Error) {
         console.error('Error fetching S3 config status:', s3Error);
         // Don't set an error - this is just supplementary information
       }
+      
+      setLogStatus(processedData);
     } catch (err) {
       console.error('Error fetching log status:', err);
       setError(err.message);
@@ -111,6 +83,95 @@ const LogManagement = ({ csrfToken }) => {
       setLoading(false);
       setRefreshing(false);
     }
+  };
+
+  // New function to fetch S3 upload statuses
+  const fetchS3UploadStatuses = async () => {
+    try {
+      const response = await fetch('/api/logs/s3-config/upload-statuses', {
+        credentials: 'include',
+        headers: {
+          'Accept': 'application/json'
+        }
+      });
+
+      if (!response.ok) {
+        console.error('Failed to fetch S3 upload statuses:', response.status);
+        return;
+      }
+
+      const statusesArray = await response.json();
+      
+      // Convert array to object with archiveFileName as key
+      const statusesMap = {};
+      statusesArray.forEach(status => {
+        statusesMap[status.archiveFileName] = {
+          status: status.status,
+          details: status.details || {},
+          updatedAt: status.updatedAt
+        };
+      });
+      
+      setS3Statuses(statusesMap);
+      
+      // If we have log status data, update the archives with S3 status
+      if (logStatus && logStatus.archives) {
+        updateArchivesWithS3Status(logStatus.archives, statusesMap);
+      }
+    } catch (err) {
+      console.error('Error fetching S3 upload statuses:', err);
+      // Don't set an error state - this is supplementary information
+    }
+  };
+
+  // Helper function to update archives with S3 status information
+  const updateArchivesWithS3Status = (archives, statusesMap) => {
+    if (!archives || !archives.length) return;
+    
+    // Create a new array with S3 status information
+    const updatedArchives = archives.map(archive => {
+      const s3Status = statusesMap[archive.file];
+      
+      if (s3Status) {
+        // Format the status for display
+        let statusDisplay = s3Status.status;
+        let statusClass = '';
+        
+        switch (s3Status.status) {
+          case 'success':
+            statusDisplay = 'Uploaded';
+            statusClass = 'text-green-300';
+            break;
+          case 'pending':
+            statusDisplay = 'Pending';
+            statusClass = 'text-yellow-300';
+            break;
+          case 'failed':
+            statusDisplay = 'Failed';
+            statusClass = 'text-red-300';
+            break;
+          default:
+            statusDisplay = s3Status.status.charAt(0).toUpperCase() + s3Status.status.slice(1);
+        }
+        
+        return {
+          ...archive,
+          s3Uploaded: s3Status.status === 'success',
+          s3Status: s3Status.status,
+          s3StatusDisplay: statusDisplay,
+          s3StatusClass: statusClass,
+          s3Details: s3Status.details || {}
+        };
+      }
+      
+      return archive;
+    });
+    
+    // Update the log status with the updated archives
+    setLogStatus(prev => ({
+      ...prev,
+      archives: updatedArchives
+    }));
   };
 
   // Trigger log rotation
@@ -185,6 +246,9 @@ const LogManagement = ({ csrfToken }) => {
     setTimeout(() => {
       setShowS3UploadModal(false);
     }, 3000);
+    
+    // Refresh log status to show updated S3 status
+    fetchLogStatus();
   };
 
   // Load log status on component mount

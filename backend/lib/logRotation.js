@@ -28,6 +28,7 @@ class LogRotationManager {
     this.isInitialized = false;
     this.s3Uploads = new Map(); // Track S3 upload status for archives
     this.isRotating = false; // Flag to track active rotation
+    this.s3StatusPath = path.join(this.dataDir, 's3-upload-status.json'); // Path to store S3 upload status
   }
 
   /**
@@ -40,6 +41,9 @@ class LogRotationManager {
       // Ensure archive directory exists
       await this.ensureDirectoryExists(this.archiveDir);
       await this.ensureDirectoryExists(this.exportDir);
+      
+      // Load existing S3 upload statuses from file
+      await this.loadS3UploadStatuses();
       
       // Perform initial check and schedule ongoing rotation
       await this.checkAndRotate();
@@ -395,51 +399,74 @@ class LogRotationManager {
   }
 
   /**
+   * Load S3 upload statuses from file
+   */
+  async loadS3UploadStatuses() {
+    try {
+      // Ensure the data directory exists
+      await this.ensureDirectoryExists(this.dataDir);
+      
+      // Check if the status file exists
+      try {
+        await fs.access(this.s3StatusPath);
+      } catch (error) {
+        // File doesn't exist, create it with an empty object
+        await fs.writeFile(this.s3StatusPath, JSON.stringify({}), 'utf8');
+        return; // Nothing to load
+      }
+      
+      // Read and parse the status file
+      const data = await fs.readFile(this.s3StatusPath, 'utf8');
+      const statusMap = JSON.parse(data);
+      
+      // Convert object to Map
+      this.s3Uploads.clear();
+      Object.entries(statusMap).forEach(([key, value]) => {
+        this.s3Uploads.set(key, value);
+      });
+      
+      console.log(`Loaded ${this.s3Uploads.size} S3 upload statuses from file`);
+    } catch (error) {
+      console.error('Error loading S3 upload statuses:', error);
+      // Continue with empty map if file is corrupt or unreadable
+      this.s3Uploads.clear();
+    }
+  }
+
+  /**
+   * Save S3 upload statuses to file
+   */
+  async saveS3UploadStatuses() {
+    try {
+      // Convert Map to object for storage
+      const statusMap = {};
+      for (const [key, value] of this.s3Uploads.entries()) {
+        statusMap[key] = value;
+      }
+      
+      // Write to file
+      await fs.writeFile(this.s3StatusPath, JSON.stringify(statusMap, null, 2), 'utf8');
+      console.log(`Saved ${this.s3Uploads.size} S3 upload statuses to file`);
+    } catch (error) {
+      console.error('Error saving S3 upload statuses:', error);
+    }
+  }
+
+  /**
    * Update S3 upload status for an archive
    * @param {string} archiveFileName - The archive file name
    * @param {string} status - The new status (pending, success, failed)
    * @param {Object} details - Additional details
    */
   async updateS3UploadStatus(archiveFileName, status, details = {}) {
-    // Update the in-memory status map
     this.s3Uploads.set(archiveFileName, {
       status,
       ...details,
       updatedAt: new Date().toISOString()
     });
 
-    // Also update the export S3 status system used by the Export view
-    try {
-      // Path to the export S3 status file
-      const s3StatusPath = path.join(this.dataDir, 'export-s3-status.json');
-      
-      // Read existing status data or initialize new object
-      let statusData = {};
-      try {
-        const fileContent = await fs.readFile(s3StatusPath, 'utf8');
-        statusData = JSON.parse(fileContent);
-      } catch (err) {
-        // If file doesn't exist or is invalid, create a new one
-        statusData = {};
-      }
-      
-      // Update status for this file
-      statusData[archiveFileName] = {
-        status,
-        details,
-        updatedAt: new Date().toISOString(),
-        updatedBy: 'system'
-      };
-      
-      // Write updated status back to file
-      await fs.mkdir(path.dirname(s3StatusPath), { recursive: true });
-      await fs.writeFile(s3StatusPath, JSON.stringify(statusData, null, 2), 'utf8');
-      
-      console.log(`Updated both status tracking systems for ${archiveFileName} to ${status}`);
-    } catch (error) {
-      console.error(`Error updating export status file for ${archiveFileName}:`, error);
-      // Don't throw error, just log it - we don't want to fail the upload if status tracking fails
-    }
+    // Save to file immediately for persistence
+    await this.saveS3UploadStatuses();
 
     console.log(`Updated S3 upload status for ${archiveFileName} to ${status}`);
   }

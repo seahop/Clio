@@ -1,8 +1,9 @@
-// backend/controllers/s3-config.controller.js - UPDATED PATH
+// backend/controllers/s3-config.controller.js
 const fs = require('fs').promises;
 const path = require('path');
 const eventLogger = require('../lib/eventLogger');
 const { redactSensitiveData } = require('../utils/sanitize');
+const logRotationManager = require('../lib/logRotation');
 
 // Updated path to store in data directory instead of config directory
 const S3_CONFIG_PATH = path.join(__dirname, '../data/s3-config.json');
@@ -351,11 +352,58 @@ const getPresignedUrl = async (req, res) => {
         message: error.message
       });
     }
-  };
+};
+
+// Update S3 upload status
+const updateS3UploadStatus = async (req, res) => {
+  try {
+    const { archiveFileName, status, details } = req.body;
+    
+    if (!archiveFileName || !status) {
+      return res.status(400).json({ error: 'Archive file name and status are required' });
+    }
+
+    // Use the LogRotationManager to update and persist status
+    await logRotationManager.updateS3UploadStatus(archiveFileName, status, details || {});
+    
+    // Log the status update
+    await eventLogger.logAuditEvent('s3_upload_status_update', req.user.username, {
+      archiveFileName,
+      status,
+      details: details || {},
+      ip: req.ip,
+      userAgent: req.get('User-Agent'),
+      timestamp: new Date().toISOString()
+    });
+    
+    res.json({
+      message: `S3 upload status for ${archiveFileName} updated to ${status}`,
+      success: true
+    });
+  } catch (error) {
+    console.error('Error updating S3 upload status:', error);
+    res.status(500).json({ error: 'Failed to update S3 upload status' });
+  }
+};
+
+// Fetch all log archive S3 upload statuses
+const getS3UploadStatuses = async (req, res) => {
+  try {
+    // Use the logRotationManager to get all statuses
+    const statuses = logRotationManager.getAllS3UploadStatuses();
+    
+    res.json(statuses);
+  } catch (error) {
+    console.error('Error fetching S3 upload statuses:', error);
+    res.status(500).json({ error: 'Failed to fetch S3 upload statuses' });
+  }
+};
   
 module.exports = {
   getS3Config,
   saveS3Config,
   testS3Connection,
-  getPresignedUrl
+  getPresignedUrl,
+  updateS3UploadStatus,
+  getS3UploadStatuses
 };

@@ -56,4 +56,7 @@ router.post('/upload-status', authenticateJwt, verifyAdmin, async (req, res) => 
     }
   });
   
+  // Get all S3 upload statuses for log archives
+  router.get('/upload-statuses', s3ConfigController.getS3UploadStatuses);
+
 module.exports = router;
