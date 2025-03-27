@@ -18,4 +18,11 @@ router.use('/evidence', evidenceRoutes);
 router.use('/', commonRoutes);
 router.use('/s3-status', require('./export/s3-status.routes'));
 
+// Directly import controller for encryption routes
+const encryptionController = require('../controllers/encryption.controller');
+
+// Add encryption routes directly to this router
+router.post('/encrypt-for-s3', encryptionController.encryptForS3);
+router.post('/decrypt-from-s3', encryptionController.decryptFromS3);
+
 module.exports = router;

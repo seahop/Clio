@@ -1,6 +1,6 @@
-// frontend/src/components/S3UploadModal.jsx
+// frontend/src/components/S3UploadModal.jsx - Updated with CSRF Handling
 import React, { useState, useEffect } from 'react';
-import { X, CloudUpload, CheckCircle, AlertCircle, RefreshCw } from 'lucide-react';
+import { X, CloudUpload, CheckCircle, AlertCircle, RefreshCw, Lock } from 'lucide-react';
 import s3UploadService from '../services/s3UploadService';
 
 const S3UploadModal = ({ show, onClose, archivePath, onSuccess }) => {
@@ -10,12 +10,29 @@ const S3UploadModal = ({ show, onClose, archivePath, onSuccess }) => {
   const [s3Config, setS3Config] = useState(null);
   const [uploadResult, setUploadResult] = useState(null);
   const [usePresignedUrl, setUsePresignedUrl] = useState(true); // Set to true to use pre-signed URL by default
+  const [useEncryption, setUseEncryption] = useState(true); // New state for encryption option
 
   useEffect(() => {
     if (show && archivePath) {
-      startUpload();
+      // Refresh CSRF token before starting upload
+      refreshCsrfToken().then(() => {
+        startUpload();
+      });
     }
   }, [show, archivePath]);
+
+  // Function to refresh CSRF token
+  const refreshCsrfToken = async () => {
+    try {
+      const token = await s3UploadService.refreshCsrfToken();
+      console.log('CSRF token refreshed before upload');
+      return token;
+    } catch (error) {
+      console.error('Failed to refresh CSRF token:', error);
+      setError('Failed to refresh security token. Please try refreshing the page.');
+      return null;
+    }
+  };
 
   const startUpload = async () => {
     try {
@@ -28,7 +45,8 @@ const S3UploadModal = ({ show, onClose, archivePath, onSuccess }) => {
       
       console.log('Starting upload for archive:', {
         originalPath: archivePath,
-        fileName: archiveFileName
+        fileName: archiveFileName,
+        withEncryption: useEncryption
       });
       
       // Process the archive path to ensure it's in the correct format
@@ -64,16 +82,28 @@ const S3UploadModal = ({ show, onClose, archivePath, onSuccess }) => {
         setProgress(progressPercent);
       };
       
-      // Choose upload method based on flag
+      // Make sure we have a valid CSRF token
+      await refreshCsrfToken();
+      
+      // Choose upload method based on encryption and URL preferences
       let result;
-      if (usePresignedUrl) {
-        // Use pre-signed URL approach (more reliable)
+      if (useEncryption) {
+        // Use encryption with presigned URL (recommended approach)
+        console.log('Using encrypted upload with presigned URL');
+        result = await s3UploadService.uploadEncryptedToS3UsingPresignedUrl(
+          processedPath,
+          handleProgress
+        );
+      } else if (usePresignedUrl) {
+        // Use pre-signed URL approach without encryption
+        console.log('Using standard upload with presigned URL');
         result = await s3UploadService.uploadToS3UsingPresignedUrl(
           processedPath,
           handleProgress
         );
       } else {
-        // Use direct SDK approach
+        // Use direct SDK approach without encryption
+        console.log('Using direct SDK upload without encryption');
         result = await s3UploadService.uploadToS3(
           processedPath,
           config,
@@ -84,23 +114,30 @@ const S3UploadModal = ({ show, onClose, archivePath, onSuccess }) => {
       setUploadResult(result);
       setUploadStatus('success');
       
+      // Refresh CSRF token before status updates
+      await refreshCsrfToken();
+      
       // Update both status tracking systems
       try {
-        // Update the log rotation S3 status tracking (for Log Management view)
-        await s3UploadService.updateUploadStatus(archiveFileName, 'success', {
+        // Add encryption info to status tracking
+        const statusDetails = {
           location: result.location,
           bucket: result.bucket,
           objectKey: result.objectKey,
-          uploadedAt: new Date().toISOString()
-        });
+          uploadedAt: new Date().toISOString(),
+          encrypted: result.encrypted || false
+        };
+        
+        // If encrypted, add key file info
+        if (result.keyFile) {
+          statusDetails.keyFile = result.keyFile;
+        }
+        
+        // Update the log rotation S3 status tracking (for Log Management view)
+        await s3UploadService.updateUploadStatus(archiveFileName, 'success', statusDetails);
         
         // Also update the export status tracking (for Export view)
-        await s3UploadService.updateExportStatus(archiveFileName, 'success', {
-          location: result.location,
-          bucket: result.bucket,
-          objectKey: result.objectKey,
-          uploadedAt: new Date().toISOString()
-        });
+        await s3UploadService.updateExportStatus(archiveFileName, 'success', statusDetails);
         
         console.log('Updated both status tracking systems for S3 upload');
       } catch (statusError) {
@@ -116,6 +153,9 @@ const S3UploadModal = ({ show, onClose, archivePath, onSuccess }) => {
       console.error('S3 upload error:', err);
       setError(err.message);
       setUploadStatus('error');
+      
+      // Refresh CSRF token before status updates
+      await refreshCsrfToken();
       
       // Update failure status on backend if possible
       try {
@@ -162,16 +202,49 @@ const S3UploadModal = ({ show, onClose, archivePath, onSuccess }) => {
         {/* Content */}
         <div className="space-y-4">
           {uploadStatus === 'preparing' && (
-            <div className="flex justify-center items-center py-8">
-              <RefreshCw className="animate-spin text-blue-400 mr-2" size={24} />
-              <span className="text-gray-300">Preparing upload...</span>
+            <div className="flex flex-col space-y-4">
+              <div className="flex justify-center items-center py-4">
+                <RefreshCw className="animate-spin text-blue-400 mr-2" size={24} />
+                <span className="text-gray-300">Preparing upload...</span>
+              </div>
+              
+              {/* Encryption option */}
+              <div className="p-3 bg-gray-700 rounded-md">
+                <label className="flex items-center gap-2 text-gray-300 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={useEncryption}
+                    onChange={(e) => setUseEncryption(e.target.checked)}
+                    className="rounded border-gray-600 bg-gray-700 text-blue-500 focus:ring-blue-500"
+                  />
+                  <div className="flex items-center gap-1">
+                    <Lock size={16} className={useEncryption ? "text-green-400" : "text-gray-400"} />
+                    <span>Encrypt file before upload</span>
+                  </div>
+                </label>
+                <p className="text-xs text-gray-400 mt-1 ml-6">
+                  Encrypts the archive with a unique key stored in a separate file in the same bucket
+                </p>
+              </div>
+              
+              <button
+                onClick={async () => {
+                  // Refresh token before starting upload
+                  await refreshCsrfToken();
+                  startUpload();
+                }}
+                className="w-full px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors flex items-center justify-center gap-2"
+              >
+                <CloudUpload size={18} />
+                {useEncryption ? "Encrypt & Upload" : "Upload to S3"}
+              </button>
             </div>
           )}
           
           {uploadStatus === 'uploading' && (
             <div className="space-y-4">
               <div className="text-center text-gray-300">
-                Uploading log archive to S3
+                {useEncryption ? "Encrypting and uploading archive to S3" : "Uploading archive to S3"}
               </div>
               
               {s3Config && (
@@ -191,6 +264,12 @@ const S3UploadModal = ({ show, onClose, archivePath, onSuccess }) => {
                   <div className="flex justify-between">
                     <span>Method:</span>
                     <span className="text-white">{usePresignedUrl ? 'Pre-signed URL' : 'Direct SDK'}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Encryption:</span>
+                    <span className={useEncryption ? "text-green-300" : "text-gray-300"}>
+                      {useEncryption ? "Enabled" : "Disabled"}
+                    </span>
                   </div>
                 </div>
               )}
@@ -228,6 +307,18 @@ const S3UploadModal = ({ show, onClose, archivePath, onSuccess }) => {
                   <span>Object Key:</span>
                   <span className="text-white break-all">{uploadResult?.objectKey || 'Unknown'}</span>
                 </div>
+                {uploadResult?.encrypted && (
+                  <div className="flex justify-between">
+                    <span>Key File:</span>
+                    <span className="text-white break-all">{uploadResult?.keyFile || 'Unknown'}</span>
+                  </div>
+                )}
+                <div className="flex justify-between">
+                  <span>Encryption:</span>
+                  <span className={uploadResult?.encrypted ? "text-green-300" : "text-gray-300"}>
+                    {uploadResult?.encrypted ? "Enabled" : "Disabled"}
+                  </span>
+                </div>
                 <div className="flex justify-between">
                   <span>ETag:</span>
                   <span className="text-white">{uploadResult?.etag || 'Unknown'}</span>
@@ -259,14 +350,31 @@ const S3UploadModal = ({ show, onClose, archivePath, onSuccess }) => {
               
               <div className="flex gap-2">
                 <button
-                  onClick={() => {
-                    // Toggle the upload method on retry
-                    setUsePresignedUrl(!usePresignedUrl);
+                  onClick={async () => {
+                    // Refresh token before retry
+                    await refreshCsrfToken();
+                    
+                    // Toggle options on retry
+                    if (useEncryption) {
+                      // If encryption failed, try without it
+                      setUseEncryption(false);
+                    } else if (usePresignedUrl) {
+                      // If presigned URL failed, try direct SDK
+                      setUsePresignedUrl(false);
+                    } else {
+                      // If all failed, try with encryption again
+                      setUseEncryption(true);
+                      setUsePresignedUrl(true);
+                    }
                     startUpload();
                   }}
                   className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
                 >
-                  Retry with {usePresignedUrl ? 'Direct SDK' : 'Pre-signed URL'}
+                  Retry with {
+                    useEncryption ? "No Encryption" : 
+                    usePresignedUrl ? "Direct SDK" : 
+                    "Encryption & Presigned URL"
+                  }
                 </button>
                 <button
                   onClick={onClose}
