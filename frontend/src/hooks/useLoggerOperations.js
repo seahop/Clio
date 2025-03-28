@@ -216,6 +216,37 @@ export const useLoggerOperations = (currentUser, csrfToken) => {
     }
   };
 
+  // New handler for adding a row with template data
+  const handleAddRowWithTemplate = async (templateData) => {
+    try {
+      // Make sure we have a new timestamp and the current user as analyst
+      const newRow = {
+        ...templateData,
+        timestamp: new Date().toISOString(),
+        analyst: currentUser.username,
+        locked: false,
+        locked_by: null
+      };
+      
+      console.log('Creating new log with template data:', newRow);
+      
+      // Create the log with the template data
+      const createdRow = await createLog(newRow);
+      
+      // Update the logs state with the new row
+      setLogs(prevLogs => sortLogs([...prevLogs, createdRow]));
+      
+      // Show success message or notification
+      console.log('Successfully created new log from template', createdRow);
+      
+      return createdRow;
+    } catch (err) {
+      console.error('Error creating new row from template:', err);
+      setError('Failed to create new log from template');
+      return null;
+    }
+  };
+
   const handleDeleteRow = async (rowId) => {
     if (!isAdmin) return;
 
@@ -251,6 +282,7 @@ export const useLoggerOperations = (currentUser, csrfToken) => {
       handleKeyDown,
       handleToggleLock,
       handleAddRow,
+      handleAddRowWithTemplate,
       handleDeleteRow,
       handleExpand
     }

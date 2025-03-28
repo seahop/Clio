@@ -1,10 +1,11 @@
 // frontend/src/components/LoggerCardView.jsx
 import React, { useState, useEffect } from 'react';
-import { Layout, List, Plus, Filter, AlertCircle } from 'lucide-react';
+import { Layout, List, Plus, Filter, AlertCircle, FileText } from 'lucide-react';
 import LogRowCard from './LogRowCard';
 import Pagination from './Pagination';
 import DateRangeFilter from './DateRangeFilter';
 import SearchFilter from './SearchFilter';
+import TemplateManager from './TemplateManager'; // Import the template manager
 import { COLUMNS } from '../utils/constants';
 import usePagination from '../hooks/usePagination';
 
@@ -16,11 +17,16 @@ const LoggerCardView = ({
   handlers,
   csrfToken
 }) => {
-  const [viewMode, setViewMode] = useState('card'); // 'card' is the only mode now
+  const [viewMode, setViewMode] = useState('card');
   const [filteredLogs, setFilteredLogs] = useState(logs);
   const [dateRange, setDateRange] = useState({ start: null, end: null });
   const [searchFilter, setSearchFilter] = useState({ query: '', field: 'all' });
   const [hasActiveFilters, setHasActiveFilters] = useState(false);
+  const [showTemplates, setShowTemplates] = useState(false); // State for templates visibility
+  const [selectedCardId, setSelectedCardId] = useState(null); // State for template selection
+  
+  // Find the currently selected card based on ID
+  const selectedCard = selectedCardId ? logs.find(log => log.id === selectedCardId) : null;
   
   // Apply filters whenever logs, dateRange, or searchFilter changes
   useEffect(() => {
@@ -94,6 +100,19 @@ const LoggerCardView = ({
     setSearchFilter({ query: '', field: 'all' });
   };
   
+  // Handle selecting a row for template creation
+  const handleSelectCard = (rowId) => {
+    setSelectedCardId(rowId === selectedCardId ? null : rowId);
+  };
+  
+  // Apply a template to create a new log
+  const handleApplyTemplate = (templateData) => {
+    // Use the handleAddRowWithTemplate handler from props
+    if (handlers.handleAddRowWithTemplate) {
+      handlers.handleAddRowWithTemplate(templateData);
+    }
+  };
+  
   return (
     <div className="bg-gray-800 shadow-lg rounded-lg w-full">
       {/* Header */}
@@ -107,6 +126,18 @@ const LoggerCardView = ({
             <List size={16} />
             <span className="hidden sm:inline">Card View</span>
           </button>
+          
+          {/* Add Templates Button */}
+          <button
+            onClick={() => setShowTemplates(!showTemplates)}
+            className={`px-3 py-1.5 rounded-md flex items-center gap-2 transition-colors duration-200 ${
+              showTemplates ? 'bg-green-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+            }`}
+            title="Toggle Templates"
+          >
+            <FileText size={16} />
+            <span className="hidden sm:inline">Templates</span>
+          </button>
         </div>
         
         <button 
@@ -117,6 +148,15 @@ const LoggerCardView = ({
           <span className="hidden sm:inline">Add Row</span>
         </button>
       </div>
+      
+      {/* Templates Section */}
+      {showTemplates && (
+        <TemplateManager 
+          currentCard={selectedCard}
+          onApplyTemplate={handleApplyTemplate}
+          csrfToken={csrfToken}
+        />
+      )}
       
       {/* Filter section */}
       <div className="p-4 border-b border-gray-700 bg-gray-900/30">
@@ -172,23 +212,44 @@ const LoggerCardView = ({
         ) : (
           <div className="space-y-2 mb-4">
             {pagination.paginatedItems.map(row => (
-              <LogRowCard
-                key={row.id}
-                row={row}
-                isAdmin={isAdmin}
-                currentUser={currentUser}
-                editingCell={tableState.editingCell}
-                editingValue={tableState.editingValue}
-                expandedCell={tableState.expandedCell}
-                onCellClick={handlers.handleCellClick}
-                onCellChange={handlers.handleCellChange}
-                onCellBlur={handlers.handleCellBlur}
-                onKeyDown={handlers.handleKeyDown}
-                onExpand={handlers.handleExpand}
-                onToggleLock={handlers.handleToggleLock}
-                onDelete={handlers.handleDeleteRow}
-                csrfToken={csrfToken}
-              />
+              <div 
+                key={row.id} 
+                className={`relative ${selectedCardId === row.id ? 'ring-2 ring-blue-500' : ''}`}
+              >
+                {showTemplates && (
+                  <button
+                    onClick={() => handleSelectCard(row.id)}
+                    className={`absolute -left-2 top-2 p-1.5 rounded-full z-10 border border-gray-600 transition-colors duration-200 ${
+                      selectedCardId === row.id 
+                        ? 'bg-blue-600 text-white' 
+                        : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                    }`}
+                    title={selectedCardId === row.id ? "Deselect card" : "Select for template"}
+                  >
+                    {selectedCardId === row.id ? (
+                      <CheckIcon size={14} />
+                    ) : (
+                      <SaveIcon size={14} />
+                    )}
+                  </button>
+                )}
+                <LogRowCard
+                  row={row}
+                  isAdmin={isAdmin}
+                  currentUser={currentUser}
+                  editingCell={tableState.editingCell}
+                  editingValue={tableState.editingValue}
+                  expandedCell={tableState.expandedCell}
+                  onCellClick={handlers.handleCellClick}
+                  onCellChange={handlers.handleCellChange}
+                  onCellBlur={handlers.handleCellBlur}
+                  onKeyDown={handlers.handleKeyDown}
+                  onExpand={handlers.handleExpand}
+                  onToggleLock={handlers.handleToggleLock}
+                  onDelete={handlers.handleDeleteRow}
+                  csrfToken={csrfToken}
+                />
+              </div>
             ))}
           </div>
         )}
@@ -206,5 +267,20 @@ const LoggerCardView = ({
     </div>
   );
 };
+
+// Helper icons for template selection
+const SaveIcon = ({ size }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
+    <polyline points="17 21 17 13 7 13 7 21"></polyline>
+    <polyline points="7 3 7 8 15 8"></polyline>
+  </svg>
+);
+
+const CheckIcon = ({ size }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="20 6 9 17 4 12"></polyline>
+  </svg>
+);
 
 export default LoggerCardView;
