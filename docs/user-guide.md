@@ -33,6 +33,7 @@ The Logs view is the main logging interface for recording and tracking activitie
 - **Edit Cells**: Click on any cell to edit its content
 - **Row Locking**: Lock a row to prevent others from editing it while you work
 - **Cell Navigation**: Use Tab key to navigate between cells
+- **Templates**: Save and reuse common log patterns across the team
 - **Evidence Management**: Attach files and evidence to log entries
 
 <p align="center">
@@ -81,6 +82,28 @@ If there is interest in keeping it, let me know
 </p>
 <p align="center">
 <img src="../images/Clio_user_evidence_view2.png" alt="Clio Evidence View 2" width="1000"/>
+</p>
+
+**Working with Log Entries:**
+1. Click "Add Row" to create a new log entry
+2. Fill in relevant details such as IPs, hostnames, commands, and status
+3. Use the lock icon to lock/unlock rows as needed
+4. Add evidence files by clicking the file icon in each row
+
+**Using Templates:**
+1. Click the "Templates" button to show the templates panel
+2. To create a template:
+   - Select a row by clicking the template icon on the left side
+   - Click "Save As Template"
+   - Enter a name and select which fields to include
+   - Click "Save Template"
+3. To apply a template:
+   - Click on any template card in the templates panel
+   - A new row will be created with the template's fields pre-filled
+4. Templates are shared across all users for consistent logging
+
+<p align="center">
+<img src="../images/Clio_cell_templates.png" alt="Cell Templates" width="1000"/>
 </p>
 
 ### Relations View
