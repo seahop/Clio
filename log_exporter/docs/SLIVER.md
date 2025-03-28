@@ -219,7 +219,7 @@ To use the Sliver parser:
    ```bash
    python /path/to/log_exporter.py \
      --api-key YOUR_API_KEY \
-     --clio-url https://your-clio-server:3000 \
+     --clio-url https://your-clio-server \
      --c2-type sliver \
      --historical-days 3
    ```

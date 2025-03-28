@@ -54,7 +54,7 @@ Coming soon:
    # Start the forwarder
    python /path/to/C2Home/log_exporter.py \
      --api-key YOUR_API_KEY \
-     --clio-url https://your-clio-server:3000 \
+     --clio-url https://your-clio-server \
      --c2-type cobalt_strike
    ```
 
@@ -66,7 +66,7 @@ Coming soon:
    # Start the forwarder
    python /path/to/c2-log-forwarder/log_exporter.py \
      --api-key YOUR_API_KEY \
-     --clio-url https://your-clio-server:3000 \
+     --clio-url https://your-clio-server \
      --c2-type sliver
    ```
 
@@ -121,7 +121,7 @@ After=network.target
 Type=simple
 User=youruser
 WorkingDirectory=/path/to/cobaltstrike
-ExecStart=/usr/bin/python3 /path/to/c2-log-forwarder/log_exporter.py --api-key YOUR_API_KEY --clio-url https://your-clio-server:3000 --c2-type cobalt_strike
+ExecStart=/usr/bin/python3 /path/to/c2-log-forwarder/log_exporter.py --api-key YOUR_API_KEY --clio-url https://your-clio-server --c2-type cobalt_strike
 Restart=on-failure
 RestartSec=10s
 
@@ -139,7 +139,7 @@ After=network.target
 Type=simple
 User=youruser
 WorkingDirectory=/path/to/sliver
-ExecStart=/usr/bin/python3 /path/to/c2-log-forwarder/log_exporter.py --api-key YOUR_API_KEY --clio-url https://your-clio-server:3000 --c2-type sliver
+ExecStart=/usr/bin/python3 /path/to/c2-log-forwarder/log_exporter.py --api-key YOUR_API_KEY --clio-url https://your-clio-server --c2-type sliver
 Restart=on-failure
 RestartSec=10s
 

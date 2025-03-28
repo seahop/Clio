@@ -155,7 +155,7 @@ To use the Cobalt Strike parser:
    ```bash
    python /path/to/log_exporter.py \
      --api-key YOUR_API_KEY \
-     --clio-url https://your-clio-server:3000 \
+     --clio-url https://your-clio-server \
      --c2-type cobalt_strike \
      --historical-days 3
    ```

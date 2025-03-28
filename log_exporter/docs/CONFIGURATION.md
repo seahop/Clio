@@ -22,14 +22,14 @@ The C2 Log Forwarder supports the following command line arguments:
 
 Basic usage:
 ```bash
-python log_exporter.py --api-key YOUR_API_KEY --clio-url https://your-clio-server:3000
+python log_exporter.py --api-key YOUR_API_KEY --clio-url https://your-clio-server
 ```
 
 Extended options:
 ```bash
 python log_exporter.py \
   --api-key YOUR_API_KEY \
-  --clio-url https://your-clio-server:3000 \
+  --clio-url https://your-clio-server \
   --c2-type cobalt_strike \
   --historical-days 7 \
   --max-tracked-days 3 \
@@ -56,7 +56,7 @@ The API key is passed directly through the `X-API-Key` header to Clio on each re
 
 The base URL of your Clio instance, including the protocol (http/https) and port if non-standard. For example:
 - `https://clio.example.com`
-- `https://192.168.1.10:3000`
+- `https://192.168.1.10`
 
 ### C2 Framework Type (`--c2-type`)
 
@@ -128,7 +128,7 @@ Example script using environment variables:
 ```bash
 #!/bin/bash
 CLIO_API_KEY="your-api-key"
-CLIO_URL="https://your-clio-server:3000"
+CLIO_URL="https://your-clio-server"
 C2_TYPE="cobalt_strike"
 
 python log_exporter.py \
@@ -196,7 +196,7 @@ WorkingDirectory=/path/to/cobaltstrike
 # Main command
 ExecStart=/usr/bin/python3 /path/to/c2-log-forwarder/log_exporter.py \
   --api-key YOUR_API_KEY \
-  --clio-url https://your-clio-server:3000 \
+  --clio-url https://your-clio-server \
   --c2-type cobalt_strike \
   --historical-days 3
 

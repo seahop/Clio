@@ -18,7 +18,7 @@ When troubleshooting any issue, follow these steps:
 
 3. **Verify connectivity**:
    ```bash
-   curl -k -H "X-API-Key: YOUR_KEY" https://your-clio-server:3000/api/ingest/status
+   curl -k -H "X-API-Key: YOUR_KEY" https://your-clio-server/api/ingest/status
    ```
 
 4. **Check file permissions**:
@@ -71,7 +71,7 @@ When troubleshooting any issue, follow these steps:
 Example of testing connectivity:
 ```bash
 # Test with curl (using --insecure for self-signed certs)
-curl -k -v -H "X-API-Key: YOUR_API_KEY" https://your-clio-server:3000/api/ingest/status
+curl -k -v -H "X-API-Key: YOUR_API_KEY" https://your-clio-server/api/ingest/status
 ```
 
 ### 3. No Logs Being Found or Processed
