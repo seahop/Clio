@@ -1,4 +1,4 @@
-// models/logs.js - Updated with encryption
+// models/logs.js - Update for PID field
 const db = require('../db');
 const { redactSensitiveData } = require('../utils/sanitize');
 const fieldEncryption = require('../utils/encryption');
@@ -114,8 +114,8 @@ const LogsModel = {
         `INSERT INTO logs (
           timestamp, internal_ip, external_ip, mac_address, hostname,
           domain, username, command, notes, filename,
-          status, secrets, analyst, hash_algorithm, hash_value
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+          status, secrets, analyst, hash_algorithm, hash_value, pid
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
         RETURNING *`,
         [
           new Date(),
@@ -132,7 +132,8 @@ const LogsModel = {
           processedData.secrets,
           processedData.analyst,
           processedData.hash_algorithm,
-          processedData.hash_value
+          processedData.hash_value,
+          processedData.pid
         ]
       );
       
@@ -152,7 +153,7 @@ const LogsModel = {
       const allowedUpdates = [
         'internal_ip', 'external_ip', 'mac_address', 'hostname', 'domain',
         'username', 'command', 'notes', 'filename', 'status',
-        'secrets', 'locked', 'locked_by', 'hash_algorithm', 'hash_value'
+        'secrets', 'locked', 'locked_by', 'hash_algorithm', 'hash_value', 'pid'
       ];
 
       // Process updates for storage (encrypt sensitive fields)

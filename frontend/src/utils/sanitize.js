@@ -85,7 +85,7 @@ export const sanitizeCommandField = (str) => {
 };
 
 /**
- * Validates input based on field-specific rules
+ * Validate input based on field-specific rules
  * @param {string} value - The value to validate
  * @param {string} field - The field name
  * @returns {boolean} - Whether validation passed
@@ -138,6 +138,10 @@ export const validateInput = (value, field) => {
         
       case 'hash_value':
         return /^[A-Za-z0-9_+/=.-]{1,128}$/.test(value);
+        
+      case 'pid':
+        // PIDs are typically numeric values
+        return /^\d{1,10}$/.test(value);
       
       default:
         return true;
@@ -174,6 +178,7 @@ export const sanitizeLogData = (logData) => {
       status: logData.status ? sanitizeString(logData.status) : '',
       hash_algorithm: logData.hash_algorithm ? sanitizeString(logData.hash_algorithm) : '',
       hash_value: logData.hash_value ? sanitizeString(logData.hash_value) : '',
+      pid: logData.pid ? sanitizeString(logData.pid) : '',
       secrets: logData.secrets ? sanitizeString(logData.secrets, 'secrets') : ''
     };
   } catch (error) {
@@ -243,7 +248,7 @@ export const validateLogEntry = (logData) => {
 export const MAX_FIELD_LENGTHS = {
   internal_ip: 45,
   external_ip: 45,
-  mac_address: 17, // XX-XX-XX-XX-XX-XX = 17 chars with dashes
+  mac_address: 17,
   hostname: 75,
   domain: 75,
   username: 75,
@@ -253,6 +258,7 @@ export const MAX_FIELD_LENGTHS = {
   status: 75,
   hash_algorithm: 20,
   hash_value: 128,
+  pid: 20,
   secrets: 254,
   analyst: 100
 };

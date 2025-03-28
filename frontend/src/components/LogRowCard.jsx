@@ -71,7 +71,7 @@ const LogRowCard = ({
         </div>
       );
     }
-
+  
     if (field === 'status' && value) {
       return <span className={`font-semibold ${getStatusColorClass(value)}`}>{value}</span>;
     }
@@ -79,7 +79,11 @@ const LogRowCard = ({
     if (field === 'mac_address' && value) {
       return <span className="text-white break-words whitespace-pre-wrap">{formatMacAddress(value)}</span>;
     }
-
+    
+    if (field === 'pid' && value) {
+      return <span className="text-white font-mono">{value}</span>;
+    }
+  
     if (!value) return <span className="text-gray-500">-</span>;
     
     return <span className="text-white break-words whitespace-pre-wrap">{value}</span>;
@@ -120,9 +124,9 @@ const LogRowCard = ({
       // Network column
       'internal_ip', 'external_ip', 'mac_address', 'hostname', 'domain',
       // Content column
-      'username', 'command', 'notes', 'secrets',
+      'username', 'command', 'notes', 'secrets', 'analyst',
       // Status column
-      'filename', 'hash_algorithm', 'hash_value', 'status'
+      'filename', 'hash_algorithm', 'hash_value', 'pid', 'status'
     ];
     
     // Find the current position in the tab order
@@ -300,6 +304,25 @@ const LogRowCard = ({
       );
     }
   
+    if (field === 'pid') {
+      return (
+        <input
+          type="text"
+          value={editingValue || ''}
+          onChange={onCellChange}
+          onBlur={(e) => onCellBlur(e, parseInt(row.id), field)}
+          onKeyDown={(e) => handleTabKeyDown(e, parseInt(row.id), field)}
+          onClick={(e) => e.stopPropagation()}
+          className="w-full p-1 border rounded bg-gray-700 text-white border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          placeholder="Process ID"
+          pattern="[0-9]+"
+          title="Process ID (numeric value)"
+          maxLength={20}
+          autoFocus
+        />
+      );
+    }
+
     // MAC address field should use a specialized input with dash format
     if (field === 'mac_address') {
       return (
@@ -365,8 +388,8 @@ const LogRowCard = ({
   // Sort columns into logical groups
   const columnGroups = {
     primary: ['timestamp', 'internal_ip', 'external_ip', 'mac_address', 'hostname', 'domain'],
-    content: ['username', 'command', 'notes', 'secrets'],
-    status: ['filename', 'hash_algorithm', 'hash_value', 'status', 'analyst']
+    content: ['username', 'command', 'notes', 'secrets', 'analyst'],
+    status: ['filename', 'hash_algorithm', 'hash_value', 'pid', 'status']
   };
 
   return (
@@ -380,7 +403,7 @@ const LogRowCard = ({
           }
           setIsClickingCell(false);
         }}
-      >
+        >
         <div className="flex items-center gap-x-3 overflow-hidden">
           {/* Expand/Collapse Icon */}
           {isExpanded ? (
@@ -439,6 +462,13 @@ const LogRowCard = ({
               </div>
             )}
             
+            {/* Add PID display here, right after the MAC address display */}
+            {row.pid && (
+              <div className="flex-shrink-0 px-2 py-1 bg-gray-700 rounded text-xs text-cyan-300 whitespace-nowrap font-medium">
+                PID: {row.pid}
+              </div>
+            )}
+            
             {row.hostname && (
               <div className="flex-shrink-0 px-2 py-1 bg-gray-700 rounded text-xs text-white whitespace-nowrap font-medium">
                 Host: {row.hostname}
@@ -470,7 +500,7 @@ const LogRowCard = ({
             )}
           </div>
         </div>
-        
+
         {/* Delete button (admin only) */}
         {isAdmin && (
           <button
@@ -487,7 +517,7 @@ const LogRowCard = ({
             <Trash2 size={16} />
           </button>
         )}
-      </div>
+        </div>
       
       {/* Expanded Card Content */}
       {isExpanded && (
@@ -540,7 +570,7 @@ const LogRowCard = ({
             <h3 className="text-sm font-medium text-white mb-3">Command Information</h3>
             <div className="space-y-3">
               {/* Manually specify the fields to ensure the right order */}
-              {['username', 'command', 'notes', 'secrets'].map(field => {
+              {['username', 'command', 'notes', 'secrets', 'analyst'].map(field => {
                 const column = COLUMNS.find(col => col.field === field);
                 const isEditing = editingCell?.rowId === row.id && editingCell?.field === field;
                 
@@ -586,13 +616,13 @@ const LogRowCard = ({
               })}
             </div>
           </div>
-          
-          {/* Status section - Now includes filename and hash fields */}
+
+          {/* Status section - Now includes PID field and analyst removed */}
           <div className="bg-gray-700/50 p-4 rounded-lg">
             <h3 className="text-sm font-medium text-white mb-3">File & Status Information</h3>
             <div className="space-y-3">
               {/* Manually specify the fields to ensure the right order */}
-              {['filename', 'hash_algorithm', 'hash_value', 'status', 'analyst'].map(field => {
+              {['filename', 'hash_algorithm', 'hash_value', 'pid', 'status'].map(field => {
                 const column = COLUMNS.find(col => col.field === field);
                 const isEditing = editingCell?.rowId === row.id && editingCell?.field === field;
                 

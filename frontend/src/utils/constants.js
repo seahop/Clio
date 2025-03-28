@@ -3,7 +3,7 @@ export const COLUMNS = [
   { field: 'timestamp', header: 'Timestamp', width: 'w-32 md:w-40' },
   { field: 'internal_ip', header: 'Internal IP', width: 'w-28 md:w-36' },
   { field: 'external_ip', header: 'External IP', width: 'w-28 md:w-36' },
-  { field: 'mac_address', header: 'MAC Address', width: 'w-32 md:w-40' }, // New field
+  { field: 'mac_address', header: 'MAC Address', width: 'w-32 md:w-40' },
   { field: 'hostname', header: 'Hostname', width: 'w-36 md:w-48' },
   { field: 'domain', header: 'Domain', width: 'w-36 md:w-48' },
   { field: 'username', header: 'User', width: 'w-24 md:w-32' },
@@ -13,6 +13,7 @@ export const COLUMNS = [
   { field: 'filename', header: 'Filename', width: 'w-36 md:w-48' },
   { field: 'hash_algorithm', header: 'Hash Algorithm', width: 'w-32 md:w-40' },
   { field: 'hash_value', header: 'Hash Value', width: 'w-48 md:w-64' },
+  { field: 'pid', header: 'PID', width: 'w-20 md:w-24' },
   { field: 'status', header: 'Status', width: 'w-24 md:w-32' },
   { field: 'analyst', header: 'Analyst', width: 'w-24 md:w-32' }
 ];

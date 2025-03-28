@@ -17,7 +17,8 @@ const validateInputLengths = (data) => {
     status: 75,
     secrets: 254,
     analyst: 100,
-    locked_by: 100
+    locked_by: 100,
+    pid: 20
   };
 
   const errors = [];

@@ -204,11 +204,11 @@ router.put('/:id', authenticateJwt, async (req, res, next) => {
       'username': 'username',
       'command': 'command',
       'filename': 'filename',
-      // These fields don't directly map to relation types but are included in analysis
+      'pid': 'process',
       'status': 'status',
       'analyst': 'analyst'
     };
-
+    
     // Main fields that require notification to the relation service
     const relationFields = Object.keys(relationFieldMap);
 
