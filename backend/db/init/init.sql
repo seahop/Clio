@@ -67,6 +67,16 @@ CREATE TABLE IF NOT EXISTS api_keys (
     metadata JSONB DEFAULT '{}'::jsonb
 );
 
+-- Create log templates table
+CREATE TABLE IF NOT EXISTS log_templates (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    template_data JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_by VARCHAR(100) NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Create indexes
 CREATE INDEX IF NOT EXISTS idx_logs_timestamp ON logs(timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_logs_analyst ON logs(analyst);
@@ -84,6 +94,10 @@ CREATE INDEX IF NOT EXISTS idx_evidence_upload_date ON evidence_files(upload_dat
 CREATE INDEX IF NOT EXISTS idx_api_keys_key_id ON api_keys(key_id);
 CREATE INDEX IF NOT EXISTS idx_api_keys_created_by ON api_keys(created_by);
 CREATE INDEX IF NOT EXISTS idx_api_keys_is_active ON api_keys(is_active);
+
+-- Create template indexes
+CREATE INDEX IF NOT EXISTS idx_templates_created_by ON log_templates(created_by);
+CREATE INDEX IF NOT EXISTS idx_templates_created_at ON log_templates(created_at);
 
 -- Create updated_at trigger function
 CREATE OR REPLACE FUNCTION update_updated_at_column()
@@ -104,5 +118,12 @@ CREATE TRIGGER update_logs_updated_at
 DROP TRIGGER IF EXISTS update_api_keys_updated_at ON api_keys;
 CREATE TRIGGER update_api_keys_updated_at
     BEFORE UPDATE ON api_keys
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+-- Add trigger for templates table
+DROP TRIGGER IF EXISTS update_templates_updated_at ON log_templates;
+CREATE TRIGGER update_templates_updated_at
+    BEFORE UPDATE ON log_templates
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at_column();

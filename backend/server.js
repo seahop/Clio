@@ -25,6 +25,7 @@ const db = require('./db');
 const url = require('url');
 const passport = require('passport');
 const { initializeGoogleSSO } = require('./lib/passport-google');
+const templatesRoutes = require('./routes/templates.routes');
 
 const app = express();
 
@@ -221,6 +222,7 @@ app.use('/api/api-keys', apiKeyRoutes);
 app.use('/api/ingest', ingestRoutes);
 app.use('/api/logs/s3-config', require('./routes/s3-config.routes'));
 app.use('/api/health/logs', require('./routes/logs-health.routes'));
+app.use('/api/templates', templatesRoutes);
 
 // Important change: Serve exports WITHOUT authentication
 app.use('/exports', express.static(path.join(__dirname, 'exports')));

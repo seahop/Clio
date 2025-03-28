@@ -1,38 +1,31 @@
 // frontend/src/components/TemplateManager.jsx
-import React, { useState, useEffect } from 'react';
-import { Save, FileText, Plus, Trash2, Edit, X } from 'lucide-react';
+import React, { useState } from 'react';
+import { Save, FileText, Plus, Trash2, Edit, X, AlertCircle, RefreshCw } from 'lucide-react';
+import useTemplates from '../hooks/useTemplates';
 
 const TemplateManager = ({ currentCard, onApplyTemplate, csrfToken }) => {
-  const [templates, setTemplates] = useState([]);
   const [showSaveDialog, setShowSaveDialog] = useState(false);
   const [templateName, setTemplateName] = useState('');
   const [selectedFields, setSelectedFields] = useState({});
   const [isEditing, setIsEditing] = useState(null);
   const [editName, setEditName] = useState('');
   
+  // Use our templates hook instead of local state + localStorage
+  const { 
+    templates, 
+    loading, 
+    error, 
+    fetchTemplates, 
+    createTemplate, 
+    updateTemplate, 
+    deleteTemplate 
+  } = useTemplates(csrfToken);
+  
   // Fields that can be templatized
   const templateFields = [
     'internal_ip', 'external_ip', 'mac_address', 'hostname', 'domain',
     'username', 'command', 'status', 'filename', 'hash_algorithm'
   ];
-  
-  // Load templates from localStorage on component mount
-  useEffect(() => {
-    const savedTemplates = localStorage.getItem('logTemplates');
-    if (savedTemplates) {
-      try {
-        setTemplates(JSON.parse(savedTemplates));
-      } catch (error) {
-        console.error('Error loading templates:', error);
-        setTemplates([]);
-      }
-    }
-  }, []);
-  
-  // Save templates to localStorage whenever they change
-  useEffect(() => {
-    localStorage.setItem('logTemplates', JSON.stringify(templates));
-  }, [templates]);
   
   // Initialize selected fields when opening the save dialog
   const handleOpenSaveDialog = () => {
@@ -44,8 +37,8 @@ const TemplateManager = ({ currentCard, onApplyTemplate, csrfToken }) => {
     setShowSaveDialog(true);
   };
   
-  // Save a new template
-  const handleSaveTemplate = () => {
+  // Save a new template to the server
+  const handleSaveTemplate = async () => {
     if (!templateName.trim()) {
       alert('Please enter a template name');
       return;
@@ -59,17 +52,18 @@ const TemplateManager = ({ currentCard, onApplyTemplate, csrfToken }) => {
       }
     });
     
-    const newTemplate = {
-      id: Date.now().toString(),
-      name: templateName.trim(),
-      data: templateData,
-      createdAt: new Date().toISOString()
-    };
-    
-    setTemplates(prev => [...prev, newTemplate]);
-    setShowSaveDialog(false);
-    setTemplateName('');
-    setSelectedFields({});
+    try {
+      // Save to server instead of local state
+      await createTemplate(templateName.trim(), templateData);
+      
+      // Reset form
+      setShowSaveDialog(false);
+      setTemplateName('');
+      setSelectedFields({});
+    } catch (err) {
+      // Error is already handled by the hook
+      console.error('Error saving template:', err);
+    }
   };
   
   // Apply a template to a new card
@@ -80,10 +74,15 @@ const TemplateManager = ({ currentCard, onApplyTemplate, csrfToken }) => {
   };
   
   // Delete a template
-  const handleDeleteTemplate = (id, event) => {
+  const handleDeleteTemplate = async (id, event) => {
     event.stopPropagation();
     if (window.confirm('Are you sure you want to delete this template?')) {
-      setTemplates(prev => prev.filter(t => t.id !== id));
+      try {
+        await deleteTemplate(id);
+      } catch (err) {
+        // Error is already handled by the hook
+        console.error('Error deleting template:', err);
+      }
     }
   };
   
@@ -95,12 +94,15 @@ const TemplateManager = ({ currentCard, onApplyTemplate, csrfToken }) => {
   };
   
   // Save edited template name
-  const handleSaveEdit = (id, event) => {
+  const handleSaveEdit = async (id, event) => {
     event.stopPropagation();
     if (editName.trim()) {
-      setTemplates(prev => prev.map(t => 
-        t.id === id ? { ...t, name: editName.trim() } : t
-      ));
+      try {
+        await updateTemplate(id, { name: editName.trim() });
+      } catch (err) {
+        // Error is already handled by the hook
+        console.error('Error updating template name:', err);
+      }
     }
     setIsEditing(null);
     setEditName('');
@@ -121,19 +123,46 @@ const TemplateManager = ({ currentCard, onApplyTemplate, csrfToken }) => {
           Log Templates
         </h3>
         
-        <button
-          onClick={handleOpenSaveDialog}
-          className="px-3 py-1.5 bg-blue-600 text-white rounded-md flex items-center gap-2 hover:bg-blue-700 transition-colors duration-200"
-          disabled={!currentCard}
-          title={!currentCard ? "Select a card to create a template" : "Save current card as template"}
-        >
-          <Save size={16} />
-          <span>Save As Template</span>
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={fetchTemplates}
+            className="px-3 py-1.5 bg-gray-700 text-gray-300 rounded-md flex items-center gap-2 hover:bg-gray-600 transition-colors duration-200"
+            title="Refresh templates"
+          >
+            <RefreshCw size={16} className={loading ? "animate-spin" : ""} />
+            <span className="hidden sm:inline">Refresh</span>
+          </button>
+          
+          <button
+            onClick={handleOpenSaveDialog}
+            className="px-3 py-1.5 bg-blue-600 text-white rounded-md flex items-center gap-2 hover:bg-blue-700 transition-colors duration-200"
+            disabled={!currentCard}
+            title={!currentCard ? "Select a card to create a template" : "Save current card as template"}
+          >
+            <Save size={16} />
+            <span>Save As Template</span>
+          </button>
+        </div>
       </div>
       
+      {/* Error message */}
+      {error && (
+        <div className="mb-4 p-3 bg-red-900/50 text-red-200 rounded-md flex items-center gap-2">
+          <AlertCircle size={20} />
+          <span>{error}</span>
+        </div>
+      )}
+      
+      {/* Loading state */}
+      {loading && (
+        <div className="flex justify-center items-center py-8">
+          <RefreshCw className="animate-spin text-blue-400 mr-2" size={20} />
+          <span className="text-gray-400">Loading templates...</span>
+        </div>
+      )}
+      
       {/* Template List */}
-      {templates.length === 0 ? (
+      {!loading && templates.length === 0 ? (
         <div className="text-center py-6 text-gray-400">
           <p>No templates saved yet.</p>
           <p className="text-sm mt-2">Fill out a card and save it as a template to speed up future logging.</p>
@@ -194,7 +223,8 @@ const TemplateManager = ({ currentCard, onApplyTemplate, csrfToken }) => {
               </div>
               
               <div className="text-xs text-gray-400">
-                {Object.keys(template.data).length} fields • Created {new Date(template.createdAt).toLocaleDateString()}
+                {Object.keys(template.data).length} fields • 
+                {template.createdAt ? ` Created ${new Date(template.createdAt).toLocaleDateString()}` : ''}
               </div>
               
               <div className="mt-2 text-xs">
