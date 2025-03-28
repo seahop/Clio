@@ -1,8 +1,15 @@
-// frontend/src/components/auth/GoogleLoginButton.jsx
+// frontend/src/components/auth/GoogleLoginButton.jsx - Modified with SSO flag
+
 import React from 'react';
 
 const GoogleLoginButton = () => {
   const handleGoogleLogin = () => {
+    // Set a flag in localStorage to indicate a Google SSO authentication attempt
+    // This helps the frontend know this is a Google authentication even if
+    // there are redirects or page reloads in the process
+    localStorage.setItem('googleSSOAttempt', 'true');
+    
+    // Redirect to the Google auth endpoint
     window.location.href = '/api/auth/google';
   };
 

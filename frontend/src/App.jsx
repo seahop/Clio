@@ -168,6 +168,9 @@ function App() {
       
       setCsrfToken(token);
   
+      // Check if this is a return from Google SSO
+      const isGoogleSSO = localStorage.getItem('googleSSOAttempt') === 'true';
+      
       // Check authentication - use relative URL with proxy
       console.log('Checking authentication...');
       const response = await fetch(`/api/auth/me`, {
@@ -187,11 +190,21 @@ function App() {
         const userData = await response.json();
         console.log('Auth check successful:', userData);
         
-        if (userData.requiresPasswordChange) {
-          // Store flag for password change in localStorage
+        // If the user authenticated via Google SSO, add the flag to the user data
+        if (isGoogleSSO) {
+          userData.isGoogleSSO = true;
+          userData.requiresPasswordChange = false; // Explicitly override for Google users
+        }
+        
+        // Clear the Google SSO attempt flag
+        localStorage.removeItem('googleSSOAttempt');
+        
+        if (userData.requiresPasswordChange && !isGoogleSSO) {
+          // Store flag for password change in localStorage but only for non-Google users
           localStorage.setItem('passwordChangeRequired', JSON.stringify({
             username: userData.username,
-            role: userData.role
+            role: userData.role,
+            isGoogleSSO: isGoogleSSO
           }));
           // Clear user data to force login screen
           setUser(null);
@@ -205,6 +218,7 @@ function App() {
         // Not authenticated
         localStorage.removeItem('user');
         localStorage.removeItem('passwordChangeRequired');
+        localStorage.removeItem('googleSSOAttempt'); // Clear this flag too
         setUser(null);
       }
     } catch (error) {
@@ -216,12 +230,13 @@ function App() {
       setInitError(`Connection error: ${error.message}`);
       localStorage.removeItem('user');
       localStorage.removeItem('passwordChangeRequired');
+      localStorage.removeItem('googleSSOAttempt');
       setInitializationAttempts(prev => prev + 1);
     } finally {
       setLoading(false);
     }
   }, [initializationAttempts, fetchCsrfToken]);
-
+  
   // CSRF token refresh function
   const refreshCsrfToken = useCallback(async () => {
     try {

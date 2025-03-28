@@ -43,11 +43,12 @@ const initializeGoogleSSO = () => {
           // Check if user already exists in our system
           const existingUser = await findUserByGoogleId(profile.id);
           
+          let user;
+          
           if (existingUser) {
             console.log('Existing user found:', existingUser.username);
             // User exists - create user object for JWT
-            const user = AuthService.createUserObject(existingUser.username, false); // Always regular user
-            return done(null, user);
+            user = AuthService.createUserObject(existingUser.username, false); // Always regular user
           } else {
             console.log('No existing user found, creating new user from email:', email);
             // New user - create account
@@ -58,7 +59,7 @@ const initializeGoogleSSO = () => {
             const username = await createGoogleUser(profile.id, email, proposedUsername);
             console.log('Created new user:', username);
             
-            const user = AuthService.createUserObject(username, false); // Always regular user
+            user = AuthService.createUserObject(username, false); // Always regular user
             
             // Log the new account creation
             await eventLogger.logSecurityEvent('google_account_created', username, {
@@ -66,9 +67,33 @@ const initializeGoogleSSO = () => {
               email: email,
               isAdmin: false
             });
-            
-            return done(null, user);
           }
+          
+          // Add Google-specific properties to the user object
+          user.email = email;
+          user.displayName = profile.displayName || email.split('@')[0];
+          user.googleId = profile.id;
+          user.isGoogleSSO = true;  // Flag indicating this is a Google SSO user
+          user.requiresPasswordChange = false;  // Google users never need password changes
+          
+          // If there's a password reset flag for this user, remove it
+          try {
+            const passwordResetKey = `user:password_reset:${user.username}`;
+            await redisClient.del(passwordResetKey);
+          } catch (redisError) {
+            console.warn(`Error clearing password reset flag for Google user ${user.username}:`, redisError);
+            // Continue with authentication even if this fails
+          }
+          
+          // Log the successful Google authentication
+          await eventLogger.logSecurityEvent('google_login_success', user.username, {
+            googleId: profile.id,
+            email: email,
+            isGoogleSSO: true,
+            timestamp: new Date().toISOString()
+          });
+          
+          return done(null, user);
         } catch (error) {
           console.error('Google authentication error:', error);
           return done(error);

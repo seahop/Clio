@@ -274,19 +274,27 @@ const getCurrentUser = async (req, res) => {
   try {
     const username = req.user.username;
     const isAdmin = req.user.role === 'admin';
+    const isGoogleSSO = req.user.isGoogleSSO || false;  // Check for Google SSO flag
 
-    // Check if there's a password reset flag for this user
-    const passwordResetKey = `user:password_reset:${username}`;
-    const passwordResetRequired = await redisClient.exists(passwordResetKey);
+    // Only check for password reset requirements if not a Google SSO user
+    let passwordResetRequired = false;
+    let isFirstTime = false;
+    
+    if (!isGoogleSSO) {
+      // Check if there's a password reset flag for this user
+      const passwordResetKey = `user:password_reset:${username}`;
+      passwordResetRequired = await redisClient.exists(passwordResetKey);
 
-    const isFirstTime = isAdmin 
-      ? await security.isFirstTimeAdminLogin(username)
-      : await security.isFirstTimeLogin(username);
+      isFirstTime = isAdmin 
+        ? await security.isFirstTimeAdminLogin(username)
+        : await security.isFirstTimeLogin(username);
+    }
 
     // Log user check event
     await eventLogger.logSecurityEvent('user_check', username, {
       isFirstTime,
       isAdmin,
+      isGoogleSSO,
       passwordResetRequired: !!passwordResetRequired,
       ip: req.ip,
       userAgent: req.get('User-Agent')
@@ -297,7 +305,8 @@ const getCurrentUser = async (req, res) => {
     res.json({
       username: req.user.username,
       role: req.user.role,
-      requiresPasswordChange: isFirstTime || passwordResetRequired
+      isGoogleSSO: isGoogleSSO,
+      requiresPasswordChange: isGoogleSSO ? false : (isFirstTime || passwordResetRequired)
     });
   } catch (error) {
     console.error('Error checking password status:', error);
@@ -517,6 +526,19 @@ const googleLoginCallback = async (req, res) => {
       throw new Error('No user data provided by Google authentication');
     }
     
+    // Double-check that Google-specific flags are set
+    user.isGoogleSSO = true;
+    user.requiresPasswordChange = false;
+    
+    // Remove any password reset flags for this user in Redis (as a safeguard)
+    try {
+      const passwordResetKey = `user:password_reset:${user.username}`;
+      await redisClient.del(passwordResetKey);
+    } catch (redisError) {
+      console.warn('Error clearing password reset flag for Google user:', redisError);
+      // Continue with authentication even if this fails
+    }
+    
     // Create JWT token
     const tokenData = await createJwtToken(user);
     
@@ -531,7 +553,8 @@ const googleLoginCallback = async (req, res) => {
     await eventLogger.logSecurityEvent('google_login_success', user.username, {
       ip: req.ip,
       userAgent: req.get('User-Agent'),
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      isGoogleSSO: true
     });
     
     // Redirect to the frontend
