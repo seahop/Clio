@@ -16,20 +16,25 @@ router.post('/field-update', authenticateToken, async (req, res) => {
   try {
     const { fieldType, oldValue, newValue, username } = req.body;
     
-    if (!fieldType || !oldValue || !newValue) {
+    if (!fieldType) {
       return res.status(400).json({ 
-        error: 'Missing required fields',
-        requiredFields: ['fieldType', 'oldValue', 'newValue']
+        error: 'Missing required field: fieldType',
+        requiredFields: ['fieldType']
       });
     }
     
-    console.log(`Updating relations: ${fieldType} from "${oldValue}" to "${newValue}"`);
+    // Ensure we handle oldValue and newValue properly
+    // Convert undefined to empty string, but keep null and other values as-is
+    const safeOldValue = oldValue === undefined ? '' : oldValue;
+    const safeNewValue = newValue === undefined ? '' : newValue;
+    
+    console.log(`Updating relations: ${fieldType} from "${safeOldValue}" to "${safeNewValue}"`);
     
     // Add to batch processing queue with metadata for smart processing
     const batchData = {
       fieldType,
-      oldValue, 
-      newValue, 
+      oldValue: safeOldValue, 
+      newValue: safeNewValue, 
       username,
       timestamp: new Date().toISOString(),
       operation: 'field_update'
@@ -43,8 +48,8 @@ router.post('/field-update', authenticateToken, async (req, res) => {
       message: `Update for ${fieldType} scheduled for processing`,
       details: {
         fieldType,
-        oldValue,
-        newValue,
+        oldValue: safeOldValue,
+        newValue: safeNewValue,
         updatedBy: username,
         status: 'processing'
       }
@@ -155,23 +160,29 @@ async function batchUpdateProcessor(batchItems) {
           
           for (const update of uniqueFilenameUpdates) {
             try {
-              // Skip if either old or new value is empty
-              if (!update.oldValue || !update.newValue) {
-                console.log('Skipping filename update with empty old or new value');
+              // Use empty string for null/undefined values to prevent database errors
+              const oldFilename = update.oldValue === null || update.oldValue === undefined ? '' : update.oldValue;
+              const newFilename = update.newValue === null || update.newValue === undefined ? '' : update.newValue;
+              
+              console.log(`Processing filename update: "${oldFilename}" -> "${newFilename}"`);
+              
+              // Skip if there's no real change
+              if (oldFilename === newFilename) {
+                console.log('Skipping filename update with no change');
                 continue;
               }
               
               // First update field value in relations table
               const relationsCount = await RelationsModel.updateFieldValue(
                 relationType,
-                update.oldValue,
-                update.newValue
+                oldFilename,
+                newFilename
               );
               
               // Then update file status records
               const fileStatusCount = await FileStatusModel.updateFilename(
-                update.oldValue,
-                update.newValue
+                oldFilename,
+                newFilename
               );
               
               updatedCount += relationsCount + fileStatusCount;

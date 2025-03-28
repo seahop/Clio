@@ -11,6 +11,19 @@ class RelationsModel {
    */
   static async upsertRelation(sourceType, sourceValue, targetType, targetValue, metadata = {}) {
     try {
+      // Validate required values before proceeding
+      if (!sourceType || sourceValue === null || sourceValue === undefined || 
+          !targetType || targetValue === null || targetValue === undefined) {
+        console.log('Skipping relation with null/undefined values:', {
+          sourceType, sourceValue, targetType, targetValue
+        });
+        return null;
+      }
+      
+      // Convert empty strings to placeholder values rather than null
+      sourceValue = sourceValue || '[empty]';
+      targetValue = targetValue || '[empty]';
+      
       // Normalize MAC addresses if present
       if (sourceType === 'mac_address') {
         sourceValue = sourceValue.toUpperCase().replace(/[:-]/g, '').match(/.{1,2}/g)?.join('-') || sourceValue;
@@ -161,6 +174,13 @@ class RelationsModel {
         
         for (const relation of relations) {
           const { sourceType, sourceValue, targetType, targetValue, metadata = {} } = relation;
+          
+          // Skip invalid relations
+          if (!sourceType || sourceValue === null || sourceValue === undefined || 
+              !targetType || targetValue === null || targetValue === undefined) {
+            console.log('Skipping invalid relation in batch:', relation);
+            continue;
+          }
           
           // Normalize MAC addresses if present
           let normSourceValue = sourceValue;

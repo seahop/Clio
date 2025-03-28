@@ -223,7 +223,7 @@ router.put('/:id', authenticateJwt, async (req, res, next) => {
         
         // For each updated relation field, send a specific field update
         for (const field of updatedRelationFields) {
-          // Only if both old and new values exist and they're different
+          // Get old and new values
           const oldValue = existingLog[field];
           const newValue = updatedLog[field];
           
@@ -239,25 +239,18 @@ router.put('/:id', authenticateJwt, async (req, res, next) => {
             timestamp: new Date().toISOString()
           });
           
-          // Only notify if the value actually changed
-          // NOTE: Modified this condition to handle empty values properly
-          if (oldValue !== newValue && (oldValue || newValue)) {
-            // Make sure to explicitly handle filename changes
-            if (field === 'filename') {
-              console.log('Sending filename update to relation service:', {
-                fieldType: field,
-                oldValue: oldValue || '',  // Send empty string instead of null/undefined
-                newValue: newValue || '',  // Send empty string instead of null/undefined
-                username: req.user.username
-              });
-            }
+          // Only notify if the value actually changed - simplified condition
+          if (oldValue !== newValue) {
+            // Make sure to explicitly handle empty values properly
+            const safeOldValue = oldValue === null || oldValue === undefined ? '' : oldValue;
+            const safeNewValue = newValue === null || newValue === undefined ? '' : newValue;
             
             // Do specific notifications for relation service
             if (['internal_ip', 'external_ip', 'hostname', 'domain', 'username', 'command', 'filename'].includes(field)) {
               console.log('Sending update to relation service:', {
                 fieldType: field,
-                oldValue,
-                newValue,
+                oldValue: safeOldValue,
+                newValue: safeNewValue,
                 username: req.user.username
               });
               
@@ -270,16 +263,24 @@ router.put('/:id', authenticateJwt, async (req, res, next) => {
                 },
                 body: JSON.stringify({
                   fieldType: field,
-                  oldValue: oldValue || '',  // Handle null/undefined values
-                  newValue: newValue || '',  // Handle null/undefined values
+                  oldValue: safeOldValue,
+                  newValue: safeNewValue,
                   username: req.user.username
                 })
               });
               
               if (!fieldUpdateResponse.ok) {
                 console.error(`Failed to notify relation service about ${field} update: ${fieldUpdateResponse.status}`);
+                
+                // Add more error details
+                try {
+                  const errorText = await fieldUpdateResponse.text();
+                  console.error(`Error details: ${errorText}`);
+                } catch (e) {
+                  console.error('Could not read error response');
+                }
               } else {
-                console.log(`Notified relation service of ${field} update from "${oldValue}" to "${newValue}"`);
+                console.log(`Notified relation service of ${field} update from "${safeOldValue}" to "${safeNewValue}"`);
               }
             }
           }
