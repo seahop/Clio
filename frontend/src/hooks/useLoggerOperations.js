@@ -265,6 +265,35 @@ export const useLoggerOperations = (currentUser, csrfToken) => {
     );
   };
 
+  const handleUpdateRowWithTemplate = async (rowId, templateData) => {
+    try {
+      if (!rowId) {
+        console.error('Cannot update row: No row ID provided');
+        setError('Failed to update log: No row ID provided');
+        return null;
+      }
+  
+      console.log('Updating existing log with template data:', templateData);
+      console.log('Row ID to update:', rowId);
+      
+      // Send the update to the server
+      const updatedRow = await updateLog(rowId, templateData);
+      
+      // Update the logs state with the updated row
+      setLogs(prevLogs => sortLogs(prevLogs.map(log => 
+        log.id === rowId ? { ...log, ...templateData } : log
+      )));
+      
+      console.log('Successfully updated log with template data', updatedRow);
+      
+      return updatedRow;
+    } catch (err) {
+      console.error('Error updating row with template:', err);
+      setError('Failed to update log with template data');
+      return null;
+    }
+  };
+
   return {
     logs,
     loading,
@@ -283,6 +312,7 @@ export const useLoggerOperations = (currentUser, csrfToken) => {
       handleToggleLock,
       handleAddRow,
       handleAddRowWithTemplate,
+      handleUpdateRowWithTemplate,
       handleDeleteRow,
       handleExpand
     }

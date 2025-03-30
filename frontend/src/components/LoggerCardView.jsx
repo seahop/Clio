@@ -105,10 +105,16 @@ const LoggerCardView = ({
     setSelectedCardId(rowId === selectedCardId ? null : rowId);
   };
   
-  // Apply a template to create a new log
-  const handleApplyTemplate = (templateData) => {
-    // Use the handleAddRowWithTemplate handler from props
-    if (handlers.handleAddRowWithTemplate) {
+  // NEW FUNCTION: Handle template applications
+  // This determines whether to update an existing card or create a new one
+  const handleTemplateAction = (templateData) => {
+    if (selectedCardId) {
+      // If a card is selected, update the existing card with template data
+      console.log('Updating existing card', selectedCardId, 'with template data:', templateData);
+      handlers.handleUpdateRowWithTemplate(selectedCardId, templateData);
+    } else {
+      // If no card is selected, create a new card from template
+      console.log('Creating new card from template:', templateData);
       handlers.handleAddRowWithTemplate(templateData);
     }
   };
@@ -153,7 +159,7 @@ const LoggerCardView = ({
       {showTemplates && (
         <TemplateManager 
           currentCard={selectedCard}
-          onApplyTemplate={handleApplyTemplate}
+          onApplyTemplate={handleTemplateAction}
           csrfToken={csrfToken}
         />
       )}
