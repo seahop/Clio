@@ -201,6 +201,27 @@ router.post('/logs', async (req, res) => {
           console.log(`Using validated UTC timestamp: ${timestamp}`);
         }
         
+        // CHECK FOR DUPLICATES - new code starts here
+        const existingLog = await LogsModel.findDuplicate({
+          timestamp: logWithAnalyst.timestamp,
+          command: logWithAnalyst.command,
+          hostname: logWithAnalyst.hostname,
+          username: logWithAnalyst.username
+        });
+        
+        if (existingLog) {
+          // Skip this log and add it to the results as a duplicate
+          console.log(`Skipping duplicate log: "${logWithAnalyst.command}" at ${logWithAnalyst.timestamp}`);
+          results.push({
+            id: existingLog.id,
+            success: true,
+            duplicate: true,
+            timestamp: existingLog.timestamp
+          });
+          continue; // Skip to next log in the batch
+        }
+        // New code ends here
+        
         // Create the log
         const newLog = await LogsModel.createLog(logWithAnalyst);
         

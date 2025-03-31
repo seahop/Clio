@@ -141,6 +141,31 @@ const LogsModel = {
     }
   },
 
+  async findDuplicate(logData) {
+    try {
+      // Build query to check for logs with matching critical fields
+      const query = `
+        SELECT * FROM logs 
+        WHERE timestamp = $1 
+        AND command = $2 
+        AND hostname = $3
+        LIMIT 1`;
+      
+      const result = await db.query(query, [
+        logData.timestamp,
+        logData.command,
+        logData.hostname
+      ]);
+      
+      // Return the existing log if found, otherwise null
+      return result.rows.length > 0 ? this._processFromStorage(result.rows[0]) : null;
+    } catch (error) {
+      console.error('Error checking for duplicate logs:', error);
+      // In case of error, return null (will create a new log)
+      return null;
+    }
+  },
+  
   async createLog(logData) {
     try {
       // Process data for storage (encrypt sensitive fields)
