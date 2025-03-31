@@ -149,7 +149,8 @@ const validateInput = (value, field) => {
       mac_address: /^([0-9A-Fa-f]{2}-){5}([0-9A-Fa-f]{2})$/, 
       hostname: /^[a-zA-Z0-9][a-zA-Z0-9-_.]{0,73}[a-zA-Z0-9]$/,
       domain: /^[a-zA-Z0-9][a-zA-Z0-9-_.]{0,73}[a-zA-Z0-9]$/,
-      username: /^[a-zA-Z0-9_-]{1,75}$/,
+      username: /^[a-zA-Z0-9_\\/-]{1,75}$/,
+      //username: /^[a-zA-Z0-9_-]{1,75}$/,
       status: /^[a-zA-Z0-9_-]{1,75}$/,
       hash_algorithm: /^[A-Za-z0-9_-]{1,20}$/,
       hash_value: /^[A-Za-z0-9_+/=.-]{1,128}$/
@@ -279,7 +280,7 @@ const sanitizeLogData = (logData) => {
 
   // Additional validation only for username field
   if (sanitizedData.username) {
-    sanitizedData.username = sanitizedData.username.replace(/[^a-zA-Z0-9_-]/g, '');
+    sanitizedData.username = sanitizedData.username.replace(/[^a-zA-Z0-9_\\/-]/g, '');
   }
 
   // Log what we're processing to help with debugging

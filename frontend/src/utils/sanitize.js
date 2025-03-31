@@ -123,7 +123,7 @@ export const validateInput = (value, field) => {
         return /^[a-zA-Z0-9][a-zA-Z0-9-_.]{0,73}[a-zA-Z0-9]$/.test(value);
       
       case 'username':
-        return /^[a-zA-Z0-9_-]+$/.test(value);
+        return /^[a-zA-Z0-9_\\/-]+$/.test(value);
       
       case 'filename':
         return /^[a-zA-Z0-9._-]+$/.test(value);
