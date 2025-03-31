@@ -36,7 +36,6 @@ Coming soon:
    python -m venv venv
    source venv/bin/activate
    pip install -r requirements.txt
-
    ```
 
 2. **Set up an API key in Clio**:
@@ -44,30 +43,31 @@ Coming soon:
    - Navigate to Admin → API Keys
    - Create a new API key with "logs:write" permission
 
-3. **Run the forwarder for your C2 framework**:
+3. **Deploy the log_exporter folder**:
+   - Copy the entire `log_exporter` folder into your C2 framework's root directory
+   - The folder structure should look like this:
+     ```
+     /path/to/cobalt_strike/   # C2 framework root
+     ├── logs/                 # C2 logs directory
+     ├── log_exporter/         # This tool
+     │   ├── log_exporter.py   # Main script
+     │   ├── core/
+     │   ├── parsers/
+     │   └── ...
+     └── ...
+     ```
 
-   For Cobalt Strike:
+4. **Run the forwarder for your C2 framework**:
+
+   From inside the log_exporter directory:
    ```bash
-   # Navigate to your Cobalt Strike root directory
-   cd /path/to/cobaltstrike
+   cd /path/to/cobaltstrike/log_exporter
    
    # Start the forwarder
-   python /path/to/C2Home/log_exporter.py \
+   python log_exporter.py \
      --api-key YOUR_API_KEY \
      --clio-url https://your-clio-server \
      --c2-type cobalt_strike
-   ```
-
-   For Sliver:
-   ```bash
-   # Navigate to your Sliver root directory
-   cd /path/to/sliver
-   
-   # Start the forwarder
-   python /path/to/c2-log-forwarder/log_exporter.py \
-     --api-key YOUR_API_KEY \
-     --clio-url https://your-clio-server \
-     --c2-type sliver
    ```
 
 For more detailed options, run:
@@ -92,6 +92,32 @@ python log_exporter.py --api-key YOUR_KEY --clio-url URL --c2-type sliver --sign
 ```
 
 For details on customizing which commands are considered significant, see [Command Filtering Guide](docs/COMMAND_FILTERING.md).
+
+## Advanced Configuration
+
+### Manually Specifying the C2 Root Directory
+
+If your C2 framework structure is different, you can specify the C2 root directory explicitly:
+
+```bash
+python log_exporter.py \
+  --api-key YOUR_API_KEY \
+  --clio-url https://your-clio-server \
+  --c2-type cobalt_strike \
+  --c2-root /path/to/specific/cobaltstrike
+```
+
+### Custom Data Directory
+
+By default, log files and state information are stored in a `clio_forwarder` directory inside the log_exporter directory. You can change this:
+
+```bash
+python log_exporter.py \
+  --api-key YOUR_API_KEY \
+  --clio-url https://your-clio-server \
+  --c2-type cobalt_strike \
+  --data-dir /path/to/custom/data/directory
+```
 
 ## Documentation
 
@@ -120,8 +146,8 @@ After=network.target
 [Service]
 Type=simple
 User=youruser
-WorkingDirectory=/path/to/cobaltstrike
-ExecStart=/usr/bin/python3 /path/to/c2-log-forwarder/log_exporter.py --api-key YOUR_API_KEY --clio-url https://your-clio-server --c2-type cobalt_strike
+WorkingDirectory=/path/to/cobaltstrike/log_exporter
+ExecStart=/usr/bin/python3 log_exporter.py --api-key YOUR_API_KEY --clio-url https://your-clio-server --c2-type cobalt_strike
 Restart=on-failure
 RestartSec=10s
 
@@ -138,8 +164,8 @@ After=network.target
 [Service]
 Type=simple
 User=youruser
-WorkingDirectory=/path/to/sliver
-ExecStart=/usr/bin/python3 /path/to/c2-log-forwarder/log_exporter.py --api-key YOUR_API_KEY --clio-url https://your-clio-server --c2-type sliver
+WorkingDirectory=/path/to/sliver/log_exporter
+ExecStart=/usr/bin/python3 log_exporter.py --api-key YOUR_API_KEY --clio-url https://your-clio-server --c2-type sliver
 Restart=on-failure
 RestartSec=10s
 
@@ -153,31 +179,6 @@ sudo systemctl daemon-reload
 sudo systemctl enable c2-log-forwarder
 sudo systemctl start c2-log-forwarder
 ```
-
-## Framework-Specific Considerations
-
-### Cobalt Strike
-
-The Cobalt Strike parser is designed to extract Beacon commands from Cobalt Strike's date-based log directories. It focuses on operator-issued commands and tracks beacon contexts.
-
-Key characteristics:
-- Requires running from the Cobalt Strike root directory
-- Processes logs from date-based directories (YYYY-MM-DD format)
-- Extracts command patterns from Beacon logs
-
-See [COBALT_STRIKE.md](docs/COBALT_STRIKE.md) for detailed information.
-
-### Sliver
-
-The Sliver parser handles Sliver's more complex logging structure with support for multiple log formats and directory layouts.
-
-Key characteristics:
-- Processes multiple log types (session logs, server logs, client logs, JSON logs)
-- Tracks session contexts across different log files
-- Filters administrative commands to focus on actual operator activities
-- Handles both text and JSON formatted logs
-
-See [SLIVER.md](docs/SLIVER.md) for detailed information.
 
 ## Contributing
 

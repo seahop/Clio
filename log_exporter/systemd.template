@@ -7,11 +7,11 @@ Type=simple
 # Replace with the appropriate user that should run the script
 User=REPLACE_WITH_USERNAME
 
-# Set the working directory to the Cobalt Strike root folder
-WorkingDirectory=/path/to/cobaltstrike
+# Set the working directory to the log_exporter folder inside the Cobalt Strike root folder
+WorkingDirectory=/path/to/cobaltstrike/log_exporter
 
-# Replace with the full path to the script and appropriate parameters
-ExecStart=/usr/bin/python3 /path/to/log_exporter.py --api-key YOUR_API_KEY_HERE --clio-url https://your-clio-server --historical-days 1
+# Replace with the appropriate parameters
+ExecStart=/usr/bin/python3 log_exporter.py --api-key YOUR_API_KEY_HERE --clio-url https://your-clio-server --c2-type cobalt_strike --historical-days 1
 
 # Restart settings
 Restart=always

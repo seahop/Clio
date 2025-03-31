@@ -52,6 +52,8 @@ def parse_arguments():
     parser.add_argument("--clio-url", required=True, help="Clio URL (e.g., https://domain.local:3000)")
     parser.add_argument("--c2-type", required=True, choices=["cobalt_strike", "sliver"], 
                         help="C2 framework type")
+    parser.add_argument("--c2-root", default=None,
+                        help="Path to the C2 framework root directory (default: parent directory of log_exporter)")
     parser.add_argument("--historical-days", type=int, default=1, 
                         help="Number of historical days to process (default: 1)")
     parser.add_argument("--max-tracked-days", type=int, default=2,
@@ -80,16 +82,47 @@ def parse_arguments():
     
     return parser.parse_args()
 
+def get_c2_root_directory(specified_path=None):
+    """
+    Determine the C2 framework root directory.
+    
+    If specified_path is provided, use that.
+    Otherwise, use the parent directory of the current script.
+    """
+    if specified_path:
+        root_dir = os.path.abspath(specified_path)
+    else:
+        # Get the directory where this script is located
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        # Go one directory up to find the C2 root
+        root_dir = os.path.abspath(os.path.join(script_dir, ".."))
+    
+    return root_dir
+
 def main():
     # Parse command line arguments
     args = parse_arguments()
     
+    # Determine the C2 root directory
+    c2_root_dir = get_c2_root_directory(args.c2_root)
+    
+    # Get the absolute path of this script's directory
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    
     # Set up the data directory and logging
-    data_dir = os.path.abspath(args.data_dir)
+    # If data_dir is a relative path, make it relative to the script directory
+    if not os.path.isabs(args.data_dir):
+        data_dir = os.path.abspath(os.path.join(script_dir, args.data_dir))
+    else:
+        data_dir = os.path.abspath(args.data_dir)
+    
     log_file = setup_logging(data_dir, args.debug)
     
     logger = logging.getLogger("LogForwarder")
     logger.info("Starting C2 Log Forwarder for Clio")
+    logger.info(f"C2 Root Directory: {c2_root_dir}")
+    logger.info(f"Script Directory: {script_dir}")
+    logger.info(f"Data Directory: {data_dir}")
     
     # Determine filter mode
     filter_mode = "significant" if args.significant else "all"
@@ -98,14 +131,14 @@ def main():
     # Create the appropriate parser based on C2 type
     if args.c2_type == "cobalt_strike":
         parser = CobalStrikeParser(
-            os.getcwd(),
+            c2_root_dir,
             args.historical_days,
             args.max_tracked_days,
             filter_mode=filter_mode
         )
     elif args.c2_type == "sliver":
         parser = SliverParser(
-            os.getcwd(),
+            c2_root_dir,
             args.historical_days,
             args.max_tracked_days,
             filter_mode=filter_mode
