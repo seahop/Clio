@@ -5,7 +5,7 @@ import LogRowCard from './LogRowCard';
 import Pagination from './Pagination';
 import DateRangeFilter from './DateRangeFilter';
 import SearchFilter from './SearchFilter';
-import TemplateManager from './TemplateManager'; // Import the template manager
+import TemplateManager from './TemplateManager'; 
 import { COLUMNS } from '../utils/constants';
 import usePagination from '../hooks/usePagination';
 
@@ -23,10 +23,16 @@ const LoggerCardView = ({
   const [searchFilter, setSearchFilter] = useState({ query: '', field: 'all' });
   const [hasActiveFilters, setHasActiveFilters] = useState(false);
   const [showTemplates, setShowTemplates] = useState(false); // State for templates visibility
-  const [selectedCardId, setSelectedCardId] = useState(null); // State for template selection
   
-  // Find the currently selected card based on ID
-  const selectedCard = selectedCardId ? logs.find(log => log.id === selectedCardId) : null;
+  // NEW: Separate states for different template actions
+  const [selectedCardForSave, setSelectedCardForSave] = useState(null); // Card for saving as template
+  const [selectedCardForMerge, setSelectedCardForMerge] = useState(null); // Card for merging with template
+  
+  // Find the currently selected card based on the current action
+  const currentCard = selectedCardForSave || selectedCardForMerge;
+  
+  // NEW: Track which mode we're in - "save" for saving as template, "merge" for merging with template
+  const [templateMode, setTemplateMode] = useState(null);
   
   // Apply filters whenever logs, dateRange, or searchFilter changes
   useEffect(() => {
@@ -100,20 +106,66 @@ const LoggerCardView = ({
     setSearchFilter({ query: '', field: 'all' });
   };
   
-  // Handle selecting a row for template creation
-  const handleSelectCard = (rowId) => {
-    setSelectedCardId(rowId === selectedCardId ? null : rowId);
+  // REVISED: Handle selecting a card for saving as template
+  const handleSelectCardForSave = (rowId, event) => {
+    event.stopPropagation();
+    
+    // Clear any merge selection first
+    setSelectedCardForMerge(null);
+    
+    // Toggle selection for save
+    if (selectedCardForSave === rowId) {
+      setSelectedCardForSave(null);
+      setTemplateMode(null);
+    } else {
+      setSelectedCardForSave(rowId);
+      setTemplateMode('save');
+    }
+    
+    // Make sure templates are visible
+    if (!showTemplates) {
+      setShowTemplates(true);
+    }
   };
   
-  // NEW FUNCTION: Handle template applications
-  // This determines whether to update an existing card or create a new one
-  const handleTemplateAction = (templateData) => {
-    if (selectedCardId) {
-      // If a card is selected, update the existing card with template data
-      console.log('Updating existing card', selectedCardId, 'with template data:', templateData);
-      handlers.handleUpdateRowWithTemplate(selectedCardId, templateData);
+  // NEW: Handle selecting a card for merging with template
+  const handleSelectCardForMerge = (rowId, event) => {
+    event.stopPropagation();
+    
+    // Clear any save selection first
+    setSelectedCardForSave(null);
+    
+    // Toggle selection for merge
+    if (selectedCardForMerge === rowId) {
+      setSelectedCardForMerge(null);
+      setTemplateMode(null);
     } else {
-      // If no card is selected, create a new card from template
+      setSelectedCardForMerge(rowId);
+      setTemplateMode('merge');
+    }
+    
+    // Make sure templates are visible
+    if (!showTemplates) {
+      setShowTemplates(true);
+    }
+  };
+  
+  // Template action handler - modified to handle different modes
+  const handleTemplateAction = (templateData) => {
+    if (selectedCardForMerge) {
+      // If a card is selected for merging, update with template data
+      console.log('Merging template data with existing card:', selectedCardForMerge);
+      handlers.handleUpdateRowWithTemplate(selectedCardForMerge, templateData);
+      
+      // Clear selection after action
+      setSelectedCardForMerge(null);
+      setTemplateMode(null);
+    } else if (selectedCardForSave) {
+      // This path shouldn't actually be taken since saving as template
+      // happens through the TemplateManager's save dialog not this function
+      console.log('Card is selected for saving as template, not for merging');
+    } else {
+      // No card selected, create a new one from template
       console.log('Creating new card from template:', templateData);
       handlers.handleAddRowWithTemplate(templateData);
     }
@@ -135,7 +187,15 @@ const LoggerCardView = ({
           
           {/* Add Templates Button */}
           <button
-            onClick={() => setShowTemplates(!showTemplates)}
+            onClick={() => {
+              // Clear any selections when toggling template view
+              if (showTemplates) {
+                setSelectedCardForSave(null);
+                setSelectedCardForMerge(null);
+                setTemplateMode(null);
+              }
+              setShowTemplates(!showTemplates);
+            }}
             className={`px-3 py-1.5 rounded-md flex items-center gap-2 transition-colors duration-200 ${
               showTemplates ? 'bg-green-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
             }`}
@@ -155,10 +215,11 @@ const LoggerCardView = ({
         </button>
       </div>
       
-      {/* Templates Section */}
+      {/* Templates Section - Pass the correct mode and selection */}
       {showTemplates && (
         <TemplateManager 
-          currentCard={selectedCard}
+          currentCard={currentCard ? logs.find(log => log.id === currentCard) : null}
+          templateMode={templateMode}
           onApplyTemplate={handleTemplateAction}
           csrfToken={csrfToken}
         />
@@ -220,24 +281,42 @@ const LoggerCardView = ({
             {pagination.paginatedItems.map(row => (
               <div 
                 key={row.id} 
-                className={`relative ${selectedCardId === row.id ? 'ring-2 ring-blue-500' : ''}`}
+                className={`relative ${
+                  selectedCardForSave === row.id ? 
+                    'ring-2 ring-blue-500' : 
+                    selectedCardForMerge === row.id ?
+                    'ring-2 ring-green-500' : 
+                    ''
+                }`}
               >
                 {showTemplates && (
-                  <button
-                    onClick={() => handleSelectCard(row.id)}
-                    className={`absolute -left-2 top-2 p-1.5 rounded-full z-10 border border-gray-600 transition-colors duration-200 ${
-                      selectedCardId === row.id 
-                        ? 'bg-blue-600 text-white' 
-                        : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                    }`}
-                    title={selectedCardId === row.id ? "Deselect card" : "Select for template"}
-                  >
-                    {selectedCardId === row.id ? (
-                      <CheckIcon size={14} />
-                    ) : (
+                  <div className="absolute -left-2 top-2 z-10 flex flex-col gap-.5"> 
+                    {/* Template Save Button */}
+                    <button
+                      onClick={(e) => handleSelectCardForSave(row.id, e)}
+                      className={`p-1.5 rounded-full border border-gray-600 transition-colors duration-200 ${
+                        selectedCardForSave === row.id 
+                          ? 'bg-blue-600 text-white' 
+                          : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                      }`}
+                      title="Select to save as template"
+                    >
                       <SaveIcon size={14} />
-                    )}
-                  </button>
+                    </button>
+                    
+                    {/* Template Merge Button */}
+                    <button
+                      onClick={(e) => handleSelectCardForMerge(row.id, e)}
+                      className={`p-1.5 rounded-full border border-gray-600 transition-colors duration-200 ${
+                        selectedCardForMerge === row.id 
+                          ? 'bg-green-600 text-white' 
+                          : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                      }`}
+                      title="Select to merge with template"
+                    >
+                      <MergeIcon size={14} />
+                    </button>
+                  </div>
                 )}
                 <LogRowCard
                   row={row}
@@ -283,9 +362,14 @@ const SaveIcon = ({ size }) => (
   </svg>
 );
 
-const CheckIcon = ({ size }) => (
+// Merge icon
+const MergeIcon = ({ size }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <polyline points="20 6 9 17 4 12"></polyline>
+    <path d="M8 7l4-4 4 4"></path>
+    <path d="M12 3v8"></path>
+    <path d="M8 17l4 4 4-4"></path>
+    <path d="M12 21v-8"></path>
+    <path d="M3 12h18"></path>
   </svg>
 );
 

@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { Save, FileText, Plus, Trash2, Edit, X, AlertCircle, RefreshCw, Check, Shield } from 'lucide-react';
 import useTemplates from '../hooks/useTemplates';
 
-const TemplateManager = ({ currentCard, onApplyTemplate, csrfToken }) => {
+const TemplateManager = ({ currentCard, templateMode, onApplyTemplate, csrfToken }) => {
   const [showSaveDialog, setShowSaveDialog] = useState(false);
   const [showApplyDialog, setShowApplyDialog] = useState(false);
   const [selectedTemplate, setSelectedTemplate] = useState(null);
@@ -140,7 +140,7 @@ const TemplateManager = ({ currentCard, onApplyTemplate, csrfToken }) => {
         delete safeTemplateData.secrets;
       }
       
-      console.log('Creating new card with template data:', safeTemplateData);
+      console.log('Creating new card from template data:', safeTemplateData);
       onApplyTemplate(safeTemplateData);
     }
     
@@ -215,17 +215,48 @@ const TemplateManager = ({ currentCard, onApplyTemplate, csrfToken }) => {
             <span className="hidden sm:inline">Refresh</span>
           </button>
           
-          <button
-            onClick={handleOpenSaveDialog}
-            className="px-3 py-1.5 bg-blue-600 text-white rounded-md flex items-center gap-2 hover:bg-blue-700 transition-colors duration-200"
-            disabled={!currentCard}
-            title={!currentCard ? "Select a card to create a template" : "Save current card as template"}
-          >
-            <Save size={16} />
-            <span>Save As Template</span>
-          </button>
+          {/* Only show "Save as Template" button when in save mode */}
+          {templateMode === 'save' && currentCard && (
+            <button
+              onClick={handleOpenSaveDialog}
+              className="px-3 py-1.5 bg-blue-600 text-white rounded-md flex items-center gap-2 hover:bg-blue-700 transition-colors duration-200"
+              title="Save selected card as template"
+            >
+              <Save size={16} />
+              <span>Save As Template</span>
+            </button>
+          )}
         </div>
       </div>
+      
+      {/* Visual indicator when a card is selected for different actions */}
+      {currentCard && (
+        <div className={`p-3 rounded-md mb-4 flex items-center gap-2 ${
+          templateMode === 'save' ? 'bg-blue-800/50' : 'bg-green-800/50'
+        }`}>
+          {templateMode === 'save' ? (
+            <>
+              <SaveIcon size={18} className="text-blue-400" />
+              <div>
+                <h4 className="text-white font-medium">Card Selected for Template Creation</h4>
+                <p className="text-sm text-blue-300">
+                  Click "Save As Template" to create a new template from this card.
+                </p>
+              </div>
+            </>
+          ) : templateMode === 'merge' ? (
+            <>
+              <MergeIcon size={18} className="text-green-400" />
+              <div>
+                <h4 className="text-white font-medium">Card Selected for Template Merging</h4>
+                <p className="text-sm text-green-300">
+                  Click on any template below to merge it with the selected card.
+                </p>
+              </div>
+            </>
+          ) : null}
+        </div>
+      )}
       
       {/* Error message */}
       {error && (
@@ -254,8 +285,17 @@ const TemplateManager = ({ currentCard, onApplyTemplate, csrfToken }) => {
           {templates.map(template => (
             <div
               key={template.id}
-              onClick={() => handleShowApplyDialog(template)}
-              className="bg-gray-700 p-3 rounded-md hover:bg-gray-600 transition-all cursor-pointer border border-gray-600 hover:border-blue-500"
+              onClick={() => {
+                // Only show apply dialog if we're in merge mode or no card is selected
+                if (templateMode === 'merge' || !currentCard) {
+                  handleShowApplyDialog(template);
+                }
+              }}
+              className={`bg-gray-700 p-3 rounded-md transition-all border border-gray-600 ${
+                templateMode === 'merge' || !currentCard ? 
+                  'hover:bg-gray-600 hover:border-blue-500 cursor-pointer' : 
+                  ''
+              }`}
             >
               <div className="flex items-center justify-between mb-2">
                 {isEditing === template.id ? (
@@ -317,8 +357,8 @@ const TemplateManager = ({ currentCard, onApplyTemplate, csrfToken }) => {
                 ))}
               </div>
               
-              {/* Show indicator if current card exists and template can add fields */}
-              {currentCard && getFieldsThatWouldUpdate(template).length > 0 && (
+              {/* Show indicator if current card exists and template can add fields - only for merge mode */}
+              {templateMode === 'merge' && currentCard && getFieldsThatWouldUpdate(template).length > 0 && (
                 <div className="mt-2 text-xs text-green-400 flex items-center">
                   <Shield size={12} className="mr-1" />
                   Can fill {getFieldsThatWouldUpdate(template).length} empty fields
@@ -489,5 +529,25 @@ const TemplateManager = ({ currentCard, onApplyTemplate, csrfToken }) => {
     </div>
   );
 };
+
+// Helper icons for templates
+const SaveIcon = ({ size, className = "" }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+    <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
+    <polyline points="17 21 17 13 7 13 7 21"></polyline>
+    <polyline points="7 3 7 8 15 8"></polyline>
+  </svg>
+);
+
+// Helper icon for merge visualization
+const MergeIcon = ({ size, className = "" }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+    <path d="M8 7l4-4 4 4"></path>
+    <path d="M12 3v8"></path>
+    <path d="M8 17l4 4 4-4"></path>
+    <path d="M12 21v-8"></path>
+    <path d="M3 12h18"></path>
+  </svg>
+);
 
 export default TemplateManager;
