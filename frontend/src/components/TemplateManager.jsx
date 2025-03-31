@@ -1,9 +1,15 @@
 // frontend/src/components/TemplateManager.jsx
 import React, { useState, useEffect } from 'react';
-import { Save, FileText, Plus, Trash2, Edit, X, AlertCircle, RefreshCw, Check, Shield } from 'lucide-react';
+import { Save, FileText, Plus, Trash2, Edit, X, AlertCircle, RefreshCw, Check, Shield, Users } from 'lucide-react';
 import useTemplates from '../hooks/useTemplates';
 
-const TemplateManager = ({ currentCard, templateMode, onApplyTemplate, csrfToken }) => {
+const TemplateManager = ({ 
+  currentCard, 
+  selectedCards = [], // New prop for multi-selection
+  templateMode, 
+  onApplyTemplate, 
+  csrfToken 
+}) => {
   const [showSaveDialog, setShowSaveDialog] = useState(false);
   const [showApplyDialog, setShowApplyDialog] = useState(false);
   const [selectedTemplate, setSelectedTemplate] = useState(null);
@@ -91,57 +97,106 @@ const TemplateManager = ({ currentCard, templateMode, onApplyTemplate, csrfToken
     setShowApplyDialog(true);
   };
   
-  // Apply a template to an existing card
+  // Apply a template to one or more cards
   const handleApplyTemplate = (template, shouldMerge = false) => {
-    if (onApplyTemplate && currentCard) {
-      // Prepare data to update the current card
-      let updateData = {};
-      
-      if (shouldMerge) {
-        // Smart merge: only include template values for fields that are empty in current card
-        Object.keys(template.data).forEach(field => {
-          // Only update empty fields in the current card
-          if (!currentCard[field]) {
-            // Special handling for encrypted fields like 'secrets'
+    if (onApplyTemplate) {
+      if (templateMode === 'merge' && selectedCards.length > 0) {
+        // Process each card individually for merging
+        selectedCards.forEach(card => {
+          if (!card) return; // Skip if card is null/undefined
+          
+          // Prepare data specific to this card
+          let updateData = {};
+          
+          if (shouldMerge) {
+            // Smart merge: only include template values for fields that are empty in THIS card
+            Object.keys(template.data).forEach(field => {
+              // Only update empty fields in the current card
+              if (!card[field]) {
+                // Special handling for encrypted fields like 'secrets'
+                if (field === 'secrets') {
+                  // Only include if it's a string or simple value
+                  if (typeof template.data[field] === 'string' || template.data[field] === null) {
+                    updateData[field] = template.data[field];
+                  }
+                } else {
+                  updateData[field] = template.data[field];
+                }
+              }
+            });
+          } else {
+            // Full replace: include all template fields (except for special fields)
+            Object.keys(template.data).forEach(field => {
+              // Special handling for encrypted fields
+              if (field === 'secrets') {
+                if (typeof template.data[field] === 'string' || template.data[field] === null) {
+                  updateData[field] = template.data[field];
+                }
+              } else {
+                updateData[field] = template.data[field];
+              }
+            });
+          }
+          
+          // Skip if there's nothing to update
+          if (Object.keys(updateData).length === 0) {
+            console.log(`No fields to update for card ${card.id}`);
+            return;
+          }
+          
+          // Call the callback for this specific card
+          console.log(`Updating card ${card.id} with fields:`, updateData);
+          onApplyTemplate(updateData, card.id); // Pass card ID as second parameter
+        });
+      } else if (currentCard) {
+        // Single card mode
+        let updateData = {};
+        
+        if (shouldMerge) {
+          // Smart merge: only include template values for fields that are empty in current card
+          Object.keys(template.data).forEach(field => {
+            // Only update empty fields in the current card
+            if (!currentCard[field]) {
+              // Special handling for encrypted fields like 'secrets'
+              if (field === 'secrets') {
+                // Only include if it's a string or simple value
+                if (typeof template.data[field] === 'string' || template.data[field] === null) {
+                  updateData[field] = template.data[field];
+                }
+              } else {
+                updateData[field] = template.data[field];
+              }
+            }
+          });
+        } else {
+          // Full replace: include all template fields (except for special fields)
+          Object.keys(template.data).forEach(field => {
+            // Special handling for encrypted fields
             if (field === 'secrets') {
-              // Only include if it's a string or simple value
               if (typeof template.data[field] === 'string' || template.data[field] === null) {
                 updateData[field] = template.data[field];
               }
             } else {
               updateData[field] = template.data[field];
             }
-          }
-        });
+          });
+        }
+        
+        // Call the callback with ONLY the fields to update
+        console.log('Updating single card with fields:', updateData);
+        onApplyTemplate(updateData, currentCard.id); // Pass card ID as second parameter
       } else {
-        // Full replace: include all template fields (except for special fields)
-        Object.keys(template.data).forEach(field => {
-          // Special handling for encrypted fields
-          if (field === 'secrets') {
-            if (typeof template.data[field] === 'string' || template.data[field] === null) {
-              updateData[field] = template.data[field];
-            }
-          } else {
-            updateData[field] = template.data[field];
-          }
-        });
+        // No card selected, create a new one from template
+        const safeTemplateData = { ...template.data };
+        
+        // Handle encrypted fields to prevent constraint violations
+        if (safeTemplateData.secrets && typeof safeTemplateData.secrets === 'object') {
+          delete safeTemplateData.secrets;
+        }
+        
+        console.log('Creating new card from template data:', safeTemplateData);
+        onApplyTemplate(safeTemplateData);
       }
-      
-      // Call the callback with ONLY the fields to update
-      // This makes it clearer we want to update specific fields
-      console.log('Updating existing card with fields:', updateData);
-      onApplyTemplate(updateData);
-    } else if (onApplyTemplate) {
-      // No current card selected, create a new one with template data
-      const safeTemplateData = { ...template.data };
-      
-      // Handle encrypted fields to prevent constraint violations
-      if (safeTemplateData.secrets && typeof safeTemplateData.secrets === 'object') {
-        delete safeTemplateData.secrets;
-      }
-      
-      console.log('Creating new card from template data:', safeTemplateData);
-      onApplyTemplate(safeTemplateData);
     }
     
     // Close the dialog
@@ -190,11 +245,31 @@ const TemplateManager = ({ currentCard, templateMode, onApplyTemplate, csrfToken
     setEditName('');
   };
 
-  // Get the fields that would be updated in a merge
-  const getFieldsThatWouldUpdate = (template) => {
-    if (!currentCard || !template) return [];
+  // Get the fields that would be updated in a merge for a single card
+  const getFieldsThatWouldUpdate = (template, card) => {
+    if (!card || !template) return [];
     
-    return Object.keys(template.data).filter(field => !currentCard[field]);
+    return Object.keys(template.data).filter(field => !card[field]);
+  };
+  
+  // Get the total number of empty fields across all selected cards
+  const getTotalEmptyFieldsCount = (template) => {
+    if (!selectedCards.length || !template) return 0;
+    
+    // Track which fields are empty in at least one card
+    const emptyFieldsInAnyCard = {};
+    
+    selectedCards.forEach(card => {
+      if (card) {
+        Object.keys(template.data).forEach(field => {
+          if (!card[field]) {
+            emptyFieldsInAnyCard[field] = true;
+          }
+        });
+      }
+    });
+    
+    return Object.keys(emptyFieldsInAnyCard).length;
   };
 
   return (
@@ -230,31 +305,30 @@ const TemplateManager = ({ currentCard, templateMode, onApplyTemplate, csrfToken
       </div>
       
       {/* Visual indicator when a card is selected for different actions */}
-      {currentCard && (
-        <div className={`p-3 rounded-md mb-4 flex items-center gap-2 ${
-          templateMode === 'save' ? 'bg-blue-800/50' : 'bg-green-800/50'
-        }`}>
-          {templateMode === 'save' ? (
-            <>
-              <SaveIcon size={18} className="text-blue-400" />
-              <div>
-                <h4 className="text-white font-medium">Card Selected for Template Creation</h4>
-                <p className="text-sm text-blue-300">
-                  Click "Save As Template" to create a new template from this card.
-                </p>
-              </div>
-            </>
-          ) : templateMode === 'merge' ? (
-            <>
-              <MergeIcon size={18} className="text-green-400" />
-              <div>
-                <h4 className="text-white font-medium">Card Selected for Template Merging</h4>
-                <p className="text-sm text-green-300">
-                  Click on any template below to merge it with the selected card.
-                </p>
-              </div>
-            </>
-          ) : null}
+      {templateMode === 'save' && currentCard && (
+        <div className="bg-blue-800/50 p-3 rounded-md mb-4 flex items-center gap-2">
+          <SaveIcon size={18} className="text-blue-400" />
+          <div>
+            <h4 className="text-white font-medium">Card Selected for Template Creation</h4>
+            <p className="text-sm text-blue-300">
+              Click "Save As Template" to create a new template from this card.
+            </p>
+          </div>
+        </div>
+      )}
+      
+      {/* UPDATED: Visual indicator for multiple card selection */}
+      {templateMode === 'merge' && selectedCards.length > 0 && (
+        <div className="bg-green-800/50 p-3 rounded-md mb-4 flex items-center gap-2">
+          <Users size={18} className="text-green-400" />
+          <div>
+            <h4 className="text-white font-medium">
+              {selectedCards.length} {selectedCards.length === 1 ? 'Card' : 'Cards'} Selected for Merging
+            </h4>
+            <p className="text-sm text-green-300">
+              Click on any template below to merge it with the selected {selectedCards.length === 1 ? 'card' : 'cards'}.
+            </p>
+          </div>
         </div>
       )}
       
@@ -357,11 +431,11 @@ const TemplateManager = ({ currentCard, templateMode, onApplyTemplate, csrfToken
                 ))}
               </div>
               
-              {/* Show indicator if current card exists and template can add fields - only for merge mode */}
-              {templateMode === 'merge' && currentCard && getFieldsThatWouldUpdate(template).length > 0 && (
+              {/* UPDATED: Show indicator for multi-card selection */}
+              {templateMode === 'merge' && selectedCards.length > 0 && (
                 <div className="mt-2 text-xs text-green-400 flex items-center">
                   <Shield size={12} className="mr-1" />
-                  Can fill {getFieldsThatWouldUpdate(template).length} empty fields
+                  Can update fields in {selectedCards.length} selected {selectedCards.length === 1 ? 'card' : 'cards'}
                 </div>
               )}
             </div>
@@ -369,26 +443,64 @@ const TemplateManager = ({ currentCard, templateMode, onApplyTemplate, csrfToken
         </div>
       )}
       
-      {/* Apply Template Dialog */}
+      {/* Apply Template Dialog - UPDATED for multi-card support */}
       {showApplyDialog && selectedTemplate && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-gray-800 p-6 rounded-lg shadow-lg max-w-md w-full" onClick={e => e.stopPropagation()}>
             <h3 className="text-lg font-medium text-white mb-4">Apply Template: {selectedTemplate.name}</h3>
             
-            {currentCard ? (
+            {selectedCards.length > 0 ? (
+              <>
+                <p className="text-gray-300 mb-4">
+                  This will update {selectedCards.length} selected {selectedCards.length === 1 ? 'card' : 'cards'} with template data.
+                </p>
+                
+                <div className="mb-4 p-3 bg-gray-700 rounded-md">
+                  <div className="flex items-center gap-2 text-sm text-green-400 mb-2">
+                    <Users size={14} />
+                    <span>{selectedCards.length} {selectedCards.length === 1 ? 'card' : 'cards'} selected for updating</span>
+                  </div>
+                </div>
+                
+                <div className="flex flex-col gap-3 mt-6">
+                  <button
+                    onClick={() => handleApplyTemplate(selectedTemplate, true)}
+                    className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 flex items-center justify-center gap-2"
+                  >
+                    <Shield size={16} />
+                    Update Cards (Fill Empty Fields Only)
+                  </button>
+                  
+                  <button
+                    onClick={() => handleApplyTemplate(selectedTemplate, false)}
+                    className="px-4 py-2 bg-yellow-600 text-white rounded-md hover:bg-yellow-700 flex items-center justify-center gap-2"
+                  >
+                    <RefreshCw size={16} />
+                    Update Cards (Replace All Fields)
+                  </button>
+                  
+                  <button
+                    onClick={() => setShowApplyDialog(false)}
+                    className="px-4 py-2 bg-gray-700 text-gray-300 rounded-md hover:bg-gray-600"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </>
+            ) : currentCard ? (
               <>
                 <p className="text-gray-300 mb-4">
                   This will update your current card with template data.
                 </p>
                 
                 {/* Fields that would be updated */}
-                {getFieldsThatWouldUpdate(selectedTemplate).length > 0 && (
+                {getFieldsThatWouldUpdate(selectedTemplate, currentCard).length > 0 && (
                   <div className="mb-4 p-3 bg-gray-700 rounded-md">
                     <p className="text-sm text-green-400 mb-2">
                       This will fill in the following empty fields:
                     </p>
                     <div className="flex flex-wrap gap-1">
-                      {getFieldsThatWouldUpdate(selectedTemplate).map(field => (
+                      {getFieldsThatWouldUpdate(selectedTemplate, currentCard).map(field => (
                         <span key={field} className="inline-block bg-gray-800 text-blue-300 rounded px-2 py-1 text-xs">
                           {field}
                         </span>
