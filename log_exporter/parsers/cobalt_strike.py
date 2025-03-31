@@ -152,8 +152,8 @@ class CobalStrikeParser(BaseLogParser):
                         }
                         
                         # Only add domain if we found it
-                        if domain:
-                            entry["domain"] = domain
+                        #if domain:
+                        #    entry["domain"] = domain
                             
                         # Check if entry should be excluded or filtered
                         if self.should_exclude_entry(entry):
