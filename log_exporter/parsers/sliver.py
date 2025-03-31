@@ -170,6 +170,62 @@ class SliverParser(BaseLogParser):
             
         return False
     
+    def extract_date_from_path(self, file_path):
+        """Extract the date from a log file path"""
+        try:
+            # Try to find a date pattern in the path components
+            path_parts = file_path.split(os.sep)
+            for part in path_parts:
+                # Look for YYYY-MM-DD pattern
+                if re.match(r'^\d{4}-\d{2}-\d{2}$', part):
+                    return part
+            
+            # If no date found in path, use today's date
+            return datetime.now().strftime("%Y-%m-%d")
+        except Exception as e:
+            self.logger.error(f"Error extracting date from path {file_path}: {str(e)}")
+            return datetime.now().strftime("%Y-%m-%d")
+    
+    def create_iso_timestamp(self, date_str, time_str):
+        """
+        Create an ISO format timestamp from date string and time string
+        
+        Args:
+            date_str: String in format YYYY-MM-DD
+            time_str: String in format HH:MM:SS
+            
+        Returns:
+            String: ISO format timestamp (YYYY-MM-DDTHH:MM:SS)
+        """
+        try:
+            # Clean up time string (remove milliseconds if present)
+            clean_time = time_str.split('.')[0]
+            
+            # For short times like '00:01:23', ensure we have proper formatting
+            time_parts = clean_time.split(':')
+            if len(time_parts) == 3:
+                # Full time with hours, minutes, seconds
+                formatted_time = clean_time
+            elif len(time_parts) == 2:
+                # Missing seconds
+                formatted_time = f"{clean_time}:00"
+            else:
+                # Invalid format, use current time
+                formatted_time = datetime.now().strftime("%H:%M:%S")
+            
+            # Combine date and time
+            timestamp = f"{date_str}T{formatted_time}"
+            
+            # Validate by parsing
+            dt = datetime.fromisoformat(timestamp)
+            
+            # Return ISO format
+            return dt.isoformat()
+        except Exception as e:
+            # If there's any error, fallback to current time
+            self.logger.error(f"Error creating timestamp from {date_str} {time_str}: {str(e)}")
+            return datetime.now().isoformat()
+    
     def parse_log_file(self, log_file, processed_lines):
         """Parse a Sliver log file and extract only command entries"""
         # Convert to absolute path for consistency
@@ -186,6 +242,9 @@ class SliverParser(BaseLogParser):
         self.logger.debug(f"Previously processed {processed_lines.get(abs_log_file, 0)} lines")
         
         try:
+            # Extract date from log file path - needed for timestamps
+            log_date = self.extract_date_from_path(abs_log_file)
+            
             with open(abs_log_file, 'r', encoding='utf-8', errors='replace') as f:
                 lines = f.readlines()
                 
@@ -221,11 +280,18 @@ class SliverParser(BaseLogParser):
                     # Extract session metadata for context enrichment
                     self.extract_session_metadata(line)
                     
+                    # Extract timestamp from line if present
+                    timestamp_match = re.match(r'\[(.*?)\]', line)
+                    time_str = timestamp_match.group(1) if timestamp_match else ""
+                    
+                    # Create ISO timestamp
+                    iso_timestamp = self.create_iso_timestamp(log_date, time_str)
+                    
                     # Parse JSON logs
                     if is_json_log or line.startswith('{'):
                         try:
                             log_entry = json.loads(line)
-                            entry = self.parse_json_entry(log_entry)
+                            entry = self.parse_json_entry(log_entry, iso_timestamp)
                             if entry and not self.should_exclude_entry(entry):
                                 # Check if this command is significant based on the filter mode
                                 if self.is_significant_command(entry["command"]):
@@ -237,7 +303,7 @@ class SliverParser(BaseLogParser):
                     
                     # Parse session logs
                     if is_session_log:
-                        entry = self.parse_session_line(line, session_id)
+                        entry = self.parse_session_line(line, session_id, iso_timestamp)
                         if entry and not self.should_exclude_entry(entry):
                             # Check if this command is significant based on the filter mode
                             if self.is_significant_command(entry["command"]):
@@ -246,7 +312,7 @@ class SliverParser(BaseLogParser):
                     
                     # Parse client/console logs
                     if is_client_log:
-                        entry = self.parse_client_line(line)
+                        entry = self.parse_client_line(line, iso_timestamp)
                         if entry and not self.should_exclude_entry(entry):
                             # Check if this command is significant based on the filter mode
                             if self.is_significant_command(entry["command"]):
@@ -254,7 +320,7 @@ class SliverParser(BaseLogParser):
                             continue
                     
                     # Generic parsing for any other lines that might contain commands
-                    entry = self.parse_generic_line(line)
+                    entry = self.parse_generic_line(line, iso_timestamp)
                     if entry and not self.should_exclude_entry(entry):
                         # Check if this command is significant based on the filter mode
                         if self.is_significant_command(entry["command"]):
@@ -279,10 +345,10 @@ class SliverParser(BaseLogParser):
     # We now use the base class implementation of should_exclude_entry
     # which leverages the centralized command_filters.py module
     
-    def parse_json_entry(self, log_entry):
+    def parse_json_entry(self, log_entry, default_timestamp=None):
         """Parse a JSON log entry and extract command if present"""
         message = log_entry.get('msg', log_entry.get('message', ''))
-        timestamp = log_entry.get('timestamp', log_entry.get('time', ''))
+        timestamp = log_entry.get('timestamp', log_entry.get('time', default_timestamp))
         component = log_entry.get('component', log_entry.get('name', ''))
         
         # Look for session ID in the JSON
@@ -328,7 +394,7 @@ class SliverParser(BaseLogParser):
         
         return None
     
-    def parse_session_line(self, line, default_session_id=None):
+    def parse_session_line(self, line, default_session_id=None, default_timestamp=None):
         """Parse a line from a session log"""
         # Extract timestamp if present
         timestamp_match = re.match(r'\[(.*?)\]', line)
@@ -342,7 +408,7 @@ class SliverParser(BaseLogParser):
         cmd_match = self.executing_cmd_regex.search(line)
         if cmd_match:
             command = cmd_match.group(1).strip()
-            entry = self.create_basic_entry(command, timestamp)
+            entry = self.create_basic_entry(command, default_timestamp or timestamp)
             
             # Try to find session ID in line if not provided
             session_id = default_session_id
@@ -370,7 +436,7 @@ class SliverParser(BaseLogParser):
             filepath = file_match.group(2)
             command = f"Starting file {operation}: {filepath}"
             
-            entry = self.create_basic_entry(command, timestamp)
+            entry = self.create_basic_entry(command, default_timestamp or timestamp)
             
             # Set filename
             entry["filename"] = os.path.basename(filepath)
@@ -407,7 +473,7 @@ class SliverParser(BaseLogParser):
         
         return None
     
-    def parse_client_line(self, line):
+    def parse_client_line(self, line, default_timestamp=None):
         """Parse a line from a client or console log"""
         # Extract timestamp if present
         timestamp_match = re.match(r'\[(.*?)\]', line)
@@ -423,7 +489,7 @@ class SliverParser(BaseLogParser):
             component = client_match.group(1)  # "client" or "console"
             command = client_match.group(2).strip()
             
-            entry = self.create_basic_entry(command, timestamp)
+            entry = self.create_basic_entry(command, default_timestamp or timestamp)
             
             # Extract filename for file operations
             if any(op in command for op in ['download', 'upload']):
@@ -435,7 +501,7 @@ class SliverParser(BaseLogParser):
         
         return None
     
-    def parse_generic_line(self, line):
+    def parse_generic_line(self, line, default_timestamp=None):
         """Fallback parser for any other line that might contain commands"""
         # Skip lines with output/status messages
         if self.command_output_regex.search(line):
@@ -443,9 +509,9 @@ class SliverParser(BaseLogParser):
             
         # Try to find commands in any other format
         for cmd_pattern in [
-            r'shell\s+(.+?)$',  # shell commands
-            r'execute\s+(.+?)$',  # execute commands
-            r'run\s+(.+?)$',  # run commands
+            r'shell\s+(.+?),  # shell commands
+            r'execute\s+(.+?),  # execute commands
+            r'run\s+(.+?),  # run commands
             r'download\s+(.+?)(?:\s|$)',  # download commands
             r'upload\s+(.+?)(?:\s|$)'  # upload commands
         ]:
@@ -459,7 +525,7 @@ class SliverParser(BaseLogParser):
                 prefix = cmd_pattern.split('\\')[0]
                 command = f"{prefix} {match.group(1).strip()}"
                 
-                entry = self.create_basic_entry(command, timestamp)
+                entry = self.create_basic_entry(command, default_timestamp or timestamp)
                 
                 # Look for session ID in the line
                 session_match = self.session_id_regex.search(line)
@@ -477,12 +543,14 @@ class SliverParser(BaseLogParser):
         return None
     
     def create_basic_entry(self, command, timestamp=""):
-        """Create a basic log entry with the given command"""
+        """Create a basic log entry with the given command and timestamp"""
+        # Create an entry with the specified timestamp (if provided)
         return {
+            "timestamp": timestamp,  # Include ISO timestamp for the Clio API
             "hostname": "",
             "username": "",
             "command": command,
-            "notes": f"Timestamp: {timestamp}" if timestamp else "",
+            "notes": f"Local time: {timestamp}" if timestamp else "",
             "filename": "",
             "status": "",
             "internal_ip": "",

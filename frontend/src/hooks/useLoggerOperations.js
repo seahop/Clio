@@ -190,8 +190,14 @@ export const useLoggerOperations = (currentUser, csrfToken) => {
 
   const handleAddRow = async () => {
     try {
+      // Create the timestamp in UTC/Zulu time format
+      const now = new Date();
+      const zuluTimestamp = now.toISOString();
+      
+      console.log('Creating new log with Zulu timestamp:', zuluTimestamp);
+      
       const newRow = {
-        timestamp: new Date().toISOString(),
+        timestamp: zuluTimestamp, // This is already in ISO format with Z suffix (Zulu time)
         internal_ip: '',
         external_ip: '',
         mac_address: '',
@@ -219,10 +225,16 @@ export const useLoggerOperations = (currentUser, csrfToken) => {
   // New handler for adding a row with template data
   const handleAddRowWithTemplate = async (templateData) => {
     try {
+      // Create the timestamp in UTC/Zulu time format
+      const now = new Date();
+      const zuluTimestamp = now.toISOString();
+      
+      console.log('Creating new log from template with Zulu timestamp:', zuluTimestamp);
+      
       // Make sure we have a new timestamp and the current user as analyst
       const newRow = {
         ...templateData,
-        timestamp: new Date().toISOString(),
+        timestamp: zuluTimestamp, // This is already in ISO format with Z suffix (Zulu time)
         analyst: currentUser.username,
         locked: false,
         locked_by: null

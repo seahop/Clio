@@ -19,6 +19,7 @@ services:
       - SSL_CRT_FILE=/app/certs/server.crt
       - SSL_KEY_FILE=/app/certs/server.key
       - NODE_TLS_REJECT_UNAUTHORIZED=0
+      - TZ=UTC  # Force UTC timezone
     networks:
       - frontend-network
     restart: unless-stopped
@@ -62,6 +63,8 @@ services:
       - NODE_TLS_REJECT_UNAUTHORIZED=0
       - SSL_CRT_FILE=certs/server.crt
       - SSL_KEY_FILE=certs/server.key
+      - TZ=UTC  # Force UTC timezone
+      - PGTZ=UTC  # Set PostgreSQL timezone to UTC
     depends_on:
       redis:
         condition: service_healthy
@@ -108,6 +111,7 @@ services:
       - NODE_TLS_REJECT_UNAUTHORIZED=0
       - SSL_CRT_FILE=certs/server.crt
       - SSL_KEY_FILE=certs/server.key
+      - TZ=UTC  # Force UTC timezone
     depends_on:
       db:
         condition: service_healthy
@@ -137,6 +141,8 @@ services:
       - ./certs:/certs:ro
     env_file:
       - ./redis/.env
+    environment:
+      - TZ=UTC  # Force UTC timezone
     command: >
       redis-server 
       --requirepass "${REDIS_PASSWORD}" 
@@ -177,9 +183,11 @@ services:
       - ./db/.env
     environment:
       - POSTGRES_SSL=${POSTGRES_SSL:-true}
+      - TZ=UTC  # Force UTC timezone
+      - PGTZ=UTC  # Set PostgreSQL timezone to UTC
     networks:
       - backend-network
-    command: postgres
+    command: postgres -c timezone=UTC -c log_timezone=UTC
     logging:
       driver: "json-file"
       options:
@@ -199,6 +207,8 @@ services:
         - "443:443"
       volumes:
         - ./certs:/etc/nginx/certs:ro
+      environment:
+        - TZ=UTC  # Force UTC timezone
       networks:
         - frontend-network
       restart: unless-stopped

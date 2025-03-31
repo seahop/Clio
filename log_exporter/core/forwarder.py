@@ -238,7 +238,9 @@ class LogForwarder:
             # Debug: Print what we're about to send
             self.logger.debug(f"Preparing to send {len(logs)} logs to Clio")
             if logs:
-                self.logger.debug(f"First log entry: {json.dumps(logs[0], indent=2)}")
+                # Log the first entry with special attention to the timestamp
+                first_log = logs[0]
+                self.logger.debug(f"First log entry with timestamp {first_log.get('timestamp', 'No timestamp')}: {json.dumps(first_log, indent=2)}")
             
             # Check for rate limiting before sending
             rate_limited, wait_seconds = self.rate_queue.is_rate_limited()
@@ -261,7 +263,12 @@ class LogForwarder:
                         # IMPORTANT: Try sending one log at a time instead of a batch
                         # This helps debug which specific log might be causing issues
                         for log_entry in batch:
-                            self.logger.debug(f"Sending JSON payload: {json.dumps(log_entry)}")
+                            # Ensure each log entry has a timestamp
+                            if 'timestamp' not in log_entry or not log_entry['timestamp']:
+                                log_entry['timestamp'] = datetime.now().isoformat()
+                                self.logger.warning(f"Missing timestamp, using current time: {log_entry['timestamp']}")
+                            
+                            self.logger.debug(f"Sending JSON payload with timestamp {log_entry.get('timestamp')}: {json.dumps(log_entry)}")
                             resp = requests.post(
                                 self.ingest_url,
                                 headers={

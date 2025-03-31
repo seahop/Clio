@@ -1,4 +1,4 @@
-// models/logs.js - Update for PID field
+// models/logs.js - Update for consistent UTC timestamps
 const db = require('../db');
 const { redactSensitiveData } = require('../utils/sanitize');
 const fieldEncryption = require('../utils/encryption');
@@ -63,6 +63,42 @@ const LogsModel = {
     return records.map(record => this._processFromStorage(record));
   },
 
+  /**
+   * Ensure a timestamp is in UTC format
+   * @param {Date|string} timestamp - The timestamp to validate
+   * @returns {Date} - A valid Date object in UTC
+   */
+  _ensureUtcTimestamp(timestamp) {
+    try {
+      if (!timestamp) {
+        // Default to current time in UTC
+        return new Date();
+      }
+      
+      // If it's already a Date object
+      if (timestamp instanceof Date) {
+        // Make sure it's valid
+        if (isNaN(timestamp.getTime())) {
+          console.warn('Invalid Date object provided for timestamp, using current UTC time');
+          return new Date();
+        }
+        return timestamp;
+      }
+      
+      // If it's a string, parse it
+      const parsedDate = new Date(timestamp);
+      if (isNaN(parsedDate.getTime())) {
+        console.warn('Invalid timestamp string provided, using current UTC time');
+        return new Date();
+      }
+      
+      return parsedDate;
+    } catch (error) {
+      console.warn('Error processing timestamp, using current UTC time:', error);
+      return new Date();
+    }
+  },
+
   async getAllLogs(includeSecrets = true) {
     try {
       // Always include all fields - we'll only redact for logging purposes
@@ -110,6 +146,9 @@ const LogsModel = {
       // Process data for storage (encrypt sensitive fields)
       const processedData = this._processForStorage(logData);
       
+      // Parse the provided timestamp or use current UTC time
+      const timestamp = logData.timestamp ? new Date(logData.timestamp) : new Date();
+      
       const result = await db.query(
         `INSERT INTO logs (
           timestamp, internal_ip, external_ip, mac_address, hostname,
@@ -118,7 +157,7 @@ const LogsModel = {
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
         RETURNING *`,
         [
-          new Date(),
+          timestamp,
           processedData.internal_ip,
           processedData.external_ip,
           processedData.mac_address,
@@ -153,7 +192,8 @@ const LogsModel = {
       const allowedUpdates = [
         'internal_ip', 'external_ip', 'mac_address', 'hostname', 'domain',
         'username', 'command', 'notes', 'filename', 'status',
-        'secrets', 'locked', 'locked_by', 'hash_algorithm', 'hash_value', 'pid'
+        'secrets', 'locked', 'locked_by', 'hash_algorithm', 'hash_value', 'pid',
+        'timestamp' // Allow timestamp updates
       ];
 
       // Process updates for storage (encrypt sensitive fields)
@@ -165,6 +205,17 @@ const LogsModel = {
         .reduce((obj, key) => {
           // Handle empty strings - convert to null for database
           obj[key] = processedUpdates[key] === '' ? null : processedUpdates[key];
+          
+          // Special handling for timestamp - ensure it's a valid UTC date
+          if (key === 'timestamp' && obj[key]) {
+            try {
+              obj[key] = this._ensureUtcTimestamp(obj[key]);
+            } catch (e) {
+              console.warn('Invalid timestamp in update, removing:', e);
+              delete obj[key]; // Remove invalid timestamp
+            }
+          }
+          
           return obj;
         }, {});
 

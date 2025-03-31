@@ -1,4 +1,4 @@
-// backend/routes/ingest.routes.js
+// backend/routes/ingest.routes.js - Updated for UTC timestamp handling
 const express = require('express');
 const router = express.Router();
 const { sanitizeRequestMiddleware, sanitizeLogMiddleware } = require('../middleware/sanitize.middleware');
@@ -13,6 +13,8 @@ const https = require('https');
 const httpsAgent = new https.Agent({
   rejectUnauthorized: false
 });
+
+module.exports = router;
 
 // Track last notification time to prevent overwhelming the relation service
 let lastNotificationTime = 0;
@@ -74,6 +76,30 @@ const notifyRelationService = async () => {
   }
 };
 
+// Helper function to validate and standardize timestamps
+function validateAndStandardizeTimestamp(timestamp) {
+  if (!timestamp) {
+    return { valid: false, timestamp: new Date().toISOString() };
+  }
+  
+  try {
+    // Parse the timestamp
+    const parsedDate = new Date(timestamp);
+    
+    // Check if it's a valid date
+    if (isNaN(parsedDate.getTime())) {
+      console.warn(`Invalid timestamp provided: ${timestamp}, using current UTC time`);
+      return { valid: false, timestamp: new Date().toISOString() };
+    }
+    
+    // Return the validated timestamp in ISO format (which is UTC)
+    return { valid: true, timestamp: parsedDate.toISOString() };
+  } catch (error) {
+    console.warn(`Error validating timestamp: ${error.message}, using current UTC time`);
+    return { valid: false, timestamp: new Date().toISOString() };
+  }
+}
+
 // Rate limiting for log ingestion
 const ingestLimiter = rateLimit({
   windowMs: 1 * 60 * 1000, // 1 minute
@@ -103,7 +129,7 @@ router.get('/status', async (req, res) => {
     // Simple status endpoint to verify API key is working
     await eventLogger.logDataEvent('api_status_check', req.apiKey.createdBy, {
       keyId: req.apiKey.keyId,
-      timestamp: new Date().toISOString(),
+      timestamp: new Date().toISOString(),  // UTC timestamp for logs
       clientInfo: {
         ip: req.ip,
         userAgent: req.get('User-Agent')
@@ -117,7 +143,7 @@ router.get('/status', async (req, res) => {
         keyId: req.apiKey.keyId,
         permissions: req.apiKey.permissions
       },
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString()  // UTC timestamp in response
     });
   } catch (error) {
     console.error('Error in API status check:', error);
@@ -165,6 +191,16 @@ router.post('/logs', async (req, res) => {
           analyst: req.apiKey.name
         };
         
+        // Validate and standardize the timestamp to UTC
+        const { valid, timestamp } = validateAndStandardizeTimestamp(logWithAnalyst.timestamp);
+        logWithAnalyst.timestamp = timestamp;
+        
+        if (!valid) {
+          console.warn(`Using UTC timestamp ${timestamp} for log entry (original was invalid)`);
+        } else {
+          console.log(`Using validated UTC timestamp: ${timestamp}`);
+        }
+        
         // Create the log
         const newLog = await LogsModel.createLog(logWithAnalyst);
         
@@ -173,7 +209,8 @@ router.post('/logs', async (req, res) => {
           logId: newLog.id,
           keyId: req.apiKey.keyId,
           apiKeyName: req.apiKey.name, // Add API key name to event log for reference
-          timestamp: new Date().toISOString(),
+          timestamp: new Date().toISOString(),  // Current UTC time for the event log
+          entryTimestamp: logWithAnalyst.timestamp, // Log the entry's UTC timestamp too
           clientInfo: {
             ip: req.ip,
             userAgent: req.get('User-Agent')
@@ -182,7 +219,8 @@ router.post('/logs', async (req, res) => {
         
         results.push({
           id: newLog.id,
-          success: true
+          success: true,
+          timestamp: newLog.timestamp // Return the stored timestamp
         });
       } catch (error) {
         console.error('Error ingesting log:', error);
@@ -198,7 +236,8 @@ router.post('/logs', async (req, res) => {
     const response = {
       message: `Processed ${logs.length} logs: ${results.length} successful, ${errors.length} failed`,
       results,
-      errors: errors.length > 0 ? errors : undefined
+      errors: errors.length > 0 ? errors : undefined,
+      serverTime: new Date().toISOString() // Include server UTC time for reference
     };
     
     res.status(errors.length > 0 ? 207 : 201).json(response);
@@ -219,7 +258,7 @@ router.post('/logs', async (req, res) => {
     await eventLogger.logDataEvent('api_ingest_error', req.apiKey?.createdBy || 'unknown', {
       error: error.message,
       keyId: req.apiKey?.keyId,
-      timestamp: new Date().toISOString(),
+      timestamp: new Date().toISOString(), // UTC timestamp for error log
       clientInfo: {
         ip: req.ip,
         userAgent: req.get('User-Agent')
@@ -229,5 +268,3 @@ router.post('/logs', async (req, res) => {
     res.status(500).json({ error: 'Log ingestion failed', detail: error.message });
   }
 });
-
-module.exports = router;

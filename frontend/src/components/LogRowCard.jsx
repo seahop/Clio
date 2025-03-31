@@ -47,7 +47,13 @@ const LogRowCard = ({
   // Helper to format timestamp
   const formatDate = (timestamp) => {
     if (!timestamp) return '';
-    return new Date(timestamp).toLocaleString();
+    
+    // Create a date object from the timestamp
+    const date = new Date(timestamp);
+    
+    // Format the date to show in a consistent way with Zulu/UTC indicator
+    // Format: YYYY-MM-DD HH:MM:SS Z
+    return date.toISOString().replace('T', ' ').replace(/\.\d+Z$/, 'Z');
   };
 
   // Make sure expanded/collapsed state doesn't interfere with clicking cells

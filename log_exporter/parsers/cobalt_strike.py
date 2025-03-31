@@ -103,6 +103,9 @@ class CobalStrikeParser(BaseLogParser):
         self.logger.debug(f"Previously processed {processed_lines.get(abs_log_file, 0)} lines")
         
         try:
+            # Extract date from log file path - needed for timestamps
+            log_date = self.extract_date_from_path(abs_log_file)
+            
             with open(abs_log_file, 'r', encoding='utf-8', errors='replace') as f:
                 lines = f.readlines()
                 
@@ -124,37 +127,37 @@ class CobalStrikeParser(BaseLogParser):
                     cmd_match = self.beacon_cmd_regex.match(line)
                     if cmd_match:
                         self.logger.debug(f"  ✓ Line matched command pattern")
-                        timestamp, beacon_id, username, hostname, command = cmd_match.groups()
+                        time_str, beacon_id, username, hostname, command = cmd_match.groups()
                         
-                        self.logger.debug(f"  Extracted: timestamp={timestamp}, beacon_id={beacon_id}, username={username}, hostname={hostname}")
+                        self.logger.debug(f"  Extracted: time={time_str}, beacon_id={beacon_id}, username={username}, hostname={hostname}")
                         self.logger.debug(f"  Command: {command}")
                         
-                        # Create the entry first so we can check both exclusion and significance
-                        # Parse domain if present
-                        #domain = ""
-                        #if '\\' in username:
-                        #    domain, username = username.split('\\')
-                        #    self.logger.debug(f"  Parsed domain from username: domain={domain}, username={username}")
-                        #elif '/' in username:
-                        #    domain, username = username.split('/')
-                        #    self.logger.debug(f"  Parsed domain from username: domain={domain}, username={username}")
+                        # Parse domain if present in username
+                        domain = ""
+                        if '\\' in username:
+                            domain, username = username.split('\\')
+                            self.logger.debug(f"  Parsed domain from username: domain={domain}, username={username}")
+                        elif '/' in username:
+                            domain, username = username.split('/')
+                            self.logger.debug(f"  Parsed domain from username: domain={domain}, username={username}")
                         
-                        # Create the log entry with only the essential information
+                        # Create ISO timestamp from the log date and time string
+                        iso_timestamp = self.create_iso_timestamp(log_date, time_str)
+                        
+                        # Create the log entry with the timestamp
                         entry = {
+                            "timestamp": iso_timestamp,  # <-- Add the ISO timestamp for the Clio API
                             "hostname": hostname,
+                            "domain": domain,
                             "username": username,
                             "command": command,
-                            "notes": f"Beacon ID: {beacon_id}, Timestamp: {timestamp}",
-                            "filename":"",
+                            "notes": f"Beacon ID: {beacon_id}, Local time: {time_str}",
+                            "filename": "",
                             "status": "",
                             "internal_ip": "",
                             "external_ip": ""
                         }
                         
-                        # Only add domain if we found it
-                        #if domain:
-                        #    entry["domain"] = domain
-                            
                         # Check if entry should be excluded or filtered
                         if self.should_exclude_entry(entry):
                             self.logger.debug(f"  ✗ Entry excluded: {command}")
@@ -180,3 +183,59 @@ class CobalStrikeParser(BaseLogParser):
             self.logger.error(f"Error parsing log file {abs_log_file}: {str(e)}")
             self.logger.error(traceback.format_exc())
             return []
+    
+    def extract_date_from_path(self, file_path):
+        """Extract the date from a log file path (e.g., logs/2025-03-31/beacon_123.log)"""
+        try:
+            # Try to find a date pattern in the path components
+            path_parts = file_path.split(os.sep)
+            for part in path_parts:
+                # Look for YYYY-MM-DD pattern
+                if re.match(r'^\d{4}-\d{2}-\d{2}$', part):
+                    return part
+            
+            # If no date found in path, use today's date
+            return datetime.now().strftime("%Y-%m-%d")
+        except Exception as e:
+            self.logger.error(f"Error extracting date from path {file_path}: {str(e)}")
+            return datetime.now().strftime("%Y-%m-%d")
+    
+    def create_iso_timestamp(self, date_str, time_str):
+        """
+        Create an ISO format timestamp from date string and time string
+        
+        Args:
+            date_str: String in format YYYY-MM-DD
+            time_str: String in format HH:MM:SS
+            
+        Returns:
+            String: ISO format timestamp (YYYY-MM-DDTHH:MM:SS)
+        """
+        try:
+            # Clean up time string (remove milliseconds if present)
+            clean_time = time_str.split('.')[0]
+            
+            # For short times like '00:01:23', ensure we have proper formatting
+            time_parts = clean_time.split(':')
+            if len(time_parts) == 3:
+                # Full time with hours, minutes, seconds
+                formatted_time = clean_time
+            elif len(time_parts) == 2:
+                # Missing seconds
+                formatted_time = f"{clean_time}:00"
+            else:
+                # Invalid format, use current time
+                formatted_time = datetime.now().strftime("%H:%M:%S")
+            
+            # Combine date and time
+            timestamp = f"{date_str}T{formatted_time}"
+            
+            # Validate by parsing
+            dt = datetime.fromisoformat(timestamp)
+            
+            # Return ISO format
+            return dt.isoformat()
+        except Exception as e:
+            # If there's any error, fallback to current time
+            self.logger.error(f"Error creating timestamp from {date_str} {time_str}: {str(e)}")
+            return datetime.now().isoformat()
