@@ -131,13 +131,13 @@ class CobalStrikeParser(BaseLogParser):
                         
                         # Create the entry first so we can check both exclusion and significance
                         # Parse domain if present
-                        domain = ""
-                        if '\\' in username:
-                            domain, username = username.split('\\')
-                            self.logger.debug(f"  Parsed domain from username: domain={domain}, username={username}")
-                        elif '/' in username:
-                            domain, username = username.split('/')
-                            self.logger.debug(f"  Parsed domain from username: domain={domain}, username={username}")
+                        #domain = ""
+                        #if '\\' in username:
+                        #    domain, username = username.split('\\')
+                        #    self.logger.debug(f"  Parsed domain from username: domain={domain}, username={username}")
+                        #elif '/' in username:
+                        #    domain, username = username.split('/')
+                        #    self.logger.debug(f"  Parsed domain from username: domain={domain}, username={username}")
                         
                         # Create the log entry with only the essential information
                         entry = {
