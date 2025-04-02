@@ -4,7 +4,7 @@ import { Network, File, Database, Users, Key, Book, HardDrive, Settings } from '
 import LoggerCardView from './LoggerCardView';
 import RelationViewer from './RelationViewer';
 import FileStatusTracker from './FileStatusTracker';
-import ExportDatabasePanel from './ExportDatabasePanel';
+import ExportDatabasePanel from './export/ExportDatabasePanel';
 import SessionManagement from './SessionManagement';
 import ApiKeyManager from './ApiKeyManager';
 import ApiDocumentation from './ApiDocumentation';
