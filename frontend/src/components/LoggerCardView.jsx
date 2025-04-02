@@ -1,15 +1,16 @@
-// frontend/src/components/LoggerCardView.jsx
+// frontend/src/components/LoggerCardView.jsx - Updated with enhanced search
 import React, { useState, useEffect } from 'react';
 import { Layout, List, Plus, Filter, AlertCircle, FileText, Check } from 'lucide-react';
 import LogRowCard from './LogRowCard';
 import Pagination from './Pagination';
 import DateRangeFilter from './DateRangeFilter';
-import SearchFilter from './SearchFilter';
+import SearchFilter from './SearchFilter'; // Using the enhanced existing component
 import TemplateManager from './TemplateManager'; 
 import CardFieldSettings from './CardFieldSettings';
 import { COLUMNS } from '../utils/constants';
 import usePagination from '../hooks/usePagination';
 import useCardFields from '../hooks/useCardFields';
+import { createFilterFunction } from '../utils/queryParser'; // Import the query parser
 
 const LoggerCardView = ({
   logs,
@@ -22,14 +23,13 @@ const LoggerCardView = ({
   const [viewMode, setViewMode] = useState('card');
   const [filteredLogs, setFilteredLogs] = useState(logs);
   const [dateRange, setDateRange] = useState({ start: null, end: null });
-  const [searchFilter, setSearchFilter] = useState({ query: '', field: 'all' });
+  const [searchFilter, setSearchFilter] = useState({ mode: 'simple', query: '', field: 'all' });
   const [hasActiveFilters, setHasActiveFilters] = useState(false);
-  const [showTemplates, setShowTemplates] = useState(false); // State for templates visibility
+  const [showTemplates, setShowTemplates] = useState(false);
   
-  // Updated for multi-select
-  const [selectedCardForSave, setSelectedCardForSave] = useState(null); // Single card for saving as template
-  const [selectedCardsForMerge, setSelectedCardsForMerge] = useState([]); // Multiple cards for merging with template
-  
+  // State for template operations
+  const [selectedCardForSave, setSelectedCardForSave] = useState(null);
+  const [selectedCardsForMerge, setSelectedCardsForMerge] = useState([]);
   const [templateMode, setTemplateMode] = useState(null);
 
   // Use our custom hook for card field visibility settings
@@ -37,52 +37,19 @@ const LoggerCardView = ({
   
   // Apply filters whenever logs, dateRange, or searchFilter changes
   useEffect(() => {
-    // Start with all logs
-    let filtered = [...logs];
-    let filtersActive = false;
+    // Create a filter function based on all filter criteria
+    const filterFunction = createFilterFunction({
+      dateRange,
+      searchFilter
+    });
     
-    // Apply date filter if active
-    if (dateRange.start || dateRange.end) {
-      filtersActive = true;
-      filtered = filtered.filter(log => {
-        const logDate = new Date(log.timestamp);
-        
-        // Check if log date is within range
-        if (dateRange.start && logDate < dateRange.start) {
-          return false;
-        }
-        
-        if (dateRange.end && logDate > dateRange.end) {
-          return false;
-        }
-        
-        return true;
-      });
-    }
+    // Apply the filter function to the logs
+    const filtered = logs.filter(filterFunction);
     
-    // Apply search filter if active
-    if (searchFilter.query) {
-      filtersActive = true;
-      const query = searchFilter.query.toLowerCase();
-      
-      filtered = filtered.filter(log => {
-        // If searching all fields
-        if (searchFilter.field === 'all') {
-          // Check all searchable text fields
-          return [
-            'internal_ip', 'external_ip', 'mac_address', 'hostname', 'domain',
-            'username', 'command', 'notes', 'filename', 'status', 'analyst'
-          ].some(field => {
-            const value = log[field];
-            return value && String(value).toLowerCase().includes(query);
-          });
-        }
-        
-        // Searching specific field
-        const value = log[searchFilter.field];
-        return value && String(value).toLowerCase().includes(query);
-      });
-    }
+    // Determine if any filters are active
+    const filtersActive = 
+      (dateRange.start || dateRange.end) || 
+      (searchFilter.query && searchFilter.query.trim() !== '');
     
     setHasActiveFilters(filtersActive);
     setFilteredLogs(filtered);
@@ -104,7 +71,7 @@ const LoggerCardView = ({
   // Clear all filters
   const clearAllFilters = () => {
     setDateRange({ start: null, end: null });
-    setSearchFilter({ query: '', field: 'all' });
+    setSearchFilter({ mode: 'simple', query: '', field: 'all' });
   };
   
   // Handle selecting a card for saving as template (still single selection)
@@ -315,11 +282,11 @@ const LoggerCardView = ({
       
       {/* Filter section */}
       <div className="p-4 border-b border-gray-700 bg-gray-900/30">
-        <div className="flex flex-col md:flex-row items-center gap-4">
-          {/* Date filter - moved to the left */}
+        <div className="flex flex-col md:flex-row items-start gap-4">
+          {/* Date filter */}
           <DateRangeFilter onFilterChange={handleDateFilterChange} />
           
-          {/* Search filter */}
+          {/* Enhanced Search filter */}
           <div className="flex-grow">
             <SearchFilter onFilterChange={handleSearchFilterChange} />
           </div>
