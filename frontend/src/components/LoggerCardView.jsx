@@ -5,7 +5,7 @@ import LogRowCard from './LogRowCard';
 import Pagination from './Pagination';
 import DateRangeFilter from './DateRangeFilter';
 import SearchFilter from './SearchFilter'; // Using the enhanced existing component
-import TemplateManager from './TemplateManager'; 
+import TemplateManager from './templates';
 import CardFieldSettings from './CardFieldSettings';
 import { COLUMNS } from '../utils/constants';
 import usePagination from '../hooks/usePagination';

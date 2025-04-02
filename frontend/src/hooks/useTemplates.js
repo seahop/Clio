@@ -1,20 +1,63 @@
-// src/hooks/useTemplates.js
-import { useState, useEffect } from 'react';
+// src/hooks/useTemplates.js with token refresh
+import { useState, useEffect, useCallback } from 'react';
 
 /**
- * Custom hook to manage log templates
+ * Custom hook to manage log templates with token refresh
  * @param {string} csrfToken - CSRF token for API requests
  * @returns {Object} Template operations and state
  */
-export const useTemplates = (csrfToken) => {
+export const useTemplates = (initialCsrfToken) => {
   const [templates, setTemplates] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [csrfToken, setCsrfToken] = useState(initialCsrfToken);
+
+  // Function to refresh the CSRF token
+  const refreshCsrfToken = useCallback(async () => {
+    try {
+      console.log("Refreshing CSRF token before template operation...");
+      const response = await fetch('/api/csrf-token', {
+        credentials: 'include',
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+        },
+        mode: 'cors',
+        cache: 'no-cache',
+      });
+
+      if (!response.ok) {
+        console.error('Failed to refresh CSRF token:', response.status);
+        return null;
+      }
+
+      const data = await response.json();
+      if (data.csrfToken) {
+        console.log("CSRF token refreshed successfully");
+        setCsrfToken(data.csrfToken);
+        // Also update the global token
+        window.csrfToken = data.csrfToken;
+        return data.csrfToken;
+      }
+      return null;
+    } catch (error) {
+      console.error('Error refreshing CSRF token:', error);
+      return null;
+    }
+  }, []);
+
+  // Ensure we have a fresh token before performing operations
+  const getLatestToken = useCallback(async () => {
+    // Refresh the token to ensure it's fresh
+    const freshToken = await refreshCsrfToken();
+    // Return the fresh token, fall back to stored token if refresh fails
+    return freshToken || csrfToken || window.csrfToken;
+  }, [csrfToken, refreshCsrfToken]);
 
   // Fetch templates on mount
   useEffect(() => {
     fetchTemplates();
-  }, [csrfToken]);
+  }, [initialCsrfToken]);
 
   // Fetch all templates from the server
   const fetchTemplates = async () => {
@@ -22,12 +65,15 @@ export const useTemplates = (csrfToken) => {
       setLoading(true);
       setError(null);
       
+      // Get the latest token before fetching
+      const tokenToUse = await getLatestToken();
+      
       const response = await fetch('/api/templates', {
         method: 'GET',
         headers: {
           'Accept': 'application/json',
           'Content-Type': 'application/json',
-          'CSRF-Token': csrfToken
+          'CSRF-Token': tokenToUse
         },
         credentials: 'include'
       });
@@ -64,11 +110,14 @@ export const useTemplates = (csrfToken) => {
     try {
       setError(null);
       
+      // Get the latest token before creating
+      const tokenToUse = await getLatestToken();
+      
       const response = await fetch('/api/templates', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'CSRF-Token': csrfToken
+          'CSRF-Token': tokenToUse
         },
         credentials: 'include',
         body: JSON.stringify({
@@ -110,11 +159,14 @@ export const useTemplates = (csrfToken) => {
     try {
       setError(null);
       
+      // Get the latest token before updating
+      const tokenToUse = await getLatestToken();
+      
       const response = await fetch(`/api/templates/${templateId}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
-          'CSRF-Token': csrfToken
+          'CSRF-Token': tokenToUse
         },
         credentials: 'include',
         body: JSON.stringify(updates)
@@ -155,10 +207,13 @@ export const useTemplates = (csrfToken) => {
     try {
       setError(null);
       
+      // Get the latest token before deleting
+      const tokenToUse = await getLatestToken();
+      
       const response = await fetch(`/api/templates/${templateId}`, {
         method: 'DELETE',
         headers: {
-          'CSRF-Token': csrfToken
+          'CSRF-Token': tokenToUse
         },
         credentials: 'include'
       });
@@ -186,7 +241,8 @@ export const useTemplates = (csrfToken) => {
     fetchTemplates,
     createTemplate,
     updateTemplate,
-    deleteTemplate
+    deleteTemplate,
+    refreshCsrfToken
   };
 };
 
