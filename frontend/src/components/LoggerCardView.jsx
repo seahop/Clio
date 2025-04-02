@@ -6,8 +6,10 @@ import Pagination from './Pagination';
 import DateRangeFilter from './DateRangeFilter';
 import SearchFilter from './SearchFilter';
 import TemplateManager from './TemplateManager'; 
+import CardFieldSettings from './CardFieldSettings';
 import { COLUMNS } from '../utils/constants';
 import usePagination from '../hooks/usePagination';
+import useCardFields from '../hooks/useCardFields';
 
 const LoggerCardView = ({
   logs,
@@ -29,6 +31,9 @@ const LoggerCardView = ({
   const [selectedCardsForMerge, setSelectedCardsForMerge] = useState([]); // Multiple cards for merging with template
   
   const [templateMode, setTemplateMode] = useState(null);
+
+  // Use our custom hook for card field visibility settings
+  const { visibleFields, updateVisibleFields } = useCardFields(currentUser);
   
   // Apply filters whenever logs, dateRange, or searchFilter changes
   useEffect(() => {
@@ -124,7 +129,7 @@ const LoggerCardView = ({
     }
   };
   
-  // UPDATED: Handle selecting multiple cards for merging with template
+  // Handle selecting multiple cards for merging with template
   const handleSelectCardForMerge = (rowId, event) => {
     event.stopPropagation();
     
@@ -158,14 +163,14 @@ const LoggerCardView = ({
     }
   };
   
-  // UPDATED: Clear all selected cards
+  // Clear all selected cards
   const clearSelectedCards = () => {
     setSelectedCardForSave(null);
     setSelectedCardsForMerge([]);
     setTemplateMode(null);
   };
   
-  // UPDATED: Template action handler for multi-select
+  // Template action handler for multi-select
   const handleTemplateAction = (templateData, specificCardId = null) => {
     if (specificCardId) {
       // We're updating a specific card (used in multi-card mode)
@@ -229,11 +234,17 @@ const LoggerCardView = ({
     return [];
   };
   
+  // Handle card field visibility changes
+  const handleCardFieldsChange = (newFieldSettings) => {
+    console.log('Card field settings changed:', newFieldSettings);
+    updateVisibleFields(newFieldSettings);
+  };
+  
   return (
     <div className="bg-gray-800 shadow-lg rounded-lg w-full">
       {/* Header */}
       <div className="flex justify-between items-center p-4 border-b border-gray-700">
-        <div className="flex items-center space-x-2">
+        <div className="flex items-center space-x-2 flex-wrap gap-y-2">
           <button
             onClick={() => setViewMode('card')}
             className="px-3 py-1.5 rounded-md flex items-center gap-2 transition-colors duration-200 bg-blue-600 text-white"
@@ -261,7 +272,13 @@ const LoggerCardView = ({
             <span className="hidden sm:inline">Templates</span>
           </button>
           
-          {/* NEW: Show count of selected cards when in merge mode */}
+          {/* Card Field Settings */}
+          <CardFieldSettings 
+            currentUser={currentUser}
+            onSettingsChange={handleCardFieldsChange}
+          />
+          
+          {/* Show count of selected cards when in merge mode */}
           {templateMode === 'merge' && selectedCardsForMerge.length > 0 && (
             <div className="px-3 py-1.5 rounded-md bg-green-700 text-white flex items-center gap-2">
               <Check size={16} />
@@ -404,6 +421,7 @@ const LoggerCardView = ({
                   onToggleLock={handlers.handleToggleLock}
                   onDelete={handlers.handleDeleteRow}
                   csrfToken={csrfToken}
+                  visibleFields={visibleFields} // Pass the visible fields configuration
                 />
               </div>
             ))}

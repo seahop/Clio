@@ -35,7 +35,8 @@ const LogRowCard = ({
   onExpand,
   onToggleLock,
   onDelete,
-  csrfToken
+  csrfToken,
+  visibleFields = {} // New prop for configurable field visibility
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [showSecrets, setShowSecrets] = useState(false);
@@ -450,56 +451,78 @@ const LogRowCard = ({
             <FileText size={16} />
           </button>
           
-          {/* Primary Info */}
+          {/* Primary Info - Timestamp is always shown */}
           <div className="flex-shrink-0 text-sm text-blue-200 font-medium">
             {formatDate(row.timestamp)}
           </div>
           
-          <div className="flex items-center ml-4 gap-x-4 overflow-hidden">
-            {row.internal_ip && (
+          {/* Customizable Fields in Card Header */}
+          <div className="flex items-center ml-4 gap-x-4 overflow-hidden flex-wrap gap-y-2">
+            {/* Internal IP - Shown only if enabled in visibleFields */}
+            {row.internal_ip && visibleFields.internal_ip && (
               <div className="flex-shrink-0 px-2 py-1 bg-gray-700 rounded text-xs text-blue-300 whitespace-nowrap font-medium">
                 IP: {row.internal_ip}
               </div>
             )}
             
-            {row.mac_address && (
+            {/* External IP - Shown only if enabled in visibleFields */}
+            {row.external_ip && visibleFields.external_ip && (
+              <div className="flex-shrink-0 px-2 py-1 bg-gray-700 rounded text-xs text-blue-300 whitespace-nowrap font-medium">
+                Ext IP: {row.external_ip}
+              </div>
+            )}
+            
+            {/* MAC Address - Shown only if enabled in visibleFields */}
+            {row.mac_address && visibleFields.mac_address && (
               <div className="flex-shrink-0 px-2 py-1 bg-gray-700 rounded text-xs text-cyan-300 whitespace-nowrap font-medium">
                 MAC: {formatMacAddress(row.mac_address)}
               </div>
             )}
             
-            {/* Add PID display here, right after the MAC address display */}
-            {row.pid && (
+            {/* PID - Shown only if enabled in visibleFields */}
+            {row.pid && visibleFields.pid && (
               <div className="flex-shrink-0 px-2 py-1 bg-gray-700 rounded text-xs text-cyan-300 whitespace-nowrap font-medium">
                 PID: {row.pid}
               </div>
             )}
             
-            {row.hostname && (
+            {/* Hostname - Shown only if enabled in visibleFields */}
+            {row.hostname && visibleFields.hostname && (
               <div className="flex-shrink-0 px-2 py-1 bg-gray-700 rounded text-xs text-white whitespace-nowrap font-medium">
                 Host: {row.hostname}
               </div>
             )}
             
-            {row.username && (
+            {/* Domain - Shown only if enabled in visibleFields */}
+            {row.domain && visibleFields.domain && (
+              <div className="flex-shrink-0 px-2 py-1 bg-gray-700 rounded text-xs text-white whitespace-nowrap font-medium">
+                Domain: {row.domain}
+              </div>
+            )}
+            
+            {/* Username - Shown only if enabled in visibleFields */}
+            {row.username && visibleFields.username && (
               <div className="flex-shrink-0 px-2 py-1 bg-gray-700 rounded text-xs text-green-300 whitespace-nowrap font-medium">
                 User: {row.username}
               </div>
             )}
             
-            {row.filename && (
-              <div className="hidden md:block flex-shrink-0 px-2 py-1 bg-gray-700 rounded text-xs text-purple-300 whitespace-nowrap font-medium">
+            {/* Filename - Shown only if enabled in visibleFields */}
+            {row.filename && visibleFields.filename && (
+              <div className="flex-shrink-0 px-2 py-1 bg-gray-700 rounded text-xs text-purple-300 whitespace-nowrap font-medium">
                 File: {row.filename}
               </div>
             )}
             
-            {row.command && (
-              <div className="hidden lg:block flex-shrink-0 text-sm text-yellow-300 truncate max-w-xs font-medium">
+            {/* Command - Shown only if enabled in visibleFields */}
+            {row.command && visibleFields.command && (
+              <div className="flex-shrink-0 px-2 py-1 max-w-xs bg-gray-700 rounded text-xs text-yellow-300 whitespace-nowrap overflow-hidden text-ellipsis font-medium">
                 Cmd: {row.command}
               </div>
             )}
             
-            {row.status && (
+            {/* Status - Shown only if enabled in visibleFields */}
+            {row.status && visibleFields.status && (
               <div className="flex-shrink-0 px-2 py-1 bg-gray-700 rounded text-xs whitespace-nowrap font-bold">
                 <span className={`${getStatusColorClass(row.status)}`}>{row.status}</span>
               </div>
@@ -523,145 +546,145 @@ const LogRowCard = ({
             <Trash2 size={16} />
           </button>
         )}
-        </div>
+      </div>
       
       {/* Expanded Card Content */}
       {isExpanded && (
         <div className="p-4 border-t border-gray-700">
           {/* Main section - Three column layout on larger screens */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-          {/* Network section */}
-          <div className="bg-gray-700/50 p-4 rounded-lg">
-            <h3 className="text-sm font-medium text-white mb-3">Network Information</h3>
-            <div className="space-y-3">
-              {columnGroups.primary.map(field => {
-                // Skip timestamp as it's already in the header
-                if (field === 'timestamp') return null;
-                
-                const column = COLUMNS.find(col => col.field === field);
-                const isEditing = editingCell?.rowId === row.id && editingCell?.field === field;
-                
-                return (
-                  <div key={field} className="group">
-                    <div className="text-xs text-blue-200 mb-1">{column.header}:</div>
-                    <div 
-                      className={`${isFieldEditable(field) ? 'cursor-pointer hover:bg-gray-600/50' : ''} p-1 rounded`}
-                      onClick={(e) => {
-                        if (isFieldEditable(field)) {
-                          e.stopPropagation(); // Stop event from bubbling up to the parent
-                          setIsClickingCell(true);
-                          onCellClick(row.id, field);
-                        }
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' && isFieldEditable(field)) {
-                          e.preventDefault();
-                          setIsClickingCell(true);
-                          onCellClick(row.id, field);
-                        }
-                      }}
-                    >
-                      {isEditing ? 
-                        renderEditField(field, row[field]) : 
-                        renderFieldValue(field, row[field])}
+            {/* Network section */}
+            <div className="bg-gray-700/50 p-4 rounded-lg">
+              <h3 className="text-sm font-medium text-white mb-3">Network Information</h3>
+              <div className="space-y-3">
+                {columnGroups.primary.map(field => {
+                  // Skip timestamp as it's already in the header
+                  if (field === 'timestamp') return null;
+                  
+                  const column = COLUMNS.find(col => col.field === field);
+                  const isEditing = editingCell?.rowId === row.id && editingCell?.field === field;
+                  
+                  return (
+                    <div key={field} className="group">
+                      <div className="text-xs text-blue-200 mb-1">{column.header}:</div>
+                      <div 
+                        className={`${isFieldEditable(field) ? 'cursor-pointer hover:bg-gray-600/50' : ''} p-1 rounded`}
+                        onClick={(e) => {
+                          if (isFieldEditable(field)) {
+                            e.stopPropagation(); // Stop event from bubbling up to the parent
+                            setIsClickingCell(true);
+                            onCellClick(row.id, field);
+                          }
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && isFieldEditable(field)) {
+                            e.preventDefault();
+                            setIsClickingCell(true);
+                            onCellClick(row.id, field);
+                          }
+                        }}
+                      >
+                        {isEditing ? 
+                          renderEditField(field, row[field]) : 
+                          renderFieldValue(field, row[field])}
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
             </div>
-          </div>
-          
-          {/* Content section - Now with secrets */}
-          <div className="bg-gray-700/50 p-4 rounded-lg">
-            <h3 className="text-sm font-medium text-white mb-3">Command Information</h3>
-            <div className="space-y-3">
-              {/* Manually specify the fields to ensure the right order */}
-              {['username', 'command', 'notes', 'secrets', 'analyst'].map(field => {
-                const column = COLUMNS.find(col => col.field === field);
-                const isEditing = editingCell?.rowId === row.id && editingCell?.field === field;
-                
-                return (
-                  <div key={field} className="group">
-                    <div className="text-xs text-blue-200 mb-1">{column.header}:</div>
-                    <div 
-                      className={`${isFieldEditable(field) ? 'cursor-pointer hover:bg-gray-600/50' : ''} p-1 rounded`}
-                      onClick={(e) => {
-                        if (isFieldEditable(field)) {
-                          e.stopPropagation(); // Stop event from bubbling up to the parent
-                          setIsClickingCell(true);
-                          onCellClick(row.id, field);
-                        }
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' && isFieldEditable(field)) {
-                          e.preventDefault();
-                          setIsClickingCell(true);
-                          onCellClick(row.id, field);
-                        }
-                      }}
-                    >
-                      {isEditing ? 
-                        renderEditField(field, row[field]) : 
-                        renderFieldValue(field, row[field])}
-                      
-                      {field === 'secrets' && row[field] && !isEditing && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setShowSecrets(!showSecrets);
-                          }}
-                          className="ml-2 p-1 text-gray-400 hover:text-gray-200 transition-colors"
-                          title={showSecrets ? "Hide secrets" : "Show secrets"}
-                        >
-                          {showSecrets ? <EyeOff size={16} /> : <Eye size={16} />}
-                        </button>
-                      )}
+            
+            {/* Content section - Now with secrets */}
+            <div className="bg-gray-700/50 p-4 rounded-lg">
+              <h3 className="text-sm font-medium text-white mb-3">Command Information</h3>
+              <div className="space-y-3">
+                {/* Manually specify the fields to ensure the right order */}
+                {['username', 'command', 'notes', 'secrets', 'analyst'].map(field => {
+                  const column = COLUMNS.find(col => col.field === field);
+                  const isEditing = editingCell?.rowId === row.id && editingCell?.field === field;
+                  
+                  return (
+                    <div key={field} className="group">
+                      <div className="text-xs text-blue-200 mb-1">{column.header}:</div>
+                      <div 
+                        className={`${isFieldEditable(field) ? 'cursor-pointer hover:bg-gray-600/50' : ''} p-1 rounded`}
+                        onClick={(e) => {
+                          if (isFieldEditable(field)) {
+                            e.stopPropagation(); // Stop event from bubbling up to the parent
+                            setIsClickingCell(true);
+                            onCellClick(row.id, field);
+                          }
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && isFieldEditable(field)) {
+                            e.preventDefault();
+                            setIsClickingCell(true);
+                            onCellClick(row.id, field);
+                          }
+                        }}
+                      >
+                        {isEditing ? 
+                          renderEditField(field, row[field]) : 
+                          renderFieldValue(field, row[field])}
+                        
+                        {field === 'secrets' && row[field] && !isEditing && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setShowSecrets(!showSecrets);
+                            }}
+                            className="ml-2 p-1 text-gray-400 hover:text-gray-200 transition-colors"
+                            title={showSecrets ? "Hide secrets" : "Show secrets"}
+                          >
+                            {showSecrets ? <EyeOff size={16} /> : <Eye size={16} />}
+                          </button>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
             </div>
-          </div>
 
-          {/* Status section - Now includes PID field and analyst removed */}
-          <div className="bg-gray-700/50 p-4 rounded-lg">
-            <h3 className="text-sm font-medium text-white mb-3">File & Status Information</h3>
-            <div className="space-y-3">
-              {/* Manually specify the fields to ensure the right order */}
-              {['filename', 'hash_algorithm', 'hash_value', 'pid', 'status'].map(field => {
-                const column = COLUMNS.find(col => col.field === field);
-                const isEditing = editingCell?.rowId === row.id && editingCell?.field === field;
-                
-                return (
-                  <div key={field} className="group">
-                    <div className="text-xs text-blue-200 mb-1">{column.header}:</div>
-                    <div 
-                      className={`${isFieldEditable(field) ? 'cursor-pointer hover:bg-gray-600/50' : ''} p-1 rounded`}
-                      onClick={(e) => {
-                        if (isFieldEditable(field)) {
-                          e.stopPropagation(); // Stop event from bubbling up to the parent
-                          setIsClickingCell(true);
-                          onCellClick(row.id, field);
-                        }
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' && isFieldEditable(field)) {
-                          e.preventDefault();
-                          setIsClickingCell(true);
-                          onCellClick(row.id, field);
-                        }
-                      }}
-                    >
-                      {isEditing ? 
-                        renderEditField(field, row[field]) : 
-                        renderFieldValue(field, row[field])}
+            {/* Status section - Now includes PID field and analyst removed */}
+            <div className="bg-gray-700/50 p-4 rounded-lg">
+              <h3 className="text-sm font-medium text-white mb-3">File & Status Information</h3>
+              <div className="space-y-3">
+                {/* Manually specify the fields to ensure the right order */}
+                {['filename', 'hash_algorithm', 'hash_value', 'pid', 'status'].map(field => {
+                  const column = COLUMNS.find(col => col.field === field);
+                  const isEditing = editingCell?.rowId === row.id && editingCell?.field === field;
+                  
+                  return (
+                    <div key={field} className="group">
+                      <div className="text-xs text-blue-200 mb-1">{column.header}:</div>
+                      <div 
+                        className={`${isFieldEditable(field) ? 'cursor-pointer hover:bg-gray-600/50' : ''} p-1 rounded`}
+                        onClick={(e) => {
+                          if (isFieldEditable(field)) {
+                            e.stopPropagation(); // Stop event from bubbling up to the parent
+                            setIsClickingCell(true);
+                            onCellClick(row.id, field);
+                          }
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && isFieldEditable(field)) {
+                            e.preventDefault();
+                            setIsClickingCell(true);
+                            onCellClick(row.id, field);
+                          }
+                        }}
+                      >
+                        {isEditing ? 
+                          renderEditField(field, row[field]) : 
+                          renderFieldValue(field, row[field])}
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
             </div>
           </div>
-        </div>
 
         {/* Evidence Tab */}
         {showEvidenceTab && (
@@ -673,11 +696,11 @@ const LogRowCard = ({
               currentUser={currentUser}
             />
           </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
+        )}
+      </div>
+    )}
+  </div>
+);
 };
 
 export default LogRowCard;
