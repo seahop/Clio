@@ -73,103 +73,42 @@ export const tokenizeQuery = (query) => {
   };
   
   /**
-   * Parses tokenized query into a structured query object
-   * @param {Array} tokens - Tokenized query
-   * @returns {Object} Structured query object
-   */
-  export const parseTokensToQuery = (tokens) => {
-    // Skip implementation for now
-    // In a full implementation, this would build an AST from the tokens
-    return { tokens };
-  };
-  
-  /**
-   * Evaluates if a log entry matches the query
-   * @param {Object} log - Log entry to check
-   * @param {Object} queryFilter - Query filter object
-   * @returns {boolean} Whether the log matches the query
-   */
-  export const matchesAdvancedQuery = (log, queryFilter) => {
-    if (!queryFilter.query || queryFilter.query.trim() === '') {
-      return true; // Empty query matches everything
-    }
-  
-    try {
-      const query = queryFilter.query.trim();
-      
-      // Check if the query is an incomplete or operators-only query
-      // This allows users to see results while typing advanced queries
-      const operatorsOnly = /^(AND|OR|NOT|\s)*$/i.test(query);
-      if (operatorsOnly) {
-        return true; // Show all logs for operator-only queries (incomplete queries)
-      }
-      
-      // Check for incomplete field:value pair (typing in progress)
-      if (query.endsWith(':') || /:\s*$/.test(query)) {
-        return true; // Show all logs when user has typed "field:" but not the value yet
-      }
-      
-      // Check for value-less operators (e.g., "field:value AND" without second condition)
-      if (/\s+(AND|OR|NOT)$/i.test(query)) {
-        return true; // Show all logs when user has typed "AND", "OR", or "NOT" at the end
-      }
-      
-      // Split the query into conditions
-      const conditions = parseQueryConditions(query);
-      
-      // If no valid conditions were parsed, show all logs
-      if (!conditions || conditions.length === 0) {
-        return true;
-      }
-      
-      // Evaluate all conditions
-      return evaluateConditions(log, conditions);
-    } catch (error) {
-      console.error('Error evaluating query:', error);
-      // For parser errors, show all logs rather than filtering everything out
-      return true; 
-    }
-  };
-  
-  /**
    * Parse query string into structured conditions
    * @param {string} query - The query string
-   * @returns {Object} Parsed conditions object
+   * @returns {Array} Array of parsed conditions 
    */
   const parseQueryConditions = (query) => {
-    // Special case: If the query doesn't contain any operators but does have a colon,
-    // it might be a simple field:value pair
+    // Handle simple field:value pair without operators
     if (!query.match(/\s(AND|OR|NOT)\s/i) && query.includes(':')) {
       const parts = query.split(':');
       if (parts.length === 2) {
         const field = parts[0].trim();
         const value = parts[1].trim();
+        // Handle quoted values
+        const actualValue = value.startsWith('"') && value.endsWith('"') 
+          ? value.slice(1, -1) 
+          : value;
+        
         return [{
           type: 'condition',
           field: field,
-          value: value,
+          value: actualValue,
           negate: false,
-          operator: 'AND'
+          operator: 'AND' // Default operator
         }];
       }
     }
   
-    // For more complex queries, use the tokenizer
     try {
-      // First tokenize the query
+      // Tokenize the query
       const tokens = tokenizeQuery(query);
       
-      // Simple parsing strategy:
-      // 1. Group tokens into field:value pairs and operators
-      // 2. Process NOT operators
-      // 3. Process AND operators
-      // 4. Process OR operators
-      
-      // For this simplified version, we'll just create an array of conditions
+      // Process tokens into a structured AST-like representation
       const conditions = [];
       let currentField = null;
-      let currentOp = 'AND'; // Default operator between terms is AND
+      let currentOp = 'AND'; // Default operator
       let negateNext = false;
+      let groupStarted = false;
   
       for (let i = 0; i < tokens.length; i++) {
         const token = tokens[i];
@@ -188,17 +127,19 @@ export const tokenizeQuery = (query) => {
                 field: currentField,
                 value: token.value,
                 negate: negateNext,
-                operator: currentOp
+                operator: currentOp,
+                group: groupStarted
               });
               currentField = null;
             } else {
-              // This is a term without a field - search all fields
+              // Term without a field - search across all fields
               conditions.push({
                 type: 'condition',
                 field: 'all',
                 value: token.value,
                 negate: negateNext,
-                operator: currentOp
+                operator: currentOp,
+                group: groupStarted
               });
             }
             negateNext = false;
@@ -215,31 +156,40 @@ export const tokenizeQuery = (query) => {
           case 'NOT':
             negateNext = true;
             break;
+            
+          case 'LPAREN':
+            groupStarted = true;
+            break;
+            
+          case 'RPAREN':
+            groupStarted = false;
+            break;
         }
       }
-      
-      // Add a simplified log to help debugging
-      console.log('Parsed conditions:', conditions);
       
       return conditions;
     } catch (error) {
       console.error('Error parsing query:', error);
       
-      // Fallback to a very basic parser for simple queries
+      // Fallback for simple queries with a single field
       if (query.includes(':')) {
         const parts = query.split(':');
-        if (parts.length === 2) {
+        if (parts.length >= 2) {
+          // Handle the case where there might be multiple colons (like in URLs)
+          const field = parts[0].trim();
+          const value = parts.slice(1).join(':').trim();
+          
           return [{
             type: 'condition',
-            field: parts[0].trim(),
-            value: parts[1].trim(),
+            field,
+            value,
             negate: false,
             operator: 'AND'
           }];
         }
       }
       
-      // Return a condition that matches all as last resort
+      // Last resort - search all fields
       return [{
         type: 'condition',
         field: 'all',
@@ -257,38 +207,49 @@ export const tokenizeQuery = (query) => {
    * @returns {boolean} Whether the log matches
    */
   const evaluateConditions = (log, conditions) => {
-    if (conditions.length === 0) {
+    if (!conditions || conditions.length === 0) {
       return true; // No conditions means match everything
     }
     
-    let result = true; // Start with true for AND operations
-    let currentOp = 'AND';
+    // Create separate stacks for AND and OR groups
+    let result = true; // Start assuming everything matches for AND conditions
+    let orGroupResult = false; // Start assuming nothing matches for OR conditions
+    let isProcessingOrGroup = false;
     
-    for (const condition of conditions) {
-      // Check if this is the start of a new set of conditions with a different operator
-      if (condition.operator && condition.operator !== currentOp) {
-        // If we're switching to OR and the result is already true, we can short-circuit
-        if (condition.operator === 'OR' && result === true) {
-          continue;
-        }
-        
-        // If switching to AND and result is false, we need to reset because this is a new clause
-        if (condition.operator === 'AND' && currentOp === 'OR' && result === false) {
-          result = true;
-        }
-        
-        currentOp = condition.operator;
-      }
-      
-      // Evaluate this condition
+    for (let i = 0; i < conditions.length; i++) {
+      const condition = conditions[i];
       const matches = evaluateSingleCondition(log, condition);
       
-      // Combine with previous results based on operator
-      if (currentOp === 'AND') {
-        result = result && matches;
-      } else if (currentOp === 'OR') {
-        result = result || matches;
+      // Check if we're starting a new operator group
+      if (i > 0 && condition.operator !== conditions[i-1].operator) {
+        if (condition.operator === 'OR') {
+          // Starting an OR group after AND conditions
+          isProcessingOrGroup = true;
+          orGroupResult = matches;
+        } else if (condition.operator === 'AND') {
+          // Starting an AND group after OR conditions
+          // Combine previous OR results with the overall result
+          if (isProcessingOrGroup) {
+            result = result && orGroupResult;
+            isProcessingOrGroup = false;
+          }
+          // Reset for new AND conditions
+          result = result && matches;
+        }
+      } else {
+        // Continue with same operator
+        if (isProcessingOrGroup || condition.operator === 'OR') {
+          isProcessingOrGroup = true;
+          orGroupResult = orGroupResult || matches;
+        } else {
+          result = result && matches;
+        }
       }
+    }
+    
+    // Make sure to combine any final OR group with the overall result
+    if (isProcessingOrGroup) {
+      result = result && orGroupResult;
     }
     
     return result;
@@ -321,7 +282,7 @@ export const tokenizeQuery = (query) => {
     };
     
     // Resolve the actual field name, taking into account potential aliases
-    const actualFieldName = fieldAliases[field] || field;
+    const actualFieldName = fieldAliases[field.toLowerCase()] || field;
     
     // Check if searching all fields
     if (actualFieldName === 'all') {
@@ -345,11 +306,53 @@ export const tokenizeQuery = (query) => {
       return negate ? true : false; // If field doesn't exist, it's a non-match
     }
     
-    // Case-insensitive comparison for text fields
-    const matches = String(fieldValue).toLowerCase().includes(value.toLowerCase());
+    // Handle exact matches for quoted values vs. partial matches
+    let matches;
+    if (condition.quoted) {
+      // For quoted values, require exact match (case-insensitive)
+      matches = String(fieldValue).toLowerCase() === value.toLowerCase();
+    } else {
+      // For regular terms, check if the field contains the value (case-insensitive)
+      matches = String(fieldValue).toLowerCase().includes(value.toLowerCase());
+    }
     
     // Apply negation if needed
     return negate ? !matches : matches;
+  };
+  
+  /**
+   * Matches log against advanced query
+   * @param {Object} log - Log entry to check
+   * @param {Object} queryFilter - Query filter object
+   * @returns {boolean} Whether the log matches
+   */
+  export const matchesAdvancedQuery = (log, queryFilter) => {
+    if (!queryFilter.query || queryFilter.query.trim() === '') {
+      return true; // Empty query matches everything
+    }
+  
+    try {
+      const query = queryFilter.query.trim();
+      
+      // Basic validation for incomplete queries
+      if (/^(AND|OR|NOT|\s)*$/i.test(query) || query.endsWith(':') || 
+          /:\s*$/.test(query) || /\s+(AND|OR|NOT)$/i.test(query)) {
+        return true; // Show all logs for incomplete queries
+      }
+      
+      // Parse query into conditions
+      const conditions = parseQueryConditions(query);
+      
+      if (!conditions || conditions.length === 0) {
+        return true; // No valid conditions - show all logs
+      }
+      
+      // Evaluate conditions against the log
+      return evaluateConditions(log, conditions);
+    } catch (error) {
+      console.error('Error evaluating query:', error);
+      return true; // On error, show all logs
+    }
   };
   
   /**
@@ -360,7 +363,7 @@ export const tokenizeQuery = (query) => {
   export const createFilterFunction = (filter) => {
     return (log) => {
       try {
-        // For date filtering, handle separately
+        // First check date range filter
         if (filter.dateRange?.start || filter.dateRange?.end) {
           const logDate = new Date(log.timestamp);
           
@@ -373,13 +376,13 @@ export const tokenizeQuery = (query) => {
           }
         }
         
-        // Handle based on search mode
+        // Then check search filter
         if (!filter.searchFilter || !filter.searchFilter.mode) {
-          return true; // No search filter, match everything
+          return true; // No search filter means match everything
         }
         
         if (filter.searchFilter.mode === 'simple') {
-          // Simple mode uses field:query matching
+          // Simple mode search
           const { query, field } = filter.searchFilter;
           if (!query) {
             return true; // Empty query matches everything
@@ -402,21 +405,15 @@ export const tokenizeQuery = (query) => {
           return value && String(value).toLowerCase().includes(query.toLowerCase());
         }
         
-        // Advanced mode
+        // Advanced mode search
         if (filter.searchFilter.mode === 'advanced') {
-          // Add some debug logging
-          if (filter.searchFilter.query && !matchesAdvancedQuery(log, filter.searchFilter)) {
-            // Only log for logs that are filtered out with a non-empty query
-            // console.log('Filtered out log:', log.id, log.username);
-            return false;
-          }
           return matchesAdvancedQuery(log, filter.searchFilter);
         }
         
         return true; // Default to matching everything
       } catch (error) {
         console.error('Error in filter function:', error);
-        return true; // In case of error, include the log (fail open)
+        return true; // On error, include the log (fail open)
       }
     };
   };
