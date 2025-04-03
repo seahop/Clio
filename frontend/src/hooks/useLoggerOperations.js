@@ -298,6 +298,21 @@ export const useLoggerOperations = (currentUser, csrfToken) => {
       
       console.log('Successfully updated log with template data', updatedRow);
       
+      // Force command sequence analysis after template update
+      try {
+        await fetch('/relation-service/api/updates/force-analyze-commands', {
+          method: 'POST',
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json',
+            'CSRF-Token': csrfToken
+          }
+        });
+        console.log('Command sequence analysis triggered');
+      } catch (analyzeError) {
+        console.error('Error triggering command analysis:', analyzeError);
+      }
+      
       return updatedRow;
     } catch (err) {
       console.error('Error updating row with template:', err);

@@ -135,6 +135,37 @@ router.get('/:type', authenticateToken, async (req, res) => {
   }
 });
 
+/**
+ * Force analyze command sequences
+ */
+router.post('/force-analyze-commands', authenticateToken, async (req, res) => {
+  try {
+    console.log('Forcing command sequence analysis');
+    
+    // Get logs from the past day for analysis
+    const logs = await db.query(`
+      SELECT * FROM logs 
+      WHERE timestamp > NOW() - INTERVAL '24 hours'
+      ORDER BY timestamp DESC
+      LIMIT 1000
+    `);
+    
+    // Specifically analyze command sequences
+    await RelationAnalyzer.analyzeSpecificLogs(logs.rows, { 
+      types: ['command_sequence'] 
+    });
+    
+    res.json({
+      success: true,
+      message: 'Command sequence analysis triggered successfully',
+      analyzedLogs: logs.rows.length
+    });
+  } catch (error) {
+    console.error('Error in force analysis endpoint:', error);
+    res.status(500).json({ error: 'Failed to analyze command sequences', details: error.message });
+  }
+});
+
 // Get specific relations
 router.get('/:type/:value', authenticateToken, async (req, res) => {
   try {

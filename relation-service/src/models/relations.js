@@ -34,13 +34,12 @@ class RelationsModel {
       
       // Special handling for user commands to allow duplicates
       if (sourceType === 'username' && targetType === 'command') {
-        // Create a unique relation by using the timestamp in the source or target
-        // Only do this for commands - other relation types remain deduplicated
+        // Create a unique relation by using the timestamp plus random string
         const timestamp = metadata.timestamp || new Date();
-        const uniqueId = timestamp.getTime().toString();
+        // Add randomness to guarantee uniqueness
+        const uniqueId = `${timestamp.getTime()}_${Math.random().toString(36).substring(2, 12)}`;
         
-        // Create a new unique command by appending a timestamp suffix for the database
-        // But store the original command in the metadata for display
+        // Create a new unique command by appending a unique ID
         const originalCommand = targetValue;
         const uniqueCommand = `${targetValue}#${uniqueId}`;
         
@@ -69,7 +68,7 @@ class RelationsModel {
             timestamp
           ]
         );
-  
+
         return result.rows[0];
       }
       
@@ -105,7 +104,7 @@ class RelationsModel {
           metadata.timestamp || new Date()
         ]
       );
-  
+
       return result.rows[0];
     } catch (error) {
       console.error('Error upserting relation:', error);
@@ -367,34 +366,44 @@ class RelationsModel {
           AND target_type = 'command'
         ORDER BY last_seen DESC
       `);
-  
-      // Process to handle the unique commands with timestamp ids
-      const processedRows = result.rows.map(row => {
-        // Extract the original command from metadata or split the timestamp suffix
+      
+      // Process commands to clean them up
+      const commandsByUser = {};
+      
+      result.rows.forEach(row => {
         let cleanCommand;
         
+        // Extract the original command from metadata or by splitting at #
         if (row.metadata && row.metadata.originalCommand) {
-          // Use the stored original command if available in metadata
           cleanCommand = row.metadata.originalCommand;
+        } else if (row.command.includes('#')) {
+          cleanCommand = row.command.split('#')[0];
         } else {
-          // Otherwise try to parse the command with timestamp suffix
-          const commandParts = row.command.split('#');
-          if (commandParts.length > 1) {
-            // Remove the last part (timestamp) and rejoin the rest
-            // This handles cases where the command itself might contain # characters
-            cleanCommand = commandParts.slice(0, -1).join('#');
-          } else {
-            // If no timestamp suffix, use as-is
-            cleanCommand = row.command;
-          }
+          cleanCommand = row.command;
         }
         
-        return {
-          ...row,
-          command: cleanCommand
-        };
+        const username = row.username;
+        
+        // Create key to track actual duplicate commands (same user, same command, same time)
+        const timestamp = new Date(row.last_seen).getTime();
+        const key = `${username}_${cleanCommand}_${timestamp}`;
+        
+        // If we haven't processed this user/command/timestamp combination yet
+        if (!commandsByUser[key]) {
+          commandsByUser[key] = {
+            username,
+            command: cleanCommand,
+            first_seen: row.first_seen,
+            last_seen: row.last_seen,
+            metadata: row.metadata
+          };
+        }
       });
-  
+      
+      // Convert to array and sort by timestamp
+      const processedRows = Object.values(commandsByUser)
+        .sort((a, b) => new Date(b.last_seen) - new Date(a.last_seen));
+      
       // Cache the result
       this._cacheData(cacheKey, processedRows);
       
@@ -677,28 +686,67 @@ class RelationsModel {
    */
   static formatRelations(rows) {
     const relationMap = new Map();
-
+  
     rows.forEach(row => {
-      const source = row.source_value;
-      if (!relationMap.has(source)) {
-        relationMap.set(source, {
+      // For commands, clean up the targetValue by removing the unique suffix
+      let targetValue = row.target_value;
+      let sourceValue = row.source_value;
+      
+      // If this is a command relationship, clean up the command
+      if (row.target_type === 'command' && targetValue.includes('#')) {
+        // Try to get original command from metadata first
+        if (row.metadata && row.metadata.originalCommand) {
+          targetValue = row.metadata.originalCommand;
+        } else {
+          // Otherwise extract command by removing suffix
+          targetValue = targetValue.split('#')[0];
+        }
+      }
+      
+      // Create a key that doesn't include the unique suffix for commands
+      const source = sourceValue;
+      const mapKey = source;
+      
+      if (!relationMap.has(mapKey)) {
+        relationMap.set(mapKey, {
           source,
           type: row.source_type,
           related: []
         });
       }
-
-      relationMap.get(source).related.push({
-        target: row.target_value,
-        type: row.target_type,
-        strength: row.strength,
-        connectionCount: row.connection_count,
-        firstSeen: row.first_seen,
-        lastSeen: row.last_seen,
-        metadata: row.metadata
-      });
+  
+      // Check if this exact target already exists in the related items
+      // This prevents showing duplicate commands in the relations view
+      const existingRelated = relationMap.get(mapKey).related.find(item => 
+        item.type === row.target_type && item.target === targetValue
+      );
+      
+      if (!existingRelated) {
+        // Only add if not already present
+        relationMap.get(mapKey).related.push({
+          target: targetValue,
+          type: row.target_type,
+          strength: row.strength,
+          connectionCount: row.connection_count,
+          firstSeen: row.first_seen,
+          lastSeen: row.last_seen,
+          metadata: row.metadata
+        });
+      } else {
+        // Update the existing related item's timestamps if newer
+        if (new Date(row.last_seen) > new Date(existingRelated.lastSeen)) {
+          existingRelated.lastSeen = row.last_seen;
+        }
+        if (new Date(row.first_seen) < new Date(existingRelated.firstSeen)) {
+          existingRelated.firstSeen = row.first_seen;
+        }
+        
+        // Update strength and connection count (combine totals)
+        existingRelated.strength += row.strength;
+        existingRelated.connectionCount += row.connection_count;
+      }
     });
-
+  
     return Array.from(relationMap.values());
   }
   

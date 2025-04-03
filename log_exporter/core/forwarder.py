@@ -269,6 +269,9 @@ class LogForwarder:
                                 self.logger.warning(f"Missing timestamp, using current time: {log_entry['timestamp']}")
                             
                             self.logger.debug(f"Sending JSON payload with timestamp {log_entry.get('timestamp')}: {json.dumps(log_entry)}")
+
+                            time.sleep(0.05)
+                            
                             resp = requests.post(
                                 self.ingest_url,
                                 headers={
