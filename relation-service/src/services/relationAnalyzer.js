@@ -10,8 +10,8 @@ const {
   FileStatusAnalyzer,
   UserHostnameAnalyzer,
   UserIPAnalyzer,
-  MacAddressAnalyzer,
-  CommandSequenceAnalyzer
+  MacAddressAnalyzer
+  // Remove CommandSequenceAnalyzer
 } = require('./analyzers');
 
 /**
@@ -20,7 +20,7 @@ const {
  */
 class RelationAnalyzer {
   constructor() {
-    // Initialize all specialized analyzers
+    // Initialize all specialized analyzers (omitting CommandSequenceAnalyzer)
     this.analyzers = {
       user: new UserCommandAnalyzer(),
       ip: new IPAnalyzer(),
@@ -30,8 +30,8 @@ class RelationAnalyzer {
       command: new UserCommandAnalyzer(), // Alias for 'user'
       user_hostname: new UserHostnameAnalyzer(),
       user_ip: new UserIPAnalyzer(),
-      mac_address: new MacAddressAnalyzer(),
-      command_sequence: new CommandSequenceAnalyzer() // New command sequence analyzer
+      mac_address: new MacAddressAnalyzer()
+      // Remove command_sequence: new CommandSequenceAnalyzer() 
     };
   }
 
@@ -144,10 +144,9 @@ class RelationAnalyzer {
         .catch(error => console.error('Error in user-IP analysis:', error)),
       
       'mac_address': () => this.analyzers.mac_address.analyze(logs)
-        .catch(error => console.error('Error in MAC address analysis:', error)),
-        
-      'command_sequence': () => this.analyzers.command_sequence.analyze(logs)
-        .catch(error => console.error('Error in command sequence analysis:', error))
+        .catch(error => console.error('Error in MAC address analysis:', error))
+      
+      // Remove the command_sequence entry
     };
   }
 
@@ -160,7 +159,8 @@ class RelationAnalyzer {
   async analyzeSpecificLogs(logs, options = {}) {
     console.log(`Running targeted analysis for ${logs.length} logs`);
     
-    const analysisTypes = options.types || ['user', 'ip', 'hostname', 'domain', 'file', 'user_hostname', 'user_ip', 'mac_address', 'command_sequence'];
+    // Remove command_sequence from default analysis types
+    const analysisTypes = options.types || ['user', 'ip', 'hostname', 'domain', 'file', 'user_hostname', 'user_ip', 'mac_address'];
     const analysisPromises = [];
     
     for (const type of analysisTypes) {

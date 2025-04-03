@@ -248,8 +248,30 @@ export const useLoggerOperations = (currentUser, csrfToken) => {
       // Update the logs state with the new row
       setLogs(prevLogs => sortLogs([...prevLogs, createdRow]));
       
-      // Show success message or notification
-      console.log('Successfully created new log from template', createdRow);
+      // Notify relation service about template update with timeout
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000); // 10-second timeout
+        
+        await fetch('/relation-service/api/relations/notify/template-update', {
+          method: 'POST',
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json',
+            'CSRF-Token': csrfToken
+          },
+          signal: controller.signal
+        });
+        
+        clearTimeout(timeoutId);
+        console.log('Template update notification sent after row creation');
+      } catch (analyzeError) {
+        if (analyzeError.name === 'AbortError') {
+          console.log('Template update notification timed out, but processing continues on server');
+        } else {
+          console.error('Error triggering relation analysis:', analyzeError);
+        }
+      }
       
       return createdRow;
     } catch (err) {
@@ -298,19 +320,29 @@ export const useLoggerOperations = (currentUser, csrfToken) => {
       
       console.log('Successfully updated log with template data', updatedRow);
       
-      // Force command sequence analysis after template update
+      // Notify relation service about template updates with timeout
       try {
-        await fetch('/relation-service/api/updates/force-analyze-commands', {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000); // 10-second timeout
+        
+        await fetch('/relation-service/api/relations/notify/template-update', {
           method: 'POST',
           credentials: 'include',
           headers: {
             'Content-Type': 'application/json',
             'CSRF-Token': csrfToken
-          }
+          },
+          signal: controller.signal
         });
-        console.log('Command sequence analysis triggered');
+        
+        clearTimeout(timeoutId);
+        console.log('Template update notification sent after row update');
       } catch (analyzeError) {
-        console.error('Error triggering command analysis:', analyzeError);
+        if (analyzeError.name === 'AbortError') {
+          console.log('Template update notification timed out, but processing continues on server');
+        } else {
+          console.error('Error triggering relation analysis:', analyzeError);
+        }
       }
       
       return updatedRow;

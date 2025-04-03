@@ -5,6 +5,7 @@ const RelationsModel = require('../models/relations');
 const RelationAnalyzer = require('../services/relationAnalyzer');
 const { authenticateToken, verifyAdmin } = require('../middleware/auth.middleware');
 const _ = require('lodash');
+const db = require('../db');
 
 // Get all relations (base route)
 router.get('/', authenticateToken, async (req, res) => {
@@ -12,8 +13,8 @@ router.get('/', authenticateToken, async (req, res) => {
     const { limit = 100 } = req.query;
     const allRelations = [];
     
-    // Get relations for each type
-    const types = ['ip', 'hostname', 'domain', 'username', 'command', 'command_sequence', 'mac_address'];
+    // Get relations for each type - remove command_sequence from the types array
+    const types = ['ip', 'hostname', 'domain', 'username', 'command', 'mac_address'];
     
     for (const type of types) {
       const relations = await RelationsModel.getRelations(type, parseInt(limit));
@@ -27,48 +28,14 @@ router.get('/', authenticateToken, async (req, res) => {
   }
 });
 
-// Get command sequence patterns
-router.get('/command-sequences', authenticateToken, async (req, res) => {
-  try {
-    const { limit } = req.query;
-    console.log('Fetching command sequence patterns');
-    
-    const sequences = await RelationsModel.getCommandSequences(parseInt(limit) || 100);
-    
-    // Group sequences by username for better organization
-    const groupedSequences = _.groupBy(sequences, 'username');
-    
-    // Format the response
-    const formattedResponse = Object.entries(groupedSequences).map(([username, sequences]) => ({
-      username,
-      sequences: sequences.map(seq => ({
-        command1: seq.command1,
-        command2: seq.command2,
-        occurrences: seq.occurrences,
-        confidence: seq.confidence,
-        avgTimeDiff: seq.avgTimeDiff,
-        hostname: seq.hostname,
-        internal_ip: seq.internal_ip,
-        firstSeen: seq.firstSeen,
-        lastSeen: seq.lastSeen
-      }))
-    }));
-    
-    res.json(formattedResponse);
-  } catch (error) {
-    console.error('Error getting command sequences:', error);
-    res.status(500).json({ error: 'Failed to get command sequences' });
-  }
-});
-
 // Get relations by type
 router.get('/:type', authenticateToken, async (req, res) => {
   try {
     const { type } = req.params;
     const { limit } = req.query;
 
-    // Validate relation type
-    const validTypes = ['ip', 'hostname', 'domain', 'username', 'command', 'command_sequence', 'user', 'mac_address'];
+    // Validate relation type - remove command_sequence from valid types
+    const validTypes = ['ip', 'hostname', 'domain', 'username', 'command', 'user', 'mac_address'];
     if (!validTypes.includes(type)) {
       return res.status(400).json({
         error: 'Invalid relation type',
@@ -94,12 +61,6 @@ router.get('/:type', authenticateToken, async (req, res) => {
       }
       
       return res.json(userCommands);
-    }
-
-    // Special handling for command patterns
-    if (type === 'command_sequence') {
-      const sequences = await RelationsModel.getCommandSequences();
-      return res.json(sequences);
     }
     
     // Special handling for MAC address relations
@@ -135,34 +96,39 @@ router.get('/:type', authenticateToken, async (req, res) => {
   }
 });
 
-/**
- * Force analyze command sequences
- */
-router.post('/force-analyze-commands', authenticateToken, async (req, res) => {
+router.post('/notify/template-update', authenticateToken, async (req, res) => {
   try {
-    console.log('Forcing command sequence analysis');
+    console.log('Template update notification received');
     
-    // Get logs from the past day for analysis
+    // Only get recent logs (last 48 hours) instead of ALL logs
     const logs = await db.query(`
-      SELECT * FROM logs 
-      WHERE timestamp > NOW() - INTERVAL '24 hours'
+      SELECT *
+      FROM logs
+      WHERE timestamp > NOW() - INTERVAL '48 hours'
       ORDER BY timestamp DESC
       LIMIT 1000
     `);
     
-    // Specifically analyze command sequences
-    await RelationAnalyzer.analyzeSpecificLogs(logs.rows, { 
-      types: ['command_sequence'] 
-    });
+    console.log(`Scheduling re-analysis for ${logs.rows.length} logs after template update`);
     
+    // Respond immediately to prevent timeout
     res.json({
       success: true,
-      message: 'Command sequence analysis triggered successfully',
-      analyzedLogs: logs.rows.length
+      message: 'Template update received, analysis scheduled',
+      logsToAnalyze: logs.rows.length
     });
+    
+    // Then run the analysis asynchronously (after responding)
+    // This won't block the response
+    RelationAnalyzer.analyzeSpecificLogs(logs.rows, { 
+      types: ['user', 'hostname', 'ip', 'mac_address', 'domain'] 
+    }).catch(error => {
+      console.error('Async analysis error:', error);
+    });
+    
   } catch (error) {
-    console.error('Error in force analysis endpoint:', error);
-    res.status(500).json({ error: 'Failed to analyze command sequences', details: error.message });
+    console.error('Error in template update notification:', error);
+    res.status(500).json({ error: 'Failed to schedule re-analysis', details: error.message });
   }
 });
 

@@ -143,7 +143,7 @@ async function scheduleAnalysis() {
   return { immediate: false, batchSize: analysisQueue.length };
 }
 
-// MODIFIED: Health check endpoint (simplified)
+// Health check endpoint (simplified)
 app.get('/health', (req, res) => {
   res.json({ status: 'healthy' });
 });
@@ -287,7 +287,7 @@ const initializeDatabase = async () => {
       CREATE INDEX IF NOT EXISTS idx_file_status_history_mac_address ON file_status_history(mac_address);
     `);
     
-    console.log('Database tables initialized with optimized indexes including MAC address and command sequence support');
+    console.log('Database tables initialized with optimized indexes including MAC address support');
   } catch (error) {
     console.error('Database initialization error:', error);
     throw error;
@@ -321,33 +321,23 @@ const httpsOptions = {
 
 const server = https.createServer(httpsOptions, app);
 
-console.log('Running one-time command sequence analysis...');
-setTimeout(async () => {
-  try {
-    const logs = await db.query(`
-      SELECT * FROM logs 
-      WHERE timestamp > NOW() - INTERVAL '12 hours'
-      ORDER BY timestamp DESC
-      LIMIT 2000
-    `);
-    
-    await RelationAnalyzer.analyzeSpecificLogs(logs.rows, { 
-      types: ['command_sequence'] 
-    });
-    
-    console.log('Initial command sequence analysis completed successfully');
-  } catch (error) {
-    console.error('Error in initial command sequence analysis:', error);
-  }
-}, 10000); // Run 10 seconds after server start
-
 // Improved cron scheduling for relation analysis
 // User commands analysis - runs every 10 minutes
 cron.schedule('*/10 * * * *', async () => {
   console.log('Running scheduled relation analysis (user commands)...');
   try {
-    // Use the singleton instance with specific analyzer types
-    await RelationAnalyzer.analyzeSpecificLogs([], { types: ['user'] });
+    // Fetch logs from the past hour for analysis
+    const logs = await db.query(`
+      SELECT * FROM logs 
+      WHERE timestamp > NOW() - INTERVAL '1 hour'
+      ORDER BY timestamp DESC
+      LIMIT 1000
+    `);
+    
+    // Use analyzeSpecificLogs with user type
+    await RelationAnalyzer.analyzeSpecificLogs(logs.rows, { 
+      types: ['user'] 
+    });
     console.log('Scheduled user command analysis completed successfully');
   } catch (error) {
     console.error('Error in scheduled user command analysis:', error);
@@ -400,31 +390,7 @@ cron.schedule('10,40 * * * *', async () => {
   }
 });
 
-// Command sequence analysis - runs at 15 and 45 minutes past the hour
-cron.schedule('15,45 * * * *', async () => {
-  console.log('Running scheduled command sequence analysis...');
-  try {
-    // Fetch logs with a larger time window specifically for sequence analysis
-    const logs = await db.query(`
-      SELECT * FROM logs 
-      WHERE timestamp > NOW() - INTERVAL '12 hours'
-      ORDER BY timestamp DESC
-      LIMIT 2000
-    `);
-    
-    // Use analyzeSpecificLogs with command_sequence type
-    await RelationAnalyzer.analyzeSpecificLogs(logs.rows, { 
-      types: ['command_sequence'] 
-    });
-    
-    console.log('Scheduled command sequence analysis completed successfully');
-  } catch (error) {
-    console.error('Error in scheduled command sequence analysis:', error);
-  }
-});
-
 // Flush pending batches - runs every 2 minutes
-// This can stay the same since you're still using the batchService directly
 cron.schedule('*/2 * * * *', async () => {
   try {
     await batchService.flushAllBatches();
@@ -445,8 +411,10 @@ const startServer = async () => {
       console.log(`Relation service running on port ${PORT}`);
       console.log(`PostgreSQL SSL: ${process.env.POSTGRES_SSL === 'true' ? 'Enabled' : 'Disabled'}`);
       
-      // Run initial analysis for fresh data
-      RelationAnalyzer.analyzeLogs()
+      // Run initial analysis for fresh data - without command_sequence
+      RelationAnalyzer.analyzeLogs({ 
+        targetedTypes: ['ip', 'hostname', 'domain', 'username', 'user', 'mac_address'] 
+      })
         .then(() => console.log('Initial relation analysis completed'))
         .catch(error => console.error('Error in initial analysis:', error));
     });
