@@ -2,8 +2,6 @@
 import React, { useState, useEffect } from 'react';
 import { Clock, Calendar, Filter, RefreshCw, Search, User, Terminal } from 'lucide-react';
 
-const [showAllCommands, setShowAllCommands] = useState({});
-
 const CommandTimeline = ({ username }) => {
   const [commands, setCommands] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -302,7 +300,7 @@ const CommandTimeline = ({ username }) => {
                     
                     {/* Command list - limit to max 5 with "show more" option */}
                     <div className="space-y-2">
-                    {group.commands.slice(0, showAllCommands[group.time] ? undefined : 5).map((cmd, cmdIndex) => (
+                      {group.commands.slice(0, 5).map((cmd, cmdIndex) => (
                         <div key={cmdIndex} className="flex items-start gap-2">
                           <Terminal className="w-4 h-4 text-green-400 mt-1 flex-shrink-0" />
                           <div className="flex flex-col">
@@ -326,35 +324,9 @@ const CommandTimeline = ({ username }) => {
                       
                       {/* Show more button if there are more than 5 commands */}
                       {group.commands.length > 5 && (
-                        <React.Fragment>
-                          {!showAllCommands[group.time] ? (
-                            <button 
-                              className="text-xs text-blue-400 hover:text-blue-300 mt-1"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setShowAllCommands(prev => ({
-                                  ...prev,
-                                  [group.time]: true
-                                }));
-                              }}
-                            >
-                              Show {group.commands.length - 5} more commands...
-                            </button>
-                          ) : (
-                            <button 
-                              className="text-xs text-blue-400 hover:text-blue-300 mt-1"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setShowAllCommands(prev => ({
-                                  ...prev,
-                                  [group.time]: false
-                                }));
-                              }}
-                            >
-                              Show less
-                            </button>
-                          )}
-                        </React.Fragment>
+                        <button className="text-xs text-blue-400 hover:text-blue-300 mt-1">
+                          Show {group.commands.length - 5} more commands...
+                        </button>
                       )}
                     </div>
                   </div>
