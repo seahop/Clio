@@ -1,6 +1,6 @@
 // frontend/src/components/CommandSequenceViewer.jsx
 import React, { useState, useEffect } from 'react';
-import { Terminal, Clock, ChevronDown, ChevronRight, RefreshCw, User, Server, AlertCircle, ArrowRight } from 'lucide-react';
+import { Terminal, Clock, ChevronDown, ChevronRight, RefreshCw, User, Server, AlertCircle, ArrowRight, ArrowDown } from 'lucide-react';
 
 const CommandSequenceViewer = () => {
   const [sequences, setSequences] = useState([]);
@@ -176,7 +176,7 @@ const CommandSequenceViewer = () => {
               {expandedUsers.has(userSequences.username) && (
                 <div className="border-t border-gray-600">
                   <div className="p-3 text-xs text-gray-400 bg-gray-800/30">
-                    Showing sequence patterns where one command is frequently followed by another
+                    Showing sequence patterns where commands are frequently executed in a specific order
                   </div>
                   
                   <div className="space-y-3 p-4">
@@ -185,15 +185,40 @@ const CommandSequenceViewer = () => {
                         key={idx} 
                         className="bg-gray-800 rounded-md p-4 hover:bg-gray-700/50 transition-colors"
                       >
+                        {/* Command sequence details - modified to support long sequences */}
                         <div className="flex flex-col md:flex-row md:items-center gap-2 mb-3">
                           <div className="flex items-center flex-grow gap-2 font-mono text-sm">
-                            <div className="text-green-400 flex-grow break-all">
-                              {sequence.command1}
-                            </div>
-                            <ArrowRight className="mx-2 flex-shrink-0 text-gray-500" />
-                            <div className="text-blue-400 flex-grow break-all">
-                              {sequence.command2}
-                            </div>
+                            {sequence.fullSequence ? (
+                              // Display longer command sequences with connecting arrows
+                              <div className="flex flex-col w-full">
+                                <div className="flex items-center gap-2 text-blue-300 text-xs mb-1">
+                                  {sequence.length}-Command Sequence (Confidence: {Math.round(sequence.confidence * 100)}%)
+                                </div>
+                                <div className="flex flex-col gap-1">
+                                  {sequence.fullSequence.map((cmd, i) => (
+                                    <div key={i} className="flex items-center gap-2">
+                                      <div className={`${i === 0 ? 'text-green-400' : i === sequence.fullSequence.length - 1 ? 'text-blue-400' : 'text-yellow-300'} break-all`}>
+                                        {cmd}
+                                      </div>
+                                      {i < sequence.fullSequence.length - 1 && (
+                                        <ArrowDown className="mx-2 flex-shrink-0 text-gray-500" />
+                                      )}
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            ) : (
+                              // Original 2-command sequence display
+                              <>
+                                <div className="text-green-400 flex-grow break-all">
+                                  {sequence.command1}
+                                </div>
+                                <ArrowRight className="mx-2 flex-shrink-0 text-gray-500" />
+                                <div className="text-blue-400 flex-grow break-all">
+                                  {sequence.command2}
+                                </div>
+                              </>
+                            )}
                           </div>
                           
                           <div className="flex-shrink-0 text-xs px-2 py-1 rounded-full bg-blue-900/30 text-blue-300">

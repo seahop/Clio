@@ -597,6 +597,7 @@ class RelationsModel {
       // Not in cache, fetch from database with optimized query
       console.log('Fetching command sequences from database');
       
+      // Fetch both regular command sequences and multi-command sequences
       const result = await db.query(`
         SELECT 
           r.source_value as command1,
@@ -609,27 +610,34 @@ class RelationsModel {
         FROM relations r
         WHERE r.source_type = 'command'
           AND r.target_type = 'command'
-          AND r.metadata->>'type' = 'command_sequence'
+          AND (r.metadata->>'type' = 'command_sequence' OR r.metadata->>'type' = 'multi_command_sequence')
         ORDER BY 
           (r.metadata->>'confidence')::float DESC, 
           r.last_seen DESC
         LIMIT $1
       `, [limit]);
         
-      // Process the results to include the confidence and occurrences
-      const sequences = result.rows.map(row => ({
-        command1: row.command1,
-        command2: row.command2,
-        firstSeen: row.first_seen,
-        lastSeen: row.last_seen,
-        strength: row.strength,
-        occurrences: row.metadata.occurrences || row.connection_count,
-        confidence: parseFloat(row.metadata.confidence || 0.5),
-        avgTimeDiff: row.metadata.avgTimeDiff || 0,
-        username: row.metadata.username || null,
-        hostname: row.metadata.hostname || null,
-        internal_ip: row.metadata.internal_ip || null
-      }));
+      // Process the results
+      const sequences = result.rows.map(row => {
+        const isMultiSequence = row.metadata.type === 'multi_command_sequence';
+        
+        return {
+          command1: row.command1,
+          command2: row.command2,
+          // For multi-command sequences, include the full sequence
+          fullSequence: isMultiSequence ? row.metadata.fullSequence : null,
+          length: isMultiSequence ? row.metadata.length : 2,
+          firstSeen: row.first_seen,
+          lastSeen: row.last_seen,
+          strength: row.strength,
+          occurrences: row.metadata.occurrences || row.connection_count,
+          confidence: parseFloat(row.metadata.confidence || 0.5),
+          avgTimeDiff: row.metadata.avgTimeDiff || 0,
+          username: row.metadata.username || null,
+          hostname: row.metadata.hostname || null,
+          internal_ip: row.metadata.internal_ip || null
+        };
+      });
         
       // Cache the result
       this._cacheData(cacheKey, sequences);
