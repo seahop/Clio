@@ -6,7 +6,7 @@ import RelationViewer from './RelationViewer';
 import FileStatusTracker from './FileStatusTracker';
 import ExportDatabasePanel from './export/ExportDatabasePanel';
 import SessionManagement from './SessionManagement';
-import ApiKeyManager from './ApiKeyManager';
+import ApiKeyManager from './api-keys/ApiKeyManager';
 import ApiDocumentation from './ApiDocumentation';
 import LogManagement from './LogManagement';
 import UserSettings from './UserSettings';
