@@ -9,18 +9,16 @@ const CommandTimeline = ({ username }) => {
   const [timeRange, setTimeRange] = useState('24h'); // Default to 24 hours
   const [filteredCommands, setFilteredCommands] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
+  // State to track which time groups are expanded
+  const [expandedGroups, setExpandedGroups] = useState(new Set());
 
-  // Fetch user commands
+  // Fetch user commands directly from the API
   const fetchUserCommands = async () => {
     try {
       setLoading(true);
       
-      // Use the existing user commands endpoint, filter server-side by username if provided
-      const endpoint = username
-        ? `/relation-service/api/relations/user?username=${encodeURIComponent(username)}`
-        : '/relation-service/api/relations/user';
-        
-      const response = await fetch(endpoint, {
+      // Use the API endpoint directly
+      const response = await fetch('/relation-service/api/relations/user', {
         credentials: 'include',
         headers: {
           'Accept': 'application/json'
@@ -33,19 +31,34 @@ const CommandTimeline = ({ username }) => {
 
       const data = await response.json();
       
-      // Process the commands data to ensure it has timestamps
+      // Process the raw command data WITHOUT de-duplication
       const processedCommands = data
-        .filter(cmd => cmd.timestamp || cmd.last_seen)
+        .filter(cmd => {
+          // Filter out empty commands and ensure we have timestamp
+          return cmd.command && 
+                 cmd.command.trim() !== '' && 
+                 (cmd.timestamp || cmd.last_seen);
+        })
         .map(cmd => ({
-          ...cmd,
-          timestamp: cmd.timestamp || cmd.last_seen
+          id: `${cmd.username}_${cmd.command}_${cmd.last_seen}`, // Create unique ID
+          username: cmd.username,
+          command: cmd.command,
+          timestamp: cmd.timestamp || cmd.last_seen,
+          firstSeen: cmd.first_seen,
+          hostname: cmd.metadata?.hostname || null,
+          internal_ip: cmd.metadata?.internal_ip || null
         }))
         .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
       
-      setCommands(processedCommands);
+      // Filter by username if provided
+      const userFilteredCommands = username
+        ? processedCommands.filter(cmd => cmd.username === username)
+        : processedCommands;
+      
+      setCommands(userFilteredCommands);
       
       // Apply initial filtering based on time range
-      filterCommandsByTimeRange(processedCommands, timeRange);
+      filterCommandsByTimeRange(userFilteredCommands, timeRange);
     } catch (err) {
       console.error('Error fetching user commands:', err);
       setError(err.message);
@@ -106,6 +119,8 @@ const CommandTimeline = ({ username }) => {
     }
     
     setFilteredCommands(searchFiltered);
+    // Reset expanded groups when filter changes
+    setExpandedGroups(new Set());
   };
 
   // Handle time range change
@@ -121,6 +136,17 @@ const CommandTimeline = ({ username }) => {
     
     // Reapply filters with the new search query
     filterCommandsByTimeRange(commands, timeRange);
+  };
+
+  // Toggle expanded state for a time group
+  const toggleExpandGroup = (timeKey) => {
+    const newExpandedGroups = new Set(expandedGroups);
+    if (newExpandedGroups.has(timeKey)) {
+      newExpandedGroups.delete(timeKey);
+    } else {
+      newExpandedGroups.add(timeKey);
+    }
+    setExpandedGroups(newExpandedGroups);
   };
 
   // Group commands by hour/day for the timeline visualization
@@ -156,20 +182,26 @@ const CommandTimeline = ({ username }) => {
     return Array.from(timeMap.entries())
       .map(([key, cmds]) => {
         // Determine display format
-        let displayTime;
+        let displayDate, displayTime;
         const [year, month, day, hour] = key.split('-');
         
         if (groupByHour) {
-          // For hourly, show day and hour
+          // For hourly, separate date and time for better display
           const date = new Date(year, month - 1, day, hour);
-          displayTime = new Intl.DateTimeFormat('en-US', {
+          displayDate = new Intl.DateTimeFormat('en-US', {
             month: 'short',
-            day: 'numeric',
+            day: 'numeric'
+          }).format(date);
+          
+          displayTime = new Intl.DateTimeFormat('en-US', {
             hour: 'numeric',
             hour12: true
           }).format(date);
+          
+          // Combine into multi-line display
+          displayTime = `${displayDate}\n${displayTime}`;
         } else {
-          // For daily, show month and day
+          // For daily, just show month and day
           const date = new Date(year, month - 1, day);
           displayTime = new Intl.DateTimeFormat('en-US', {
             month: 'short',
@@ -177,14 +209,19 @@ const CommandTimeline = ({ username }) => {
           }).format(date);
         }
         
+        // Sort commands by timestamp in descending order (newest first)
+        const sortedCommands = cmds.sort((a, b) => 
+          new Date(b.timestamp) - new Date(a.timestamp)
+        );
+        
         return {
           time: key,
           displayTime,
-          commands: cmds,
-          count: cmds.length
+          commands: sortedCommands,
+          count: sortedCommands.length
         };
       })
-      .sort((a, b) => a.time.localeCompare(b.time));
+      .sort((a, b) => b.time.localeCompare(a.time)); // Newest time groups first
   };
 
   const timeGroups = groupCommandsByTime();
@@ -278,16 +315,16 @@ const CommandTimeline = ({ username }) => {
             {/* Timeline axis */}
             <div className="absolute left-[42px] top-0 bottom-0 w-[2px] bg-gray-600"></div>
             
-            {/* Timeline groups */}
-            <div className="space-y-1 relative">
+            {/* Timeline groups - Added more horizontal spacing */}
+            <div className="space-y-4 relative">
               {timeGroups.map((group, index) => (
-                <div key={group.time} className="ml-[60px] relative group">
-                  {/* Time marker */}
-                  <div className="absolute -left-[60px] flex items-center gap-2">
+                <div key={group.time} className="ml-[80px] relative group">
+                  {/* Time marker - Updated to vertical layout */}
+                  <div className="absolute -left-[60px] flex flex-col items-center gap-1">
                     <div className="w-6 h-6 rounded-full bg-blue-600 flex items-center justify-center z-10">
                       <Clock className="w-3 h-3 text-white" />
                     </div>
-                    <div className="text-xs text-gray-400 whitespace-nowrap">
+                    <div className="text-xs text-gray-400 text-center whitespace-nowrap max-w-[80px]">
                       {group.displayTime}
                     </div>
                   </div>
@@ -298,34 +335,41 @@ const CommandTimeline = ({ username }) => {
                       <span>{group.count} command{group.count !== 1 ? 's' : ''}</span>
                     </div>
                     
-                    {/* Command list - limit to max 5 with "show more" option */}
+                    {/* Command list - show all if expanded, otherwise limit to 5 */}
                     <div className="space-y-2">
-                      {group.commands.slice(0, 5).map((cmd, cmdIndex) => (
-                        <div key={cmdIndex} className="flex items-start gap-2">
-                          <Terminal className="w-4 h-4 text-green-400 mt-1 flex-shrink-0" />
-                          <div className="flex flex-col">
-                            <span className="font-mono text-sm text-gray-200 break-all">
-                              {cmd.command}
-                            </span>
-                            <div className="flex items-center gap-2 text-xs text-gray-500 mt-1">
-                              {!username && cmd.username && (
-                                <div className="flex items-center gap-1">
-                                  <User className="w-3 h-3" />
-                                  {cmd.username}
+                      {group.commands
+                        .slice(0, expandedGroups.has(group.time) ? undefined : 5)
+                        .map((cmd, cmdIndex) => (
+                          <div key={cmd.id || cmdIndex} className="flex items-start gap-2">
+                            <Terminal className="w-4 h-4 text-green-400 mt-1 flex-shrink-0" />
+                            <div className="flex flex-col">
+                              <span className="font-mono text-sm text-gray-200 break-all">
+                                {cmd.command}
+                              </span>
+                              <div className="flex items-center gap-2 text-xs text-gray-500 mt-1">
+                                {!username && cmd.username && (
+                                  <div className="flex items-center gap-1">
+                                    <User className="w-3 h-3" />
+                                    {cmd.username}
+                                  </div>
+                                )}
+                                <div>
+                                  {new Date(cmd.timestamp).toLocaleTimeString()}
                                 </div>
-                              )}
-                              <div>
-                                {new Date(cmd.timestamp).toLocaleTimeString()}
                               </div>
                             </div>
                           </div>
-                        </div>
-                      ))}
+                        ))}
                       
-                      {/* Show more button if there are more than 5 commands */}
+                      {/* Show more/less button if there are more than 5 commands */}
                       {group.commands.length > 5 && (
-                        <button className="text-xs text-blue-400 hover:text-blue-300 mt-1">
-                          Show {group.commands.length - 5} more commands...
+                        <button 
+                          onClick={() => toggleExpandGroup(group.time)}
+                          className="text-xs text-blue-400 hover:text-blue-300 mt-1"
+                        >
+                          {expandedGroups.has(group.time) 
+                            ? "Show fewer commands" 
+                            : `Show ${group.commands.length - 5} more commands...`}
                         </button>
                       )}
                     </div>

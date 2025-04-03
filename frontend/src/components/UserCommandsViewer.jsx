@@ -28,9 +28,8 @@ const UserCommandsViewer = () => {
         }
 
         const data = await response.json();
-        console.log('Raw user commands data:', data);
         
-        // Group commands by user and filter out empty commands
+        // Group commands by user and filter out empty commands - without de-duplication
         const groupedCommands = data.reduce((acc, relation) => {
           // Skip empty or whitespace-only commands
           if (!relation.command || relation.command.trim() === '') {
@@ -42,19 +41,13 @@ const UserCommandsViewer = () => {
             acc[username] = [];
           }
           
-          // Check if this command already exists for this user
-          const commandExists = acc[username].some(cmd => 
-            cmd.command === relation.command
-          );
-          
-          // Only add commands that don't already exist
-          if (!commandExists) {
-            acc[username].push({
-              command: relation.command,
-              timestamp: relation.last_seen,
-              firstSeen: relation.first_seen
-            });
-          }
+          // Add each command instance with a unique ID
+          acc[username].push({
+            id: `${username}_${relation.command}_${relation.last_seen}`, // Unique ID
+            command: relation.command,
+            timestamp: relation.last_seen,
+            firstSeen: relation.first_seen
+          });
           
           return acc;
         }, {});
@@ -147,9 +140,9 @@ const UserCommandsViewer = () => {
 
                 {expandedUsers.has(username) && (
                   <div className="border-t border-gray-600">
-                    {commands.map((cmd, index) => (
+                    {commands.map((cmd) => (
                       <div
-                        key={index}
+                        key={cmd.id}
                         className="px-4 py-3 flex flex-col gap-2 border-b border-gray-600/50 last:border-0 hover:bg-gray-600/25"
                       >
                         <div className="flex items-start gap-3">

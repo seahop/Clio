@@ -10,8 +10,8 @@ const { BaseAnalyzer } = require('./baseAnalyzer');
 class CommandSequenceAnalyzer extends BaseAnalyzer {
   constructor() {
     super('commandSequences');
-    this.SEQUENCE_WINDOW = 10 * 60 * 1000; // 10 minutes in milliseconds
-    this.MIN_SEQUENCE_CONFIDENCE = 0.4; // Minimum confidence threshold (40%)
+    this.SEQUENCE_WINDOW = 15 * 60 * 1000; // 15 minutes in milliseconds
+    this.MIN_SEQUENCE_CONFIDENCE = 0.35; // Minimum confidence threshold (35%)
   }
 
   /**

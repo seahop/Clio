@@ -32,6 +32,48 @@ class RelationsModel {
         targetValue = targetValue.toUpperCase().replace(/[:-]/g, '').match(/.{1,2}/g)?.join('-') || targetValue;
       }
       
+      // Special handling for user commands to allow duplicates
+      if (sourceType === 'username' && targetType === 'command') {
+        // Create a unique relation by using the timestamp in the source or target
+        // Only do this for commands - other relation types remain deduplicated
+        const timestamp = metadata.timestamp || new Date();
+        const uniqueId = timestamp.getTime().toString();
+        
+        // Create a new unique command by appending a timestamp suffix for the database
+        // But store the original command in the metadata for display
+        const originalCommand = targetValue;
+        const uniqueCommand = `${targetValue}#${uniqueId}`;
+        
+        // Store the original command in metadata for retrieval
+        metadata.originalCommand = originalCommand;
+        
+        // Invalidate cache for this relation type
+        this._invalidateCache(sourceType);
+        this._invalidateCache(targetType);
+        
+        // Insert this as a completely new relation rather than updating
+        const result = await db.query(`
+          INSERT INTO relations (
+            source_type, source_value, target_type, target_value,
+            metadata, first_seen, last_seen, strength, connection_count
+          )
+          VALUES ($1, $2, $3, $4, $5, $6, $7, 1, 1)
+          RETURNING *`,
+          [
+            sourceType,
+            sourceValue,
+            targetType,
+            uniqueCommand, // Store the unique command with timestamp
+            metadata,
+            metadata.firstSeen || timestamp,
+            timestamp
+          ]
+        );
+  
+        return result.rows[0];
+      }
+      
+      // For non-command relations, use the standard behavior with ON CONFLICT
       // Invalidate cache for this relation type
       this._invalidateCache(sourceType);
       this._invalidateCache(targetType);
@@ -63,7 +105,7 @@ class RelationsModel {
           metadata.timestamp || new Date()
         ]
       );
-
+  
       return result.rows[0];
     } catch (error) {
       console.error('Error upserting relation:', error);
@@ -311,7 +353,6 @@ class RelationsModel {
       }
       
       // Not in cache, fetch from database with optimized query
-      // Add some debugging to see if we have backslash issues
       console.log('Fetching user commands from database');
       
       const result = await db.query(`
@@ -327,26 +368,32 @@ class RelationsModel {
         ORDER BY last_seen DESC
       `);
   
-      // Log the first few commands to check for backslash issues
-      if (result.rows.length > 0) {
-        console.log('Sample commands from database:');
-        result.rows.slice(0, 3).forEach((row, i) => {
-          console.log(`Command ${i+1}: ${row.username} - ${
-            row.command ? 
-              (row.command.length > 50 ? 
-                row.command.substring(0, 50) + '...' : 
-                row.command) : 
-              'null'
-          }`);
-        });
-      }
-  
-      // Make sure commands with backslashes are properly escaped in JSON
-      const processedRows = result.rows.map(row => ({
-        ...row,
-        // Ensure command is passed as-is without manipulation
-        command: row.command
-      }));
+      // Process to handle the unique commands with timestamp ids
+      const processedRows = result.rows.map(row => {
+        // Extract the original command from metadata or split the timestamp suffix
+        let cleanCommand;
+        
+        if (row.metadata && row.metadata.originalCommand) {
+          // Use the stored original command if available in metadata
+          cleanCommand = row.metadata.originalCommand;
+        } else {
+          // Otherwise try to parse the command with timestamp suffix
+          const commandParts = row.command.split('#');
+          if (commandParts.length > 1) {
+            // Remove the last part (timestamp) and rejoin the rest
+            // This handles cases where the command itself might contain # characters
+            cleanCommand = commandParts.slice(0, -1).join('#');
+          } else {
+            // If no timestamp suffix, use as-is
+            cleanCommand = row.command;
+          }
+        }
+        
+        return {
+          ...row,
+          command: cleanCommand
+        };
+      });
   
       // Cache the result
       this._cacheData(cacheKey, processedRows);
