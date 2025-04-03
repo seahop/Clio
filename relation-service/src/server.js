@@ -166,18 +166,42 @@ const initializeDatabase = async () => {
         UNIQUE(source_type, source_value, target_type, target_value)
       );
 
+      -- Basic indices for all relation types
       CREATE INDEX IF NOT EXISTS idx_relations_source ON relations(source_type, source_value);
       CREATE INDEX IF NOT EXISTS idx_relations_target ON relations(target_type, target_value);
       CREATE INDEX IF NOT EXISTS idx_relations_last_seen ON relations(last_seen);
       CREATE INDEX IF NOT EXISTS idx_relations_compound ON relations(source_type, source_value, target_type, target_value);
       CREATE INDEX IF NOT EXISTS idx_relations_metadata_gin ON relations USING GIN (metadata);
       
-      -- Add specific indexes for MAC address relations
+      -- Specialized indices for MAC address relations
       CREATE INDEX IF NOT EXISTS idx_relations_mac_address_source ON relations(source_value) 
       WHERE source_type = 'mac_address';
       
       CREATE INDEX IF NOT EXISTS idx_relations_mac_address_target ON relations(target_value)
       WHERE target_type = 'mac_address';
+      
+      -- Specialized indices for command sequence analysis
+      CREATE INDEX IF NOT EXISTS idx_relations_command_sequence ON relations(source_type, target_type, source_value, target_value)
+      WHERE source_type = 'command' AND target_type = 'command';
+      
+      -- Add GIN index for metadata.type to make command sequence queries more efficient
+      CREATE INDEX IF NOT EXISTS idx_relations_metadata_type_gin ON relations USING GIN ((metadata -> 'type'));
+      
+      -- Add index for confidence score to make sorting by confidence more efficient
+      CREATE INDEX IF NOT EXISTS idx_relations_confidence ON relations((metadata->>'confidence') DESC NULLS LAST)
+      WHERE metadata->>'type' = 'command_sequence';
+      
+      -- Add an index for username in metadata to improve filtering
+      CREATE INDEX IF NOT EXISTS idx_relations_metadata_username ON relations((metadata->>'username'))
+      WHERE metadata->>'type' = 'command_sequence';
+      
+      -- Add an index for occurrence timestamp to improve temporal analysis
+      CREATE INDEX IF NOT EXISTS idx_relations_last_seen_command_sequence ON relations(last_seen DESC)
+      WHERE metadata->>'type' = 'command_sequence';
+      
+      -- Add an index for hostname to improve filtering by hostname
+      CREATE INDEX IF NOT EXISTS idx_relations_metadata_hostname ON relations((metadata->>'hostname'))
+      WHERE metadata->>'type' = 'command_sequence';
     `);
     
     // Create file_status table without any unique constraints
@@ -263,7 +287,7 @@ const initializeDatabase = async () => {
       CREATE INDEX IF NOT EXISTS idx_file_status_history_mac_address ON file_status_history(mac_address);
     `);
     
-    console.log('Database tables initialized with optimized indexes including MAC address support');
+    console.log('Database tables initialized with optimized indexes including MAC address and command sequence support');
   } catch (error) {
     console.error('Database initialization error:', error);
     throw error;
@@ -296,6 +320,26 @@ const httpsOptions = {
 };
 
 const server = https.createServer(httpsOptions, app);
+
+console.log('Running one-time command sequence analysis...');
+setTimeout(async () => {
+  try {
+    const logs = await db.query(`
+      SELECT * FROM logs 
+      WHERE timestamp > NOW() - INTERVAL '12 hours'
+      ORDER BY timestamp DESC
+      LIMIT 2000
+    `);
+    
+    await RelationAnalyzer.analyzeSpecificLogs(logs.rows, { 
+      types: ['command_sequence'] 
+    });
+    
+    console.log('Initial command sequence analysis completed successfully');
+  } catch (error) {
+    console.error('Error in initial command sequence analysis:', error);
+  }
+}, 10000); // Run 10 seconds after server start
 
 // Improved cron scheduling for relation analysis
 // User commands analysis - runs every 10 minutes
@@ -353,6 +397,29 @@ cron.schedule('10,40 * * * *', async () => {
     console.log('Scheduled domain/files analysis completed successfully');
   } catch (error) {
     console.error('Error in scheduled domain/files analysis:', error);
+  }
+});
+
+// Command sequence analysis - runs at 15 and 45 minutes past the hour
+cron.schedule('15,45 * * * *', async () => {
+  console.log('Running scheduled command sequence analysis...');
+  try {
+    // Fetch logs with a larger time window specifically for sequence analysis
+    const logs = await db.query(`
+      SELECT * FROM logs 
+      WHERE timestamp > NOW() - INTERVAL '12 hours'
+      ORDER BY timestamp DESC
+      LIMIT 2000
+    `);
+    
+    // Use analyzeSpecificLogs with command_sequence type
+    await RelationAnalyzer.analyzeSpecificLogs(logs.rows, { 
+      types: ['command_sequence'] 
+    });
+    
+    console.log('Scheduled command sequence analysis completed successfully');
+  } catch (error) {
+    console.error('Error in scheduled command sequence analysis:', error);
   }
 });
 

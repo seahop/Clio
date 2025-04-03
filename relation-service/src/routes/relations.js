@@ -4,6 +4,7 @@ const router = express.Router();
 const RelationsModel = require('../models/relations');
 const RelationAnalyzer = require('../services/relationAnalyzer');
 const { authenticateToken, verifyAdmin } = require('../middleware/auth.middleware');
+const _ = require('lodash');
 
 // Get all relations (base route)
 router.get('/', authenticateToken, async (req, res) => {
@@ -23,6 +24,40 @@ router.get('/', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Error getting all relations:', error);
     res.status(500).json({ error: 'Failed to get relations' });
+  }
+});
+
+// Get command sequence patterns
+router.get('/command-sequences', authenticateToken, async (req, res) => {
+  try {
+    const { limit } = req.query;
+    console.log('Fetching command sequence patterns');
+    
+    const sequences = await RelationsModel.getCommandSequences(parseInt(limit) || 100);
+    
+    // Group sequences by username for better organization
+    const groupedSequences = _.groupBy(sequences, 'username');
+    
+    // Format the response
+    const formattedResponse = Object.entries(groupedSequences).map(([username, sequences]) => ({
+      username,
+      sequences: sequences.map(seq => ({
+        command1: seq.command1,
+        command2: seq.command2,
+        occurrences: seq.occurrences,
+        confidence: seq.confidence,
+        avgTimeDiff: seq.avgTimeDiff,
+        hostname: seq.hostname,
+        internal_ip: seq.internal_ip,
+        firstSeen: seq.firstSeen,
+        lastSeen: seq.lastSeen
+      }))
+    }));
+    
+    res.json(formattedResponse);
+  } catch (error) {
+    console.error('Error getting command sequences:', error);
+    res.status(500).json({ error: 'Failed to get command sequences' });
   }
 });
 

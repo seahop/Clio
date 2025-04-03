@@ -1,8 +1,10 @@
 // frontend/src/components/RelationViewer.jsx
 import React, { useState, useEffect } from 'react';
-import { Network, AlertCircle, User, RefreshCw, Cpu } from 'lucide-react';
+import { Network, AlertCircle, User, RefreshCw, Cpu, Clock, AlignLeft } from 'lucide-react';
 import UserCommandsViewer from './UserCommandsViewer';
 import MacAddressViewer from './MacAddressViewer';
+import CommandSequenceViewer from './CommandSequenceViewer';
+import CommandTimeline from './CommandTimeline';
 import RelationFilters from './relations/RelationFilters';
 import RelationList from './relations/RelationList';
 
@@ -19,11 +21,16 @@ const RelationViewer = () => {
     { id: 'hostname', label: 'Hostname Relations' },
     { id: 'domain', label: 'Domain Relations' },
     { id: 'mac_address', label: 'MAC Address Relations' },
-    { id: 'user', label: 'User Commands' }
+    { id: 'user', label: 'User Commands' },
+    { id: 'command_sequence', label: 'Command Patterns' },
+    { id: 'command_timeline', label: 'Command Timeline' }
   ];
 
   const fetchRelations = async () => {
-    if (selectedFilter === 'user' || selectedFilter === 'mac_address') {
+    if (selectedFilter === 'user' || 
+        selectedFilter === 'mac_address' || 
+        selectedFilter === 'command_sequence' ||
+        selectedFilter === 'command_timeline') {
       setLoading(false);
       return;
     }
@@ -135,6 +142,14 @@ const RelationViewer = () => {
     if (selectedFilter === 'mac_address') {
       return <MacAddressViewer />;
     }
+    
+    if (selectedFilter === 'command_sequence') {
+      return <CommandSequenceViewer />;
+    }
+    
+    if (selectedFilter === 'command_timeline') {
+      return <CommandTimeline />;
+    }
 
     if (loading) {
       return (
@@ -161,11 +176,17 @@ const RelationViewer = () => {
             <User className="w-5 h-5" />
           ) : selectedFilter === 'mac_address' ? (
             <Cpu className="w-5 h-5" />
+          ) : selectedFilter === 'command_sequence' ? (
+            <Clock className="w-5 h-5" />
+          ) : selectedFilter === 'command_timeline' ? (
+            <AlignLeft className="w-5 h-5" />
           ) : (
             <Network className="w-5 h-5" />
           )}
           {selectedFilter === 'user' ? 'User Command Analysis' : 
            selectedFilter === 'mac_address' ? 'MAC Address Relations' : 
+           selectedFilter === 'command_sequence' ? 'Command Sequence Patterns' :
+           selectedFilter === 'command_timeline' ? 'Command Timeline Analysis' :
            'Log Relations'}
         </h2>
         <div className="flex gap-2">
