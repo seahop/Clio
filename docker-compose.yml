@@ -8,8 +8,12 @@ services:
       - "3000"
     volumes:
       - type: bind
-        source: ./certs
-        target: /app/certs
+        source: ./certs/server.crt
+        target: /app/certs/server.crt
+        read_only: true
+      - type: bind
+        source: ./certs/server.key
+        target: /app/certs/server.key
         read_only: true
     env_file:
       - ./frontend/.env
@@ -46,8 +50,20 @@ services:
         source: ./backend/data
         target: /app/data
       - type: bind
-        source: ./certs
-        target: /app/certs
+        source: ./certs/server.crt
+        target: /app/certs/server.crt
+        read_only: true
+      - type: bind
+        source: ./certs/server.key
+        target: /app/certs/server.key
+        read_only: true
+      - type: bind
+        source: ./certs/backend.crt
+        target: /app/certs/backend.crt
+        read_only: true
+      - type: bind
+        source: ./certs/backend.key
+        target: /app/certs/backend.key
         read_only: true
       - type: bind
         source: ./backend/exports
@@ -94,8 +110,20 @@ services:
         source: ./relation-service/data
         target: /app/src/data
       - type: bind
-        source: ./certs
-        target: /app/certs
+        source: ./certs/server.crt
+        target: /app/certs/server.crt
+        read_only: true
+      - type: bind
+        source: ./certs/server.key
+        target: /app/certs/server.key
+        read_only: true
+      - type: bind
+        source: ./certs/backend.crt
+        target: /app/certs/backend.crt
+        read_only: true
+      - type: bind
+        source: ./certs/backend.key
+        target: /app/certs/backend.key
         read_only: true
       - type: bind
         source: ./relation-service/logs
@@ -138,7 +166,18 @@ services:
       - "6379"
     volumes:
       - redis_data:/data
-      - ./certs:/certs:ro
+      - type: bind
+        source: ./certs/redis.crt
+        target: /certs/redis.crt
+        read_only: true
+      - type: bind
+        source: ./certs/redis.key
+        target: /certs/redis.key
+        read_only: true
+      - type: bind
+        source: ./certs/server.crt
+        target: /certs/server.crt
+        read_only: true
     env_file:
       - ./redis/.env
     environment:
@@ -177,8 +216,22 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./backend/db/init:/docker-entrypoint-initdb.d
-      - ./certs/server.crt:/tmp/certs/server.crt:ro
-      - ./certs/server.key:/tmp/certs/server.key:ro
+      - type: bind
+        source: ./certs/server.crt
+        target: /tmp/certs/server.crt
+        read_only: true
+      - type: bind
+        source: ./certs/server.key
+        target: /tmp/certs/server.key
+        read_only: true
+      - type: bind
+        source: ./certs/db.crt
+        target: /tmp/certs/db.crt
+        read_only: true
+      - type: bind
+        source: ./certs/db.key
+        target: /tmp/certs/db.key
+        read_only: true
     env_file:
       - ./db/.env
     environment:
@@ -201,20 +254,35 @@ services:
     restart: unless-stopped
 
   nginx-proxy:
-      build: ./nginx-proxy
-      ports:
-        - "80:80"
-        - "443:443"
-      volumes:
-        - ./certs:/etc/nginx/certs:ro
-      environment:
-        - TZ=UTC  # Force UTC timezone
-      networks:
-        - frontend-network
-      restart: unless-stopped
-      depends_on:
-        - frontend
-        - backend
+    build: ./nginx-proxy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - type: bind
+        source: ./certs/server.crt
+        target: /etc/nginx/certs/server.crt
+        read_only: true
+      - type: bind
+        source: ./certs/server.key
+        target: /etc/nginx/certs/server.key
+        read_only: true
+      - type: bind
+        source: ${LETSENCRYPT_CERT_PATH:-./certs/server.crt}
+        target: /etc/nginx/certs/letsencrypt-fullchain.pem
+        read_only: true
+      - type: bind
+        source: ${LETSENCRYPT_KEY_PATH:-./certs/server.key}
+        target: /etc/nginx/certs/letsencrypt-privkey.pem
+        read_only: true
+    environment:
+      - TZ=UTC  # Force UTC timezone
+    networks:
+      - frontend-network
+    restart: unless-stopped
+    depends_on:
+      - frontend
+      - backend
 
 volumes:
   redis_data:

@@ -53,7 +53,29 @@ POSTGRES_DB=redteamlogger
 # Redis password - needed for docker-compose health checks
 REDIS_PASSWORD={creds['redis_password']}
 
-# This minimal .env file only contains variables needed for docker-compose health checks
+# Let's Encrypt certificate paths (used for conditional volume mounting)
+"""
+    
+    # Check if Let's Encrypt certificates exist
+    letsencrypt_fullchain = Path("certs/letsencrypt-fullchain.pem")
+    letsencrypt_privkey = Path("certs/letsencrypt-privkey.pem")
+    has_letsencrypt = letsencrypt_fullchain.exists() and letsencrypt_privkey.exists()
+    
+    # Add Let's Encrypt certificate paths if certificates exist
+    if has_letsencrypt:
+        env_content += f"""# Using Let's Encrypt certificates
+LETSENCRYPT_CERT_PATH=./certs/letsencrypt-fullchain.pem
+LETSENCRYPT_KEY_PATH=./certs/letsencrypt-privkey.pem
+"""
+    else:
+        env_content += f"""# Using self-signed certificates (server.crt and server.key)
+# If Let's Encrypt certificates are obtained, these will be updated automatically
+LETSENCRYPT_CERT_PATH=./certs/server.crt
+LETSENCRYPT_KEY_PATH=./certs/server.key
+"""
+
+    env_content += f"""
+# This minimal .env file contains variables needed for docker-compose health checks and certificate paths
 # Service-specific environment variables are in their respective .env files
 """
 

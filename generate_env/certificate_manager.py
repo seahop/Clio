@@ -98,7 +98,7 @@ def generate_self_signed_certificate(args):
         subject = issuer = x509.Name([
             x509.NameAttribute(NameOID.COMMON_NAME, args.hostname),
             x509.NameAttribute(NameOID.COUNTRY_NAME, "US"),
-            x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Red Team Logger Development"),
+            x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Clio Logging Platform")
         ])
         
         # Certificate validity
@@ -122,7 +122,7 @@ def generate_self_signed_certificate(args):
             .sign(private_key, hashes.SHA256(), default_backend())
         )
         
-        # Save the certificate and key
+        # Save the main server certificate and key
         key_path = certs_dir / "server.key"
         cert_path = certs_dir / "server.crt"
         
@@ -142,8 +142,8 @@ def generate_self_signed_certificate(args):
         # Make certificate readable by all
         os.chmod(cert_path, 0o644)
         
-        # Create symbolic links or copy files for service-specific names with correct permissions
-        for service in ['frontend', 'backend', 'db', 'redis', 'relation-service']:
+        # Create certificates only for the necessary services
+        for service in ['backend', 'db', 'redis']:
             service_key_path = certs_dir / f"{service}.key"
             service_cert_path = certs_dir / f"{service}.crt"
             
@@ -166,7 +166,7 @@ def generate_self_signed_certificate(args):
             os.system(f"chmod -R a+r {certs_dir}")
         
         print("\033[32mSSL certificate generated successfully\033[0m")
-        print("\033[32mAll certificates have been set with proper permissions (644)\033[0m")
+        print("\033[32mGenerated server.crt, server.key, and service-specific certificates with permissions 644\033[0m")
         return True
         
     except ImportError:
@@ -183,6 +183,37 @@ def generate_self_signed_certificate(args):
         print(f"\033[31mError generating certificate: {str(e)}\033[0m")
         return False
 
+def update_env_with_letsencrypt_paths(cert_path, key_path):
+    """Update the .env file with Let's Encrypt certificate paths"""
+    env_path = '.env'
+    if os.path.exists(env_path):
+        # Read existing .env file
+        with open(env_path, 'r') as f:
+            lines = f.readlines()
+        
+        # Update or add the LETSENCRYPT_CERT_PATH and LETSENCRYPT_KEY_PATH variables
+        cert_updated = False
+        key_updated = False
+        
+        for i, line in enumerate(lines):
+            if line.startswith('LETSENCRYPT_CERT_PATH='):
+                lines[i] = f'LETSENCRYPT_CERT_PATH={cert_path}\n'
+                cert_updated = True
+            elif line.startswith('LETSENCRYPT_KEY_PATH='):
+                lines[i] = f'LETSENCRYPT_KEY_PATH={key_path}\n'
+                key_updated = True
+        
+        if not cert_updated:
+            lines.append(f'LETSENCRYPT_CERT_PATH={cert_path}\n')
+        if not key_updated:
+            lines.append(f'LETSENCRYPT_KEY_PATH={key_path}\n')
+        
+        # Write updated .env file
+        with open(env_path, 'w') as f:
+            f.writelines(lines)
+        
+        print("\033[32mUpdated .env file with Let's Encrypt certificate paths\033[0m")
+        
 def get_letsencrypt_certificate_hybrid(args):
     """Obtain a Let's Encrypt certificate for frontend while using self-signed for internal services"""
     domain = args.domain
@@ -267,6 +298,9 @@ def copy_letsencrypt_certs_for_nginx(domain):
         # Set proper permissions
         os.chmod(nginx_cert, 0o644)
         os.chmod(nginx_key, 0o644)
+        
+        # Update the .env file to set the LETSENCRYPT_CERT_PATH and LETSENCRYPT_KEY_PATH variables
+        update_env_with_letsencrypt_paths("./certs/letsencrypt-fullchain.pem", "./certs/letsencrypt-privkey.pem")
         
         print("\033[32mLet's Encrypt certificates copied for Nginx use\033[0m")
         return True
