@@ -137,10 +137,10 @@ def random_user() -> Tuple[str, str]:
 def random_computer() -> str:
     return random.choice(COMPUTER_NAMES)
 
-# Format a command with parameters
+    # Format a command with parameters
 def format_command(command: str) -> str:
     # Count the number of placeholders in the command
-    placeholder_count = command.count("{") // 2  # Each placeholder has "{" and "}"
+    placeholder_count = command.count("{")
     
     if placeholder_count > 0:
         # Prepare arguments based on command type
@@ -200,21 +200,40 @@ def format_command(command: str) -> str:
         elif "powershell Invoke-Command" in command:
             # Handle remote command execution
             args = [random_computer()]
+        elif "powershell Invoke-WebRequest" in command or "powershell Set-ExecutionPolicy" in command:
+            # Handle web requests with server IP
+            args = [random_ip()]
         else:
-            # Default case: just use a username
-            args = [random.choice(USERNAMES)]
+            # Default case: just use a username or IP based on the command context
+            if any(term in command for term in ["ping", "curl", "wget", "http", "server"]):
+                args = [random_ip()]
+            else:
+                args = [random.choice(USERNAMES)]
             
-        # Fill only as many args as we have and pad with defaults if needed
+        # Fill in with enough arguments to satisfy all placeholders
         while len(args) < placeholder_count:
-            args.append(f"param{len(args)}")
+            if len(args) == 0:
+                args.append(random.choice(USERNAMES))
+            elif len(args) == 1:
+                # Second arg is often an IP
+                args.append(random_ip())
+            else:
+                # Other args could be various things
+                options = [
+                    random.choice(USERNAMES),
+                    random_ip(),
+                    random_computer(),
+                    str(random.randint(1000, 9999)),
+                    random.choice(["x64", "x86", "cmd.exe", "powershell.exe"])
+                ]
+                args.append(random.choice(options))
             
-        # Only use as many arguments as we have placeholders
-        args = args[:placeholder_count]
-            
+        # Format the command with all arguments
         try:
-            return command.format(*args)
+            formatted = command.format(*args)
+            return formatted
         except Exception as e:
-            # If format fails, return a simple command as fallback
+            # If formatting fails, return a simplified version of the command
             return command.split("{")[0].strip()
     else:
         return command
@@ -227,9 +246,21 @@ def generate_beacon_entry(beacon_id: int, domain: str, username: str, hostname: 
     
     # Choose either a simple or advanced command with 30% chance of advanced
     if random.random() < 0.3:
-        command = format_command(random.choice(ADVANCED_COMMANDS))
+        command_template = random.choice(ADVANCED_COMMANDS)
     else:
-        command = format_command(random.choice(SIMPLE_COMMANDS))
+        command_template = random.choice(SIMPLE_COMMANDS)
+    
+    # Process the command template to replace all placeholders
+    command = format_command(command_template)
+    
+    # If any placeholders remain, try a different command
+    if "{" in command and "}" in command:
+        # Fallback to a simple command with no placeholders
+        fallback_commands = [cmd for cmd in SIMPLE_COMMANDS if "{" not in cmd]
+        if fallback_commands:
+            command = random.choice(fallback_commands)
+        else:
+            command = "shell whoami"  # Ultimate fallback
     
     # Prepare the user string based on domain
     if domain in ["NT AUTHORITY", "NT SERVICE", "LOCAL SERVICE", "NETWORK SERVICE"] and not username:
