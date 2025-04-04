@@ -132,24 +132,15 @@ class CobalStrikeParser(BaseLogParser):
                         self.logger.debug(f"  Extracted: time={time_str}, beacon_id={beacon_id}, username={username}, hostname={hostname}")
                         self.logger.debug(f"  Command: {command}")
                         
-                        # Parse domain if present in username
-                        domain = ""
-                        if '\\' in username:
-                            domain, username = username.split('\\')
-                            self.logger.debug(f"  Parsed domain from username: domain={domain}, username={username}")
-                        elif '/' in username:
-                            domain, username = username.split('/')
-                            self.logger.debug(f"  Parsed domain from username: domain={domain}, username={username}")
-                        
                         # Create ISO timestamp from the log date and time string
                         iso_timestamp = self.create_iso_timestamp(log_date, time_str)
                         
                         # Create the log entry with the timestamp
+                        # No longer splitting domain\user - keeping as username
                         entry = {
-                            "timestamp": iso_timestamp,  # <-- Add the ISO timestamp for the Clio API
+                            "timestamp": iso_timestamp,
                             "hostname": hostname,
-                            "domain": domain,
-                            "username": username,
+                            "username": username,  # Keep domain\user together in username field
                             "command": command,
                             "notes": f"Beacon ID: {beacon_id}, Local time: {time_str}",
                             "filename": "",
