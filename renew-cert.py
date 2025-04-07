@@ -100,9 +100,37 @@ def parse_arguments():
                       help='Only check and renew self-signed certificates')
     parser.add_argument('--letsencrypt-only', action='store_true',
                       help='Only check and renew Let\'s Encrypt certificates')
+    parser.add_argument('--letsencrypt', action='store_true',
+                      help='Use Let\'s Encrypt certificates (retained from initial setup)')
+    parser.add_argument('--email', type=str,
+                      help='Email address for Let\'s Encrypt registration')
+    parser.add_argument('--dns-challenge', action='store_true',
+                      help='Use DNS challenge for Let\'s Encrypt verification')
     parser.add_argument('--force', action='store_true',
                       help='Force renewal even if certificates are still valid')
-    return parser.parse_args()
+    
+    args = parser.parse_args()
+    
+    # If both --letsencrypt and --self-signed-only are specified, prioritize self-signed
+    if args.letsencrypt and args.self_signed_only:
+        print("\033[33mWarning: Both --letsencrypt and --self-signed-only specified.\033[0m")
+        print("\033[33mPrioritizing --self-signed-only flag.\033[0m")
+        args.letsencrypt = False
+    
+    # If --letsencrypt-only is specified, make sure we have required parameters
+    if args.letsencrypt_only or args.letsencrypt:
+        if not args.email:
+            print("\033[33mWarning: --email is required for Let's Encrypt renewal but wasn't provided.\033[0m")
+            print("\033[33mLet's Encrypt renewal may fail without a valid email address.\033[0m")
+    
+    # Add hostname property which may be used by certificate functions
+    args.hostname = args.domain
+    
+    # Determine if hostname is an IP address
+    import re
+    args.is_ip_address = bool(re.match(r'^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$', args.domain))
+    
+    return args
     
 def check_self_signed_expiration(cert_path, days_threshold=30):
     """Check if a self-signed certificate is nearing expiration."""
@@ -372,7 +400,7 @@ def main():
         print(f"\033[31mUnexpected error during certificate renewal: {e}\033[0m")
         # Return 0 instead of letting the exception propagate
         return 0
-        
+
 if __name__ == "__main__":
     try:
         exit_code = main()
