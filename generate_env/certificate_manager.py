@@ -260,15 +260,15 @@ def get_letsencrypt_certificate_hybrid(args):
         print("\033[32m - Self-signed certificates for internal services\033[0m")
         print("\033[32m - Let's Encrypt certificates copied for Nginx proxy\033[0m")
         
-        # Set up cron job for certificate renewal
-        setup_cron_job(domain)
+        # Set up cron job for certificate renewal - Pass entire args object
+        setup_cron_job(domain, args)
         
         return True
     except Exception as e:
         print(f"\033[31mError in Let's Encrypt certificate setup: {str(e)}\033[0m")
         print("\033[33mUsing self-signed certificates for all services\033[0m")
         return True  # Continue with self-signed certs
-
+        
 def copy_letsencrypt_certs_for_nginx(domain):
     """Copy Let's Encrypt certificates to the project for Nginx proxy use"""
     print(f"\033[36mCopying Let's Encrypt certificates for Nginx proxy...\033[0m")
@@ -308,8 +308,8 @@ def copy_letsencrypt_certs_for_nginx(domain):
         print(f"\033[31mError copying Let's Encrypt certificates: {str(e)}\033[0m")
         return False
 
-def setup_cron_job(domain):
-    """Set up a cron job for certificate renewal"""
+def setup_cron_job(domain, args):
+    """Set up a cron job for certificate renewal that preserves all necessary parameters"""
     print("\033[36mSetting up cron job for certificate renewal...\033[0m")
     
     if platform.system() == 'Windows':
@@ -328,9 +328,21 @@ def setup_cron_job(domain):
         print("\033[31mWarning: renew-cert.py not found in current directory\033[0m")
         print("\033[31mCron job will be created but may not work without the script\033[0m")
     
-    # Create cron job entry - run monthly on the 1st at 2 AM
-    # Add --no-confirm flag for automated renewal
-    cron_job = f"0 2 1 * * cd {current_dir} && python3 {current_dir}/renew-cert.py {domain} --no-confirm"
+    # Build cron job command with all necessary parameters
+    cron_cmd = f"cd {current_dir} && python3 {current_dir}/renew-cert.py {domain} --no-confirm"
+    
+    # If this is a Let's Encrypt setup, include --letsencrypt and email
+    if args.letsencrypt and args.email:
+        cron_cmd += f" --letsencrypt --email={args.email}"
+    else:
+        cron_cmd += " --self-signed-only"
+    
+    # Add DNS challenge flag if it was used in initial setup
+    if args.dns_challenge:
+        cron_cmd += " --dns-challenge"
+    
+    # Create cron job entry - run on the 1st of every month at 2 AM
+    cron_job = f"0 2 1 * * {cron_cmd}"
     
     try:
         # Create a temporary file
@@ -343,7 +355,7 @@ def setup_cron_job(domain):
         with open(temp_cron_file, 'r') as f:
             existing_cron = f.read()
         
-        if cron_job in existing_cron:
+        if cron_cmd in existing_cron:
             print("\033[33mCron job already exists. Skipping...\033[0m")
         else:
             # Append new cron job
@@ -358,6 +370,19 @@ def setup_cron_job(domain):
         
         # Remove temporary file
         os.remove(temp_cron_file)
+        
+        # Create a backup file with renewal command for manual use
+        backup_file = Path(current_dir) / "certificate-renewal-command.txt"
+        with open(backup_file, "w") as f:
+            f.write(f"# Certificate Renewal Command\n")
+            f.write(f"# Created on: {datetime.datetime.now().isoformat()}\n\n")
+            f.write(f"# Run this command to manually renew certificates:\n")
+            f.write(f"{cron_cmd}\n\n")
+            f.write(f"# After renewal, restart Docker services with:\n")
+            f.write(f"docker-compose restart\n")
+        
+        print(f"\033[32mSaved renewal command to {backup_file}\033[0m")
+        
         return True
     except Exception as e:
         print(f"\033[31mFailed to set up cron job: {str(e)}\033[0m")

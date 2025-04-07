@@ -23,7 +23,7 @@ services:
       - SSL_CRT_FILE=/app/certs/server.crt
       - SSL_KEY_FILE=/app/certs/server.key
       - NODE_TLS_REJECT_UNAUTHORIZED=0
-      - TZ=UTC  # Force UTC timezone
+      - TZ=UTC
     networks:
       - frontend-network
     restart: unless-stopped
@@ -66,6 +66,22 @@ services:
         target: /app/certs/backend.key
         read_only: true
       - type: bind
+        source: ./certs/redis.crt
+        target: /app/certs/redis.crt
+        read_only: true
+      - type: bind
+        source: ./certs/redis.key
+        target: /app/certs/redis.key
+        read_only: true
+      - type: bind
+        source: ./certs/db.crt
+        target: /app/certs/db.crt
+        read_only: true
+      - type: bind
+        source: ./certs/db.key
+        target: /app/certs/db.key
+        read_only: true
+      - type: bind
         source: ./backend/exports
         target: /app/exports
       - evidence_files:/app/evidence
@@ -79,8 +95,8 @@ services:
       - NODE_TLS_REJECT_UNAUTHORIZED=0
       - SSL_CRT_FILE=certs/server.crt
       - SSL_KEY_FILE=certs/server.key
-      - TZ=UTC  # Force UTC timezone
-      - PGTZ=UTC  # Set PostgreSQL timezone to UTC
+      - TZ=UTC
+      - PGTZ=UTC
     depends_on:
       redis:
         condition: service_healthy
@@ -139,7 +155,7 @@ services:
       - NODE_TLS_REJECT_UNAUTHORIZED=0
       - SSL_CRT_FILE=certs/server.crt
       - SSL_KEY_FILE=certs/server.key
-      - TZ=UTC  # Force UTC timezone
+      - TZ=UTC
     depends_on:
       db:
         condition: service_healthy
@@ -181,7 +197,7 @@ services:
     env_file:
       - ./redis/.env
     environment:
-      - TZ=UTC  # Force UTC timezone
+      - TZ=UTC
     command: >
       redis-server 
       --requirepass "${REDIS_PASSWORD}" 
@@ -236,8 +252,8 @@ services:
       - ./db/.env
     environment:
       - POSTGRES_SSL=${POSTGRES_SSL:-true}
-      - TZ=UTC  # Force UTC timezone
-      - PGTZ=UTC  # Set PostgreSQL timezone to UTC
+      - TZ=UTC
+      - PGTZ=UTC
     networks:
       - backend-network
     command: postgres -c timezone=UTC -c log_timezone=UTC
@@ -276,7 +292,7 @@ services:
         target: /etc/nginx/certs/letsencrypt-privkey.pem
         read_only: true
     environment:
-      - TZ=UTC  # Force UTC timezone
+      - TZ=UTC
     networks:
       - frontend-network
     restart: unless-stopped

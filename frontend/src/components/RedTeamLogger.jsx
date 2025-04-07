@@ -1,6 +1,6 @@
 // frontend/src/components/RedTeamLogger.jsx
 import React, { useState } from 'react';
-import { Network, File, Database, Users, Key, Book, HardDrive, Settings } from 'lucide-react';
+import { Network, File, Database, Users, Key, Book, HardDrive, Settings, Shield } from 'lucide-react';
 import LoggerCardView from './LoggerCardView';
 import RelationViewer from './RelationViewer';
 import FileStatusTracker from './FileStatusTracker';
@@ -10,6 +10,7 @@ import ApiKeyManager from './api-keys/ApiKeyManager';
 import ApiDocumentation from './ApiDocumentation';
 import LogManagement from './LogManagement';
 import UserSettings from './UserSettings';
+import CertificateManager from './CertificateManager';
 import useLoggerOperations from '../hooks/useLoggerOperations';
 
 const RedTeamLogger = ({ currentUser, csrfToken }) => {
@@ -148,6 +149,18 @@ const RedTeamLogger = ({ currentUser, csrfToken }) => {
                   <Book className="w-5 h-5" />
                   <span className="inline">API Docs</span>
                 </button>
+                
+                <button
+                  onClick={() => setActiveView('certificates')}
+                  className={`px-4 py-2 rounded-md flex items-center gap-2 transition-colors duration-200 ${
+                    activeView === 'certificates' 
+                      ? 'bg-blue-600 text-white' 
+                      : 'bg-gray-700 text-white hover:bg-gray-600'
+                  }`}
+                >
+                  <Shield className="w-5 h-5" />
+                  <span className="inline">Certificates</span>
+                </button>
               </>
             )}
           </div>
@@ -222,6 +235,14 @@ const RedTeamLogger = ({ currentUser, csrfToken }) => {
           <div className="w-full">
             <div className="bg-gray-800 rounded-lg shadow-lg p-4">
               <ApiDocumentation csrfToken={csrfToken} />
+            </div>
+          </div>
+        )}
+        
+        {activeView === 'certificates' && isAdmin && (
+          <div className="w-full">
+            <div className="bg-gray-800 rounded-lg shadow-lg p-4">
+              <CertificateManager csrfToken={csrfToken} />
             </div>
           </div>
         )}

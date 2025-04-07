@@ -223,6 +223,7 @@ app.use('/api/ingest', ingestRoutes);
 app.use('/api/logs/s3-config', require('./routes/s3-config.routes'));
 app.use('/api/health/logs', require('./routes/logs-health.routes'));
 app.use('/api/templates', templatesRoutes);
+app.use('/api/certificates', require('./routes/certificates.routes'));
 
 // Important change: Serve exports WITHOUT authentication
 app.use('/exports', express.static(path.join(__dirname, 'exports')));
