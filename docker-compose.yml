@@ -50,36 +50,8 @@ services:
         source: ./backend/data
         target: /app/data
       - type: bind
-        source: ./certs/server.crt
-        target: /app/certs/server.crt
-        read_only: true
-      - type: bind
-        source: ./certs/server.key
-        target: /app/certs/server.key
-        read_only: true
-      - type: bind
-        source: ./certs/backend.crt
-        target: /app/certs/backend.crt
-        read_only: true
-      - type: bind
-        source: ./certs/backend.key
-        target: /app/certs/backend.key
-        read_only: true
-      - type: bind
-        source: ./certs/redis.crt
-        target: /app/certs/redis.crt
-        read_only: true
-      - type: bind
-        source: ./certs/redis.key
-        target: /app/certs/redis.key
-        read_only: true
-      - type: bind
-        source: ./certs/db.crt
-        target: /app/certs/db.crt
-        read_only: true
-      - type: bind
-        source: ./certs/db.key
-        target: /app/certs/db.key
+        source: ./certs
+        target: /app/certs
         read_only: true
       - type: bind
         source: ./backend/exports
