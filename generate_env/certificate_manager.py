@@ -268,7 +268,7 @@ def get_letsencrypt_certificate_hybrid(args):
         print(f"\033[31mError in Let's Encrypt certificate setup: {str(e)}\033[0m")
         print("\033[33mUsing self-signed certificates for all services\033[0m")
         return True  # Continue with self-signed certs
-        
+
 def copy_letsencrypt_certs_for_nginx(domain):
     """Copy Let's Encrypt certificates to the project for Nginx proxy use"""
     print(f"\033[36mCopying Let's Encrypt certificates for Nginx proxy...\033[0m")
@@ -333,7 +333,7 @@ def setup_cron_job(domain, args):
     
     # If this is a Let's Encrypt setup, include --letsencrypt and email
     if args.letsencrypt and args.email:
-        cron_cmd += f" --letsencrypt --email={args.email}"
+        cron_cmd += f" --letsencrypt --domain={domain} --email={args.email}"
     else:
         cron_cmd += " --self-signed-only"
     
