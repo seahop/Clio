@@ -232,6 +232,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./backend/db/init:/docker-entrypoint-initdb.d
+      - ./backend/db/db-entrypoint.sh:/usr/local/bin/db-entrypoint.sh:ro
       - type: bind
         source: ./certs/server.crt
         target: /tmp/certs/server.crt
@@ -256,6 +257,7 @@ services:
       - PGTZ=UTC
     networks:
       - backend-network
+    entrypoint: ["/usr/local/bin/db-entrypoint.sh"]
     command: postgres -c timezone=UTC -c log_timezone=UTC
     logging:
       driver: "json-file"
