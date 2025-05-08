@@ -1,5 +1,4 @@
-// frontend/src/components/Login.jsx - Modified with Google SSO handling
-
+// Modified Login.jsx component with fixes for Google SSO handling
 import React, { useState, useEffect } from 'react';
 import LoginForm from './auth/LoginForm';
 import PasswordChangeForm from './auth/PasswordChangeForm';
@@ -16,18 +15,29 @@ const Login = ({ onLoginSuccess, csrfToken }) => {
     const passwordChangeData = localStorage.getItem('passwordChangeRequired');
     if (passwordChangeData) {
       try {
-        const { username, role, isGoogleSSO } = JSON.parse(passwordChangeData);
+        const parsedData = JSON.parse(passwordChangeData);
+        const { username, role, isGoogleSSO } = parsedData;
         
         // Skip password change if the user authenticated via Google SSO
-        if (isGoogleSSO) {
+        if (isGoogleSSO === true) {
+          console.log('Google SSO user detected - skipping password change');
           localStorage.removeItem('passwordChangeRequired');
           // Try to get the full user data from localStorage
           const userData = localStorage.getItem('user');
           if (userData) {
-            onLoginSuccess(JSON.parse(userData));
+            const parsedUserData = JSON.parse(userData);
+            // Ensure the Google SSO flag is set
+            parsedUserData.isGoogleSSO = true;
+            parsedUserData.requiresPasswordChange = false;
+            onLoginSuccess(parsedUserData);
           } else {
             // Fallback with minimal data if full user data isn't available
-            onLoginSuccess({ username, role, requiresPasswordChange: false });
+            onLoginSuccess({ 
+              username, 
+              role, 
+              requiresPasswordChange: false,
+              isGoogleSSO: true 
+            });
           }
           return;
         }
@@ -35,7 +45,7 @@ const Login = ({ onLoginSuccess, csrfToken }) => {
         setUsername(username);
         setUserRole(role);
         setShowPasswordChange(true);
-        setIsGoogleAuth(isGoogleSSO);
+        setIsGoogleAuth(!!isGoogleSSO);
       } catch (error) {
         console.error('Error parsing password change data:', error);
         localStorage.removeItem('passwordChangeRequired');
@@ -53,7 +63,7 @@ const Login = ({ onLoginSuccess, csrfToken }) => {
 
   const handleLoginSuccess = (userData) => {
     // Check if this is a Google SSO user (might be set in the userData)
-    const isGoogleSSO = userData.isGoogleSSO || false;
+    const isGoogleSSO = userData.isGoogleSSO === true;
     
     if (userData.requiresPasswordChange && !isGoogleSSO) {
       setShowPasswordChange(true);
@@ -70,6 +80,15 @@ const Login = ({ onLoginSuccess, csrfToken }) => {
     } else {
       // Remove any password change requirement data
       localStorage.removeItem('passwordChangeRequired');
+      
+      // Always ensure Google SSO flag persists in localStorage
+      if (isGoogleSSO) {
+        userData.isGoogleSSO = true;
+        userData.requiresPasswordChange = false;
+      }
+      
+      // Store updated user data
+      localStorage.setItem('user', JSON.stringify(userData));
       onLoginSuccess(userData);
     }
   };

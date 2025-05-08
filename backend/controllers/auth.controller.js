@@ -274,7 +274,24 @@ const getCurrentUser = async (req, res) => {
   try {
     const username = req.user.username;
     const isAdmin = req.user.role === 'admin';
-    const isGoogleSSO = req.user.isGoogleSSO || false;  // Check for Google SSO flag
+    
+    // Check for Google SSO flag either in the JWT token or in Redis
+    let isGoogleSSO = req.user.isGoogleSSO === true || req.user.googleId;
+    
+    // If not already identified as Google SSO, check Redis for Google ID mapping
+    if (!isGoogleSSO) {
+      try {
+        // Check if this user has a Google ID mapping
+        const hasGoogleId = await redisClient.exists(`user:${username}:googleId`);
+        if (hasGoogleId) {
+          console.log(`User ${username} identified as Google SSO user via Redis lookup`);
+          isGoogleSSO = true;
+        }
+      } catch (redisError) {
+        console.warn('Error checking Redis for Google ID:', redisError);
+        // Continue without Redis check - don't block the authentication
+      }
+    }
 
     // Only check for password reset requirements if not a Google SSO user
     let passwordResetRequired = false;
@@ -283,11 +300,19 @@ const getCurrentUser = async (req, res) => {
     if (!isGoogleSSO) {
       // Check if there's a password reset flag for this user
       const passwordResetKey = `user:password_reset:${username}`;
-      passwordResetRequired = await redisClient.exists(passwordResetKey);
+      try {
+        passwordResetRequired = await redisClient.exists(passwordResetKey);
+      } catch (redisError) {
+        console.warn('Error checking password reset requirement:', redisError);
+      }
 
-      isFirstTime = isAdmin 
-        ? await security.isFirstTimeAdminLogin(username)
-        : await security.isFirstTimeLogin(username);
+      try {
+        isFirstTime = isAdmin 
+          ? await security.isFirstTimeAdminLogin(username)
+          : await security.isFirstTimeLogin(username);
+      } catch (securityError) {
+        console.warn('Error checking first time login status:', securityError);
+      }
     }
 
     // Log user check event
@@ -301,11 +326,12 @@ const getCurrentUser = async (req, res) => {
     });
 
     // Return user data with the requiresPasswordChange flag if needed
-    // Keep using 200 status to maintain smooth auth flow
+    // CRITICAL: Google SSO users should NEVER require password change
     res.json({
       username: req.user.username,
       role: req.user.role,
       isGoogleSSO: isGoogleSSO,
+      // Google SSO users never need to change password
       requiresPasswordChange: isGoogleSSO ? false : (isFirstTime || passwordResetRequired)
     });
   } catch (error) {
@@ -526,21 +552,30 @@ const googleLoginCallback = async (req, res) => {
       throw new Error('No user data provided by Google authentication');
     }
     
-    // Double-check that Google-specific flags are set
+    // IMPORTANT: Explicitly set Google-specific flags to ensure they're included in the token
     user.isGoogleSSO = true;
     user.requiresPasswordChange = false;
     
-    // Remove any password reset flags for this user in Redis (as a safeguard)
+    // Store the Google SSO status in Redis for future reference
     try {
+      // We'll set a flag that this user is a Google SSO user
+      // This helps identify Google users even if the JWT token doesn't have the flag
+      await redisClient.set(`user:${user.username}:isGoogleSSO`, 'true');
+      
+      // Also set a longer expiration time for Google user tokens
+      // This reduces login frequency for Google users
+      const extendedExpiryTime = '7d'; // 7 days instead of standard 8 hours
+      
+      // Make sure any existing password reset flags are removed
       const passwordResetKey = `user:password_reset:${user.username}`;
       await redisClient.del(passwordResetKey);
     } catch (redisError) {
-      console.warn('Error clearing password reset flag for Google user:', redisError);
-      // Continue with authentication even if this fails
+      console.warn('Error updating Redis for Google user:', redisError);
+      // Continue with authentication even if Redis operations fail
     }
     
-    // Create JWT token
-    const tokenData = await createJwtToken(user);
+    // Create JWT token with extended expiry for Google users
+    const tokenData = await createJwtToken(user, { expiresIn: '7d' });
     
     if (!tokenData) {
       throw new Error('Failed to create authentication token');
@@ -557,10 +592,9 @@ const googleLoginCallback = async (req, res) => {
       isGoogleSSO: true
     });
     
-    // Redirect to the frontend
-    // IMPORTANT: Use the root path instead of the full URL
-    // Let the proxy handle the proper domain translation
-    return res.redirect('/');
+    // Save login info to help frontend identify Google SSO after page refreshes
+    // Make sure to add this info to the redirect URL so frontend can detect it
+    return res.redirect('/?auth=google');
   } catch (error) {
     console.error('Google auth callback error:', error);
     
@@ -573,7 +607,6 @@ const googleLoginCallback = async (req, res) => {
     });
     
     // Redirect to login with error
-    // IMPORTANT: Use relative path to let proxy handle domain translation
     return res.redirect('/login?error=google_auth_failed');
   }
 };

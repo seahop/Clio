@@ -1,4 +1,4 @@
-// frontend/src/components/auth/GoogleLoginButton.jsx - Modified with SSO flag
+// Modified GoogleLoginButton.jsx
 
 import React from 'react';
 
@@ -9,9 +9,32 @@ const GoogleLoginButton = () => {
     // there are redirects or page reloads in the process
     localStorage.setItem('googleSSOAttempt', 'true');
     
+    // Also clear any existing passwordChangeRequired flags as Google SSO users
+    // should never see the password change screen
+    localStorage.removeItem('passwordChangeRequired');
+    
     // Redirect to the Google auth endpoint
     window.location.href = '/api/auth/google';
   };
+
+  // Check for Google auth parameter in URL (for redirects from Google auth)
+  React.useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const authParam = urlParams.get('auth');
+    
+    if (authParam === 'google') {
+      // We've been redirected from a Google auth, ensure the flag is set
+      console.log('Detected Google auth redirect');
+      localStorage.setItem('googleSSOAttempt', 'true');
+      
+      // Clean up the URL
+      if (window.history && window.history.replaceState) {
+        const url = new URL(window.location.href);
+        url.searchParams.delete('auth');
+        window.history.replaceState({}, document.title, url.toString());
+      }
+    }
+  }, []);
 
   return (
     <button

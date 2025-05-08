@@ -169,7 +169,7 @@ function App() {
       setCsrfToken(token);
   
       // Check if this is a return from Google SSO
-      const isGoogleSSO = localStorage.getItem('googleSSOAttempt') === 'true';
+      const isGoogleSSOAttempt = localStorage.getItem('googleSSOAttempt') === 'true';
       
       // Check authentication - use relative URL with proxy
       console.log('Checking authentication...');
@@ -190,27 +190,48 @@ function App() {
         const userData = await response.json();
         console.log('Auth check successful:', userData);
         
-        // If the user authenticated via Google SSO, add the flag to the user data
+        // IMPORTANT: Preserve Google SSO status across sessions
+        // If the user was previously authenticated via Google, keep that status
+        const previousUserData = localStorage.getItem('user');
+        let wasGoogleSSO = false;
+        
+        if (previousUserData) {
+          try {
+            const parsedPreviousData = JSON.parse(previousUserData);
+            wasGoogleSSO = parsedPreviousData.isGoogleSSO === true;
+          } catch (e) {
+            console.error('Error parsing previous user data:', e);
+          }
+        }
+        
+        // Three ways to detect Google SSO:
+        // 1. Current request has isGoogleSSO flag
+        // 2. This was a Google SSO attempt redirect
+        // 3. Previous session was Google SSO
+        const isGoogleSSO = userData.isGoogleSSO === true || isGoogleSSOAttempt || wasGoogleSSO;
+        
+        // Always set the Google SSO flag if applicable
         if (isGoogleSSO) {
           userData.isGoogleSSO = true;
-          userData.requiresPasswordChange = false; // Explicitly override for Google users
+          userData.requiresPasswordChange = false; // Google users NEVER need password change
         }
         
         // Clear the Google SSO attempt flag
         localStorage.removeItem('googleSSOAttempt');
         
         if (userData.requiresPasswordChange && !isGoogleSSO) {
-          // Store flag for password change in localStorage but only for non-Google users
+          // Only apply password change requirement for non-Google users
           localStorage.setItem('passwordChangeRequired', JSON.stringify({
             username: userData.username,
             role: userData.role,
-            isGoogleSSO: isGoogleSSO
+            isGoogleSSO: false
           }));
           // Clear user data to force login screen
           setUser(null);
         } else {
-          // Normal authenticated user
+          // Normal authenticated user or Google SSO user
           localStorage.removeItem('passwordChangeRequired');
+          // Store updated user data with correct flags
           setUser(userData);
           localStorage.setItem('user', JSON.stringify(userData));
         }
