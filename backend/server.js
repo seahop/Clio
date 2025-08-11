@@ -11,6 +11,7 @@ const { PORT } = require('./config/constants');
 const security = require('./config/security');
 const authRoutes = require('./routes/auth.routes');
 const logsRoutes = require('./routes/logs.routes');
+const tagsRoutes = require('./routes/tags.routes'); // NEW: Tags routes
 const exportRoutes = require('./routes/export.routes');
 const eventLogger = require('./lib/eventLogger');
 const logRotationManager = require('./lib/logRotation');
@@ -214,6 +215,7 @@ app.get('/api/debug/exports', authenticateJwt, verifyAdmin, async (req, res) => 
 
 app.use('/api/auth', authRoutes);
 app.use('/api/logs', logsRoutes);
+app.use('/api/tags', tagsRoutes); // NEW: Tags API routes
 app.use('/api/log-access', require('./routes/logs-access.routes'));
 app.use('/api/export', exportRoutes);
 app.use('/api/sessions', sessionRoutes);
@@ -314,7 +316,10 @@ app.get('/api/health/logs', async (req, res) => {
       logs: logStatuses,
       archives: archives.slice(0, 10), // Show only the 10 most recent archives
       totalArchives: archives.length,
-      logRotation: logRotationInfo
+      logRotation: logRotationInfo,
+      features: {
+        tags: true // NEW: Indicate tags support
+      }
     });
   } catch (error) {
     console.error('Error getting log status:', error);
@@ -485,18 +490,46 @@ async function initialize() {
       console.log(`Secure server running on port ${PORT}`);
       console.log('\x1b[36m%s\x1b[0m', `Server Instance ID: ${security.SERVER_INSTANCE_ID}`);
       
+      // NEW: Enhanced startup message with tags
+      console.log('\n╔════════════════════════════════════════════════╗');
+      console.log('║                                                ║');
+      console.log('║        Red Team Logger Backend Server          ║');
+      console.log('║                                                ║');
+      console.log(`║  🚀 HTTPS Server running on port ${PORT}          ║`);
+      console.log(`║  🔐 Environment: ${process.env.NODE_ENV || 'development'}               ║`);
+      console.log('║  📊 Redis: Connected                           ║');
+      console.log('║  🗄️  Database: Connected                       ║');
+      console.log('║  🏷️  Tags: Enabled                             ║'); // NEW
+      console.log('║  📁 Evidence: Enabled                          ║');
+      console.log('║  📦 Export: Enabled                            ║');
+      console.log('║  🔑 API Keys: Enabled                          ║');
+      console.log('║  📝 Templates: Enabled                         ║');
+      console.log('║                                                ║');
+      console.log('╚════════════════════════════════════════════════╝\n');
+      
       eventLogger.logSystemEvent('server_start', {
         port: PORT,
         serverInstanceId: security.SERVER_INSTANCE_ID,
         nodeEnv: process.env.NODE_ENV,
         sslEnabled: true,
         dbSslEnabled: process.env.POSTGRES_SSL === 'true',
-        jwtEnabled: true
+        jwtEnabled: true,
+        tagsEnabled: true // NEW
       });
       
       if (process.env.NODE_ENV === 'development') {
         console.log('\x1b[33m%s\x1b[0m', `API URL: https://localhost:${PORT}`);
         console.log('\x1b[33m%s\x1b[0m', `Frontend URL: ${process.env.FRONTEND_URL || 'https://localhost:3000'}`);
+        console.log('\x1b[33m%s\x1b[0m', '\nAvailable endpoints:');
+        console.log('\x1b[33m%s\x1b[0m', `  - https://localhost:${PORT}/health`);
+        console.log('\x1b[33m%s\x1b[0m', `  - https://localhost:${PORT}/api/csrf-token`);
+        console.log('\x1b[33m%s\x1b[0m', `  - https://localhost:${PORT}/api/logs`);
+        console.log('\x1b[33m%s\x1b[0m', `  - https://localhost:${PORT}/api/tags`); // NEW
+        console.log('\x1b[33m%s\x1b[0m', `  - https://localhost:${PORT}/api/evidence`);
+        console.log('\x1b[33m%s\x1b[0m', `  - https://localhost:${PORT}/api/export`);
+        console.log('\x1b[33m%s\x1b[0m', `  - https://localhost:${PORT}/api/templates`);
+        console.log('\x1b[33m%s\x1b[0m', `  - https://localhost:${PORT}/api/api-keys`);
+        console.log('\x1b[33m%s\x1b[0m', `  - https://localhost:${PORT}/api/ingest`);
       }
     });
 

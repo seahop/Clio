@@ -1,16 +1,18 @@
-// frontend/src/components/LoggerCardView.jsx - Updated with enhanced search
-import React, { useState, useEffect } from 'react';
+// frontend/src/components/LoggerCardView.jsx
+import React, { useState, useEffect, useRef } from 'react';
 import { Layout, List, Plus, Filter, AlertCircle, FileText, Check } from 'lucide-react';
 import LogRowCard from './LogRowCard';
 import Pagination from './Pagination';
 import DateRangeFilter from './DateRangeFilter';
-import SearchFilter from './SearchFilter'; // Using the enhanced existing component
+import SearchFilter from './SearchFilter';
 import TemplateManager from './templates';
 import CardFieldSettings from './CardFieldSettings';
+import { TagFilter } from './Tags';
+import { useTagsApi } from '../hooks/useTagsApi';
 import { COLUMNS } from '../utils/constants';
 import usePagination from '../hooks/usePagination';
 import useCardFields from '../hooks/useCardFields';
-import { createFilterFunction } from '../utils/queryParser'; // Import the query parser
+import { createFilterFunction } from '../utils/queryParser';
 
 const LoggerCardView = ({
   logs,
@@ -27,6 +29,15 @@ const LoggerCardView = ({
   const [hasActiveFilters, setHasActiveFilters] = useState(false);
   const [showTemplates, setShowTemplates] = useState(false);
   
+  // Tags state
+  const [availableTags, setAvailableTags] = useState([]);
+  const [selectedTags, setSelectedTags] = useState([]);
+  const [logTags, setLogTags] = useState({});
+  const [showTagFilter, setShowTagFilter] = useState(false);
+  
+  // Use tags API hook
+  const { fetchAllTags, fetchTagsForLogs } = useTagsApi();
+  
   // State for template operations
   const [selectedCardForSave, setSelectedCardForSave] = useState(null);
   const [selectedCardsForMerge, setSelectedCardsForMerge] = useState([]);
@@ -35,7 +46,51 @@ const LoggerCardView = ({
   // Use our custom hook for card field visibility settings
   const { visibleFields, updateVisibleFields } = useCardFields(currentUser);
   
-  // Apply filters whenever logs, dateRange, or searchFilter changes
+  // Track last loaded IDs to prevent duplicate requests
+  const lastLoadedIdsRef = useRef('');
+  
+  // Load available tags on mount
+  useEffect(() => {
+    if (currentUser) {
+      loadTags();
+    }
+  }, [currentUser]);
+  
+  // Load all available tags
+  const loadTags = async () => {
+    // Only load if user is authenticated
+    if (!currentUser) return;
+    
+    try {
+      const tags = await fetchAllTags();
+      setAvailableTags(tags);
+    } catch (error) {
+      console.error('Failed to load tags:', error);
+    }
+  };
+  
+  // Make refresh function available globally for child components
+  useEffect(() => {
+    window.refreshAvailableTags = loadTags;
+    return () => {
+      delete window.refreshAvailableTags;
+    };
+  }, []);
+  
+  // Load tags for specific logs
+  const loadLogTags = async (logIds) => {
+    // Only load if user is authenticated
+    if (!currentUser || logIds.length === 0) return;
+    
+    try {
+      const tagsData = await fetchTagsForLogs(logIds);
+      setLogTags(tagsData);
+    } catch (error) {
+      console.error('Failed to load log tags:', error);
+    }
+  };
+  
+  // Apply filters whenever logs, dateRange, searchFilter, or selectedTags changes
   useEffect(() => {
     // Create a filter function based on all filter criteria
     const filterFunction = createFilterFunction({
@@ -44,19 +99,48 @@ const LoggerCardView = ({
     });
     
     // Apply the filter function to the logs
-    const filtered = logs.filter(filterFunction);
+    let filtered = logs.filter(filterFunction);
+    
+    // Apply tag filter if tags are selected
+    if (selectedTags.length > 0) {
+      const selectedTagIds = selectedTags.map(t => t.id);
+      filtered = filtered.filter(log => {
+        const logTagIds = (logTags[log.id] || []).map(t => t.id);
+        return selectedTagIds.some(tagId => logTagIds.includes(tagId));
+      });
+    }
     
     // Determine if any filters are active
     const filtersActive = 
       (dateRange.start || dateRange.end) || 
-      (searchFilter.query && searchFilter.query.trim() !== '');
+      (searchFilter.query && searchFilter.query.trim() !== '') ||
+      selectedTags.length > 0;
     
     setHasActiveFilters(filtersActive);
     setFilteredLogs(filtered);
-  }, [logs, dateRange, searchFilter]);
+  }, [logs, dateRange, searchFilter, selectedTags, logTags]);
   
   // Use our custom pagination hook
   const pagination = usePagination(filteredLogs, { username: currentUser });
+  
+  // Load tags for current page of logs with debouncing
+  useEffect(() => {
+    // Only load tags if we have logs and user is authenticated
+    if (!currentUser || pagination.paginatedItems.length === 0) return;
+    
+    // Debounce the API call to prevent spam
+    const timeoutId = setTimeout(() => {
+      const logIds = pagination.paginatedItems.map(log => log.id);
+      // Only load if we have IDs and they've changed
+      const idsKey = logIds.sort().join(',');
+      if (idsKey !== lastLoadedIdsRef.current) {
+        lastLoadedIdsRef.current = idsKey;
+        loadLogTags(logIds);
+      }
+    }, 300);
+    
+    return () => clearTimeout(timeoutId);
+  }, [pagination.paginatedItems, currentUser]);
   
   // Handle date range filter changes
   const handleDateFilterChange = (range) => {
@@ -68,13 +152,44 @@ const LoggerCardView = ({
     setSearchFilter(filter);
   };
   
+  // Handle tag selection in filter
+  const handleTagToggle = (tag) => {
+    setSelectedTags(prev => {
+      const exists = prev.some(t => t.id === tag.id);
+      if (exists) {
+        return prev.filter(t => t.id !== tag.id);
+      } else {
+        return [...prev, tag];
+      }
+    });
+  };
+  
+  // Handle tags update for a specific log
+  const handleLogTagsUpdate = (logId, updatedTags) => {
+    setLogTags(prev => ({
+      ...prev,
+      [logId]: updatedTags
+    }));
+    
+    // Check if there are new tags that aren't in our available tags list
+    const hasNewTags = updatedTags.some(tag => 
+      !availableTags.find(existing => existing.id === tag.id)
+    );
+    
+    // If we detected new tags, refresh the available tags list
+    if (hasNewTags) {
+      loadTags();
+    }
+  };
+  
   // Clear all filters
   const clearAllFilters = () => {
     setDateRange({ start: null, end: null });
     setSearchFilter({ mode: 'simple', query: '', field: 'all' });
+    setSelectedTags([]);
   };
   
-  // Handle selecting a card for saving as template (still single selection)
+  // Handle selecting a card for saving as template
   const handleSelectCardForSave = (rowId, event) => {
     event.stopPropagation();
     
@@ -140,12 +255,9 @@ const LoggerCardView = ({
   // Template action handler for multi-select
   const handleTemplateAction = (templateData, specificCardId = null) => {
     if (specificCardId) {
-      // We're updating a specific card (used in multi-card mode)
       console.log(`Updating specific card ${specificCardId} with template data:`, templateData);
       handlers.handleUpdateRowWithTemplate(specificCardId, templateData);
     } else if (selectedCardsForMerge.length > 0 && !specificCardId) {
-      // This is a fallback path that shouldn't normally be taken with our updated flow
-      // It's for backward compatibility if the cards array is passed but no specific card is identified
       console.log(`Processing ${selectedCardsForMerge.length} cards with template data:`, templateData);
       
       // Process each selected card
@@ -173,8 +285,6 @@ const LoggerCardView = ({
       setSelectedCardsForMerge([]);
       setTemplateMode(null);
     } else if (selectedCardForSave) {
-      // This path shouldn't actually be taken since saving as template
-      // happens through the TemplateManager's save dialog not this function
       console.log('Card is selected for saving as template, not for merging');
     } else {
       // No card selected, create a new one from template
@@ -183,7 +293,7 @@ const LoggerCardView = ({
     }
   };
   
-  // Get the current card for save mode (single card)
+  // Get the current card for save mode
   const getCurrentCard = () => {
     if (templateMode === 'save' && selectedCardForSave) {
       return logs.find(log => log.id === selectedCardForSave);
@@ -191,12 +301,12 @@ const LoggerCardView = ({
     return null;
   };
   
-  // Get selected cards for merge mode (multiple cards)
+  // Get selected cards for merge mode
   const getSelectedCards = () => {
     if (templateMode === 'merge' && selectedCardsForMerge.length > 0) {
       return selectedCardsForMerge.map(cardId => 
         logs.find(log => log.id === cardId)
-      ).filter(Boolean); // Filter out any undefined values
+      ).filter(Boolean);
     }
     return [];
   };
@@ -224,7 +334,6 @@ const LoggerCardView = ({
           {/* Add Templates Button */}
           <button
             onClick={() => {
-              // Clear any selections when toggling template view
               if (showTemplates) {
                 clearSelectedCards();
               }
@@ -269,7 +378,7 @@ const LoggerCardView = ({
         </button>
       </div>
       
-      {/* Templates Section - Pass the correct mode and selection */}
+      {/* Templates Section */}
       {showTemplates && (
         <TemplateManager 
           currentCard={getCurrentCard()}
@@ -282,14 +391,25 @@ const LoggerCardView = ({
       
       {/* Filter section */}
       <div className="p-4 border-b border-gray-700 bg-gray-900/30">
-        <div className="flex flex-col md:flex-row items-start gap-4">
-          {/* Date filter */}
-          <DateRangeFilter onFilterChange={handleDateFilterChange} />
-          
-          {/* Enhanced Search filter */}
-          <div className="flex-grow">
-            <SearchFilter onFilterChange={handleSearchFilterChange} />
+        <div className="flex flex-col space-y-3">
+          <div className="flex flex-col md:flex-row items-start gap-4">
+            {/* Date filter */}
+            <DateRangeFilter onFilterChange={handleDateFilterChange} />
+            
+            {/* Enhanced Search filter */}
+            <div className="flex-grow">
+              <SearchFilter onFilterChange={handleSearchFilterChange} />
+            </div>
           </div>
+          
+          {/* Tag Filter */}
+          <TagFilter
+            availableTags={availableTags}
+            selectedTags={selectedTags}
+            onTagToggle={handleTagToggle}
+            onClearAll={() => setSelectedTags([])}
+            showStats={true}
+          />
         </div>
         
         {/* Filter status and clear all button */}
@@ -299,6 +419,11 @@ const LoggerCardView = ({
               <Filter size={16} className="text-blue-400" />
               <span>
                 Showing {filteredLogs.length} of {logs.length} logs
+                {selectedTags.length > 0 && (
+                  <span className="ml-2 text-xs bg-blue-600/20 px-2 py-0.5 rounded">
+                    {selectedTags.length} tag{selectedTags.length !== 1 ? 's' : ''} applied
+                  </span>
+                )}
               </span>
             </div>
             
@@ -388,7 +513,9 @@ const LoggerCardView = ({
                   onToggleLock={handlers.handleToggleLock}
                   onDelete={handlers.handleDeleteRow}
                   csrfToken={csrfToken}
-                  visibleFields={visibleFields} // Pass the visible fields configuration
+                  visibleFields={visibleFields}
+                  availableTags={availableTags}
+                  onTagsUpdate={handleLogTagsUpdate}
                 />
               </div>
             ))}

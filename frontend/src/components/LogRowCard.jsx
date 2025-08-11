@@ -1,10 +1,13 @@
 // frontend/src/components/LogRowCard.jsx
-import React, { useState } from 'react';
-import { ChevronRight, ChevronDown, Lock, Unlock, Trash2, Eye, EyeOff, FileText } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { ChevronRight, ChevronDown, Lock, Unlock, Trash2, Eye, EyeOff, FileText, Tag as TagIcon } from 'lucide-react';
 import CardHeader from './LogCard/CardHeader';
 import CardContent from './LogCard/CardContent';
 import EvidenceTab from './EvidenceTab';
+import TagDisplay from './Tags/TagDisplay';
+import TagInput from './Tags/TagInput';
 import { useCardNavigation } from '../hooks/useCardNavigation';
+import { useTagsApi } from '../hooks/useTagsApi';
 
 const LogRowCard = ({
   row,
@@ -21,11 +24,19 @@ const LogRowCard = ({
   onToggleLock,
   onDelete,
   csrfToken,
-  visibleFields = {} // Configurable field visibility
+  visibleFields = {},
+  availableTags = [],
+  onTagsUpdate
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [showSecrets, setShowSecrets] = useState(false);
   const [showEvidenceTab, setShowEvidenceTab] = useState(false);
+  const [showTagInput, setShowTagInput] = useState(false);
+  const [tags, setTags] = useState([]);
+  const [isLoadingTags, setIsLoadingTags] = useState(false);
+  
+  // Use tags API hook
+  const { fetchLogTags, addTagsToLog, removeTagFromLog } = useTagsApi();
   
   // Row is only editable if it's not locked
   const canEdit = !row.locked;
@@ -40,6 +51,23 @@ const LogRowCard = ({
     onCellClick,
     onCellChange
   });
+
+  // Load tags when component mounts or row changes
+  useEffect(() => {
+    loadTags();
+  }, [row.id]);
+
+  const loadTags = async () => {
+    try {
+      setIsLoadingTags(true);
+      const logTags = await fetchLogTags(row.id);
+      setTags(logTags);
+    } catch (error) {
+      console.error('Failed to load tags:', error);
+    } finally {
+      setIsLoadingTags(false);
+    }
+  };
 
   // Helper to check if a field should be editable
   const isFieldEditable = (field) => {
@@ -115,14 +143,70 @@ const LogRowCard = ({
     }
   };
 
-  // Toggle showing secrets
-  const toggleShowSecrets = (e) => {
-    e.stopPropagation();
+  // Toggle show/hide secrets
+  const toggleShowSecrets = () => {
     setShowSecrets(!showSecrets);
   };
 
+  // Handle tag click
+  const handleTagClick = (tag) => {
+    // Could implement tag-based filtering here
+    console.log('Tag clicked:', tag);
+    // You could emit an event to filter by this tag
+    if (window.onTagFilter) {
+      window.onTagFilter(tag);
+    }
+  };
+
+  // Handle adding tags
+  const handleAddTags = async (selectedTags) => {
+    try {
+      // Separate new tags from existing ones
+      const newTags = selectedTags.filter(t => t.isNew);
+      const existingTags = selectedTags.filter(t => !t.isNew);
+      
+      // Prepare tag data
+      const tagNames = newTags.map(t => t.name);
+      const tagIds = existingTags.map(t => t.id);
+      
+      // Add tags to log (this will create new tags if needed and add all to the log)
+      const updatedTags = await addTagsToLog(row.id, tagIds, tagNames);
+      setTags(updatedTags);
+      
+      // Notify parent component to refresh available tags if new tags were created
+      if (newTags.length > 0 && window.refreshAvailableTags) {
+        window.refreshAvailableTags();
+      }
+      
+      // Notify parent component about tag updates
+      if (onTagsUpdate) {
+        onTagsUpdate(row.id, updatedTags);
+      }
+      
+      setShowTagInput(false);
+    } catch (error) {
+      console.error('Failed to add tags:', error);
+    }
+  };
+
+  // Handle removing a tag
+  const handleRemoveTag = async (tagId) => {
+    try {
+      await removeTagFromLog(row.id, tagId);
+      const updatedTags = tags.filter(t => t.id !== tagId);
+      setTags(updatedTags);
+      
+      // Notify parent component
+      if (onTagsUpdate) {
+        onTagsUpdate(row.id, updatedTags);
+      }
+    } catch (error) {
+      console.error('Failed to remove tag:', error);
+    }
+  };
+
   return (
-    <div className={`mb-2 rounded-lg overflow-hidden ${row.locked ? 'bg-gray-900' : 'bg-gray-800'}`}>
+    <div className={`mb-2 rounded-lg transition-colors ${row.locked ? 'bg-gray-900' : 'bg-gray-800'}`}>
       {/* Card Header - Always visible */}
       <div
         className="px-4 py-3 flex items-center justify-between cursor-pointer hover:bg-gray-700 transition-colors"
@@ -145,6 +229,37 @@ const LogRowCard = ({
           >
             <Trash2 size={16} />
           </button>
+        )}
+      </div>
+      
+      {/* Tags Section - Always visible */}
+      <div className="px-4 pb-2">
+        <div className="flex items-center gap-2">
+          <TagIcon size={14} className="text-gray-500" />
+          <TagDisplay
+            tags={tags}
+            onTagClick={handleTagClick}
+            onRemove={handleRemoveTag}
+            onAddTag={() => setShowTagInput(true)}
+            canEdit={canEdit}
+            maxVisible={isExpanded ? 20 : 5}
+            size="sm"
+          />
+        </div>
+        
+        {/* Tag Input Modal */}
+        {showTagInput && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="max-w-2xl w-full">
+              <TagInput
+                existingTags={availableTags}
+                selectedTags={tags}
+                onAddTags={handleAddTags}
+                onClose={() => setShowTagInput(false)}
+                allowCreate={true}
+              />
+            </div>
+          </div>
         )}
       </div>
       
