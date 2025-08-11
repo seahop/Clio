@@ -3,6 +3,7 @@ const _ = require('lodash');
 const db = require('../../db');
 const RelationsModel = require('../../models/relations');
 const { BaseAnalyzer } = require('./baseAnalyzer');
+const batchService = require('../batchService'); // ADD THIS LINE - FIX FOR THE BUG
 
 /**
  * Analyzer for user command relations
