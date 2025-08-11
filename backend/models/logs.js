@@ -1,4 +1,4 @@
-// models/logs.js - Update for consistent UTC timestamps
+// models/logs.js - Complete file with fix for empty secrets field
 const db = require('../db');
 const { redactSensitiveData } = require('../utils/sanitize');
 const fieldEncryption = require('../utils/encryption');
@@ -20,8 +20,13 @@ const LogsModel = {
     
     // Encrypt fields that need encryption
     ENCRYPTED_FIELDS.forEach(field => {
-      if (processed[field] !== undefined && processed[field] !== null) {
+      // FIXED: Check for empty string and convert to null
+      // Only encrypt if the field has actual content
+      if (processed[field] !== undefined && processed[field] !== null && processed[field] !== '') {
         processed[field] = JSON.stringify(fieldEncryption.encrypt(processed[field]));
+      } else if (processed[field] === '') {
+        // Convert empty string to null for database storage
+        processed[field] = null;
       }
     });
     
@@ -45,119 +50,78 @@ const LogsModel = {
           const encryptedData = JSON.parse(processed[field]);
           processed[field] = fieldEncryption.decrypt(encryptedData);
         } catch (error) {
-          // If we can't parse as JSON, it might not be encrypted yet
-          console.log(`Field ${field} does not appear to be encrypted`);
+          console.error(`Error decrypting ${field}:`, error);
+          // FIXED: Return null instead of leaving corrupted data
+          processed[field] = null;
         }
+      }
+      // FIXED: Ensure null values remain null (not undefined)
+      else if (processed[field] === null) {
+        processed[field] = null;
       }
     });
     
     return processed;
   },
-  
-  /**
-   * Process multiple records from storage
-   * @param {Array} records - Array of database records
-   * @returns {Array} - Processed records with decrypted fields
-   */
-  _processMultipleFromStorage(records) {
-    return records.map(record => this._processFromStorage(record));
-  },
 
-  /**
-   * Ensure a timestamp is in UTC format
-   * @param {Date|string} timestamp - The timestamp to validate
-   * @returns {Date} - A valid Date object in UTC
-   */
-  _ensureUtcTimestamp(timestamp) {
+  async getAllLogs() {
     try {
-      if (!timestamp) {
-        // Default to current time in UTC
-        return new Date();
-      }
+      const result = await db.query(`
+        SELECT * FROM logs 
+        ORDER BY timestamp DESC, id DESC
+      `);
       
-      // If it's already a Date object
-      if (timestamp instanceof Date) {
-        // Make sure it's valid
-        if (isNaN(timestamp.getTime())) {
-          console.warn('Invalid Date object provided for timestamp, using current UTC time');
-          return new Date();
-        }
-        return timestamp;
-      }
-      
-      // If it's a string, parse it
-      const parsedDate = new Date(timestamp);
-      if (isNaN(parsedDate.getTime())) {
-        console.warn('Invalid timestamp string provided, using current UTC time');
-        return new Date();
-      }
-      
-      return parsedDate;
+      // Process each record to decrypt encrypted fields
+      return result.rows.map(row => this._processFromStorage(row));
     } catch (error) {
-      console.warn('Error processing timestamp, using current UTC time:', error);
-      return new Date();
-    }
-  },
-
-  async getAllLogs(includeSecrets = true) {
-    try {
-      // Always include all fields - we'll only redact for logging purposes
-      const result = await db.query(
-        `SELECT * FROM logs 
-         ORDER BY timestamp DESC, id DESC`  // Added id as secondary sort
-      );
-      
-      // Process records to decrypt any encrypted fields
-      const processedLogs = this._processMultipleFromStorage(result.rows);
-      
-      // Return the logs with actual secrets intact
-      return processedLogs;
-    } catch (error) {
-      console.error('Error getting logs:', error);
+      console.error('Error fetching logs:', error);
       throw error;
     }
   },
 
   async getLogById(id) {
     try {
-      const result = await db.query(
-        `SELECT * FROM logs 
-         WHERE id = $1`,
-        [id]
-      );
-      
-      if (result.rows.length === 0) {
-        return null;
-      }
-      
-      // Process record to decrypt any encrypted fields
-      const processedLog = this._processFromStorage(result.rows[0]);
-      
-      // Return the log with actual secrets intact
-      return processedLog;
+      const result = await db.query('SELECT * FROM logs WHERE id = $1', [id]);
+      return result.rows.length > 0 ? this._processFromStorage(result.rows[0]) : null;
     } catch (error) {
-      console.error('Error getting log by ID:', error);
+      console.error('Error fetching log by id:', error);
       throw error;
     }
   },
 
-  async findDuplicate(logData) {
+  async checkForDuplicate(logData) {
     try {
-      // Build query to check for logs with matching critical fields
+      // Build a query to check for existing logs with the same key fields
+      const checkFields = [];
+      const checkValues = [];
+      let valueIndex = 1;
+
+      // Only check non-null fields for duplicates
+      const fieldsToCheck = ['internal_ip', 'external_ip', 'hostname', 'domain', 'username', 'command'];
+      
+      fieldsToCheck.forEach(field => {
+        if (logData[field]) {
+          checkFields.push(`${field} = $${valueIndex}`);
+          checkValues.push(logData[field]);
+          valueIndex++;
+        }
+      });
+
+      // If we have no fields to check, it's not a duplicate
+      if (checkFields.length === 0) {
+        return null;
+      }
+
+      // Check for logs created in the last 5 seconds with the same data
       const query = `
         SELECT * FROM logs 
-        WHERE timestamp = $1 
-        AND command = $2 
-        AND hostname = $3
-        LIMIT 1`;
-      
-      const result = await db.query(query, [
-        logData.timestamp,
-        logData.command,
-        logData.hostname
-      ]);
-      
-      // Return the existing log if found, otherwise null
+        WHERE ${checkFields.join(' AND ')}
+        AND timestamp > NOW() - INTERVAL '5 seconds'
+        ORDER BY timestamp DESC
+        LIMIT 1
+      `;
+
+      const result = await db.query(query, checkValues);
       return result.rows.length > 0 ? this._processFromStorage(result.rows[0]) : null;
     } catch (error) {
       console.error('Error checking for duplicate logs:', error);
@@ -228,51 +192,44 @@ const LogsModel = {
       const filteredUpdates = Object.keys(processedUpdates)
         .filter(key => allowedUpdates.includes(key))
         .reduce((obj, key) => {
-          // Handle empty strings - convert to null for database
-          obj[key] = processedUpdates[key] === '' ? null : processedUpdates[key];
-          
-          // Special handling for timestamp - ensure it's a valid UTC date
-          if (key === 'timestamp' && obj[key]) {
-            try {
-              obj[key] = this._ensureUtcTimestamp(obj[key]);
-            } catch (e) {
-              console.warn('Invalid timestamp in update, removing:', e);
-              delete obj[key]; // Remove invalid timestamp
-            }
+          // FIXED: Consistent handling of empty strings
+          // Convert empty strings to null for all fields except those that should preserve empty strings
+          if (processedUpdates[key] === '') {
+            // For most fields, convert empty string to null
+            obj[key] = null;
+          } else {
+            obj[key] = processedUpdates[key];
           }
-          
           return obj;
         }, {});
 
-      // If there are no valid updates, return null
-      if (Object.keys(filteredUpdates).length === 0) {
-        return null;
+      // Build the update query dynamically
+      const updateFields = Object.keys(filteredUpdates);
+      if (updateFields.length === 0) {
+        throw new Error('No valid fields to update');
       }
 
-      // Build the SET clause dynamically
-      const setClause = Object.keys(filteredUpdates)
-        .map((key, index) => `${key} = $${index + 1}`)
+      const setClause = updateFields
+        .map((field, index) => `${field} = $${index + 2}`)
         .join(', ');
 
-      const values = [...Object.values(filteredUpdates), id];
+      const values = [id, ...updateFields.map(field => filteredUpdates[field])];
 
-      const result = await db.query(
-        `UPDATE logs 
-         SET ${setClause}
-         WHERE id = $${values.length}
-         RETURNING *`,
-        values
-      );
+      const query = `
+        UPDATE logs 
+        SET ${setClause}, updated_at = CURRENT_TIMESTAMP
+        WHERE id = $1
+        RETURNING *
+      `;
+
+      const result = await db.query(query, values);
 
       if (result.rows.length === 0) {
-        return null;
+        throw new Error('Log not found');
       }
 
       // Process the returned record to decrypt fields
-      const updatedLog = this._processFromStorage(result.rows[0]);
-      
-      // Return the updated log with actual secrets intact for the UI
-      return updatedLog;
+      return this._processFromStorage(result.rows[0]);
     } catch (error) {
       console.error('Error updating log:', error);
       throw error;
@@ -281,35 +238,92 @@ const LogsModel = {
 
   async deleteLog(id) {
     try {
-      // Get the log first so we have a copy of it
-      const getResult = await db.query(
-        'SELECT * FROM logs WHERE id = $1',
-        [id]
-      );
-      
-      if (getResult.rows.length === 0) {
-        return null;
-      }
-      
-      // Now perform the delete
-      await db.query(
-        'DELETE FROM logs WHERE id = $1',
-        [id]
-      );
-      
-      // Process record to decrypt any encrypted fields
-      const deletedLog = this._processFromStorage(getResult.rows[0]);
-      
-      // Also create a redacted version for logging purposes
-      const redactedLog = redactSensitiveData(deletedLog, SENSITIVE_FIELDS);
-      
-      // Log the redacted version (the caller should use this for logging)
-      console.log('Deleted log (redacted):', redactedLog);
-      
-      // Return the actual log for the UI
-      return deletedLog;
+      const result = await db.query('DELETE FROM logs WHERE id = $1 RETURNING *', [id]);
+      return result.rows.length > 0 ? this._processFromStorage(result.rows[0]) : null;
     } catch (error) {
       console.error('Error deleting log:', error);
+      throw error;
+    }
+  },
+
+  async bulkCreate(logsArray) {
+    try {
+      const createdLogs = [];
+      const errors = [];
+
+      for (const logData of logsArray) {
+        try {
+          // Check for duplicate before creating
+          const duplicate = await this.checkForDuplicate(logData);
+          
+          if (duplicate) {
+            console.log('Skipping duplicate log entry');
+            createdLogs.push(duplicate);
+          } else {
+            const created = await this.createLog(logData);
+            createdLogs.push(created);
+          }
+        } catch (error) {
+          console.error('Error creating individual log:', error);
+          errors.push({ data: logData, error: error.message });
+        }
+      }
+
+      return { createdLogs, errors };
+    } catch (error) {
+      console.error('Error in bulk create:', error);
+      throw error;
+    }
+  },
+
+  async searchLogs(searchParams) {
+    try {
+      let query = 'SELECT * FROM logs WHERE 1=1';
+      const values = [];
+      let valueIndex = 1;
+
+      // Add search conditions based on provided parameters
+      Object.entries(searchParams).forEach(([key, value]) => {
+        if (value !== undefined && value !== null && value !== '') {
+          if (key === 'command' || key === 'notes') {
+            query += ` AND ${key} ILIKE $${valueIndex}`;
+            values.push(`%${value}%`);
+          } else {
+            query += ` AND ${key} = $${valueIndex}`;
+            values.push(value);
+          }
+          valueIndex++;
+        }
+      });
+
+      query += ' ORDER BY timestamp DESC, id DESC';
+
+      const result = await db.query(query, values);
+      
+      // Process each record to decrypt encrypted fields
+      return result.rows.map(row => this._processFromStorage(row));
+    } catch (error) {
+      console.error('Error searching logs:', error);
+      throw error;
+    }
+  },
+
+  async getStatistics() {
+    try {
+      const stats = await db.query(`
+        SELECT 
+          COUNT(*) as total,
+          COUNT(DISTINCT internal_ip) as unique_internal_ips,
+          COUNT(DISTINCT external_ip) as unique_external_ips,
+          COUNT(DISTINCT hostname) as unique_hostnames,
+          COUNT(DISTINCT username) as unique_usernames,
+          COUNT(CASE WHEN locked = true THEN 1 END) as locked_count
+        FROM logs
+      `);
+
+      return stats.rows[0];
+    } catch (error) {
+      console.error('Error getting statistics:', error);
       throw error;
     }
   },
@@ -320,19 +334,19 @@ const LogsModel = {
         'SELECT locked, locked_by FROM logs WHERE id = $1',
         [id]
       );
-      return result.rows[0];
+      
+      if (result.rows.length === 0) {
+        return null;
+      }
+      
+      return {
+        locked: result.rows[0].locked || false,
+        locked_by: result.rows[0].locked_by || null
+      };
     } catch (error) {
       console.error('Error getting lock status:', error);
       throw error;
     }
-  },
-
-  // Add a helper method to get a redacted version
-  getRedactedLog(log) {
-    // First make sure encrypted fields are decrypted
-    const processedLog = typeof log === 'object' ? this._processFromStorage(log) : log;
-    // Then redact sensitive data
-    return redactSensitiveData(processedLog, SENSITIVE_FIELDS);
   }
 };
 

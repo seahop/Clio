@@ -11,10 +11,24 @@ const FieldEditor = ({
   moveToNextCell,
   rowId
 }) => {
+  // FIXED: Enhanced onBlur handler to ensure proper value handling
+  const handleBlur = (e) => {
+    // Ensure we're sending the actual value, converting undefined to empty string
+    const blurValue = e.target.value !== undefined ? e.target.value : '';
+    onBlur({ ...e, target: { ...e.target, value: blurValue } });
+  };
+
+  // FIXED: Enhanced onChange to handle null/undefined properly
+  const handleChange = (e) => {
+    // Ensure we're always working with strings
+    const newValue = e.target.value !== undefined ? e.target.value : '';
+    onChange({ ...e, target: { ...e.target, value: newValue } });
+  };
+
   // Handle dropdown changes specifically
   const handleDropdownChange = (e) => {
     console.log(`${field} changed to:`, e.target.value);
-    onChange(e);
+    handleChange(e);
   };
 
   // Handle dropdown key events for better navigation
@@ -26,7 +40,7 @@ const FieldEditor = ({
       const currentSelection = e.target.value;
       
       // 2. Update the editingValue with the arrow-key selected option
-      onChange({ target: { value: currentSelection } });
+      handleChange({ target: { value: currentSelection } });
       
       // 3. Save the current value and move to the next field
       // This simulates a regular Tab press
@@ -38,7 +52,7 @@ const FieldEditor = ({
       const currentSelection = e.target.value;
       
       // 2. Update the editingValue with the arrow-key selected option
-      onChange({ target: { value: currentSelection } });
+      handleChange({ target: { value: currentSelection } });
       
       // 3. Move to next/previous field based on shift key
       // Always save the value, whether going forward or backward
@@ -60,7 +74,7 @@ const FieldEditor = ({
         <select
           value={value || ''}
           onChange={handleDropdownChange}
-          onBlur={onBlur}
+          onBlur={handleBlur}
           onKeyDown={handleDropdownKeyDown}
           className="w-full p-1 border rounded bg-gray-700 text-white border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
           onClick={(e) => e.stopPropagation()}
@@ -82,8 +96,8 @@ const FieldEditor = ({
       return (
         <select
           value={value || ''}
-          onChange={onChange}
-          onBlur={onBlur}
+          onChange={handleDropdownChange}
+          onBlur={handleBlur}
           onKeyDown={handleDropdownKeyDown}
           className="w-full p-1 border rounded bg-gray-700 text-white border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
           onClick={(e) => e.stopPropagation()}
@@ -101,8 +115,8 @@ const FieldEditor = ({
         <input
           type="text"
           value={value || ''}
-          onChange={onChange}
-          onBlur={onBlur}
+          onChange={handleChange}
+          onBlur={handleBlur}
           onKeyDown={onKeyDown}
           onClick={(e) => e.stopPropagation()}
           className="w-full p-1 border rounded bg-gray-700 text-white border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -122,9 +136,9 @@ const FieldEditor = ({
           onChange={(e) => {
             // Apply auto-formatting while typing
             handleMacAddressInput(e);
-            onChange(e);
+            handleChange(e);
           }}
-          onBlur={onBlur}
+          onBlur={handleBlur}
           onKeyDown={onKeyDown}
           onClick={(e) => e.stopPropagation()}
           className="w-full p-1 border rounded bg-gray-700 text-white border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -141,9 +155,9 @@ const FieldEditor = ({
     case 'hash_value':
       return (
         <textarea
-          value={value || ''}
-          onChange={onChange}
-          onBlur={onBlur}
+          value={value || ''}  // FIXED: Ensure value is never undefined
+          onChange={handleChange}
+          onBlur={handleBlur}
           onKeyDown={onKeyDown}
           onClick={(e) => e.stopPropagation()}
           autoFocus
@@ -160,8 +174,8 @@ const FieldEditor = ({
         <input
           type="text"
           value={value || ''}
-          onChange={onChange}
-          onBlur={onBlur}
+          onChange={handleChange}
+          onBlur={handleBlur}
           onKeyDown={onKeyDown}
           onClick={(e) => e.stopPropagation()}
           autoFocus

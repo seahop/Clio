@@ -55,10 +55,25 @@ export const useLoggerOperations = (currentUser, csrfToken) => {
     if (row && !row.locked) {
       setEditingCell({ rowId, field });
       
-      // Make sure we're working with a string to avoid issues with special characters
-      setEditingValue(row[field] !== null && row[field] !== undefined ? String(row[field]) : '');
+      // FIXED: Handle all field values properly
+      let initialValue = row[field];
       
-      console.log(`Editing ${field} with value:`, row[field]);
+      // Convert null/undefined to empty string for editing
+      if (initialValue === null || initialValue === undefined) {
+        initialValue = '';
+      }
+      // Check for object representations and convert to empty string
+      else if (typeof initialValue === 'object') {
+        console.warn(`Field ${field} contains object:`, initialValue);
+        initialValue = '';
+      }
+      // Ensure we're working with a string
+      else {
+        initialValue = String(initialValue);
+      }
+      
+      setEditingValue(initialValue);
+      console.log(`Editing ${field} with value:`, initialValue);
     }
   };
 
@@ -73,15 +88,30 @@ export const useLoggerOperations = (currentUser, csrfToken) => {
 
     try {
       if (field !== 'analyst') {
-        // Log what we're about to send to the server
-        console.log(`Updating ${field} with value:`, editingValue);
+        // FIXED: Handle empty strings properly for the secrets field
+        let valueToSend = editingValue;
         
-        // Send the raw value to the server without any processing
-        const result = await updateLog(rowId, { [field]: editingValue });
+        // Special handling for the secrets field
+        if (field === 'secrets') {
+          // If the value is empty string, null, or undefined, send null
+          if (valueToSend === '' || valueToSend === null || valueToSend === undefined) {
+            valueToSend = null;
+          }
+          // Ensure we're not sending any object representations
+          else if (typeof valueToSend === 'object') {
+            console.error('Attempting to send object for secrets field:', valueToSend);
+            valueToSend = null;
+          }
+        }
         
-        // Update the local logs state with the exact same value we sent
+        console.log(`Updating ${field} with value:`, valueToSend);
+        
+        // Send the value to the server
+        const result = await updateLog(rowId, { [field]: valueToSend });
+        
+        // Update the local logs state with the exact same value
         setLogs(prevLogs => sortLogs(prevLogs.map(log => 
-          log.id === rowId ? { ...log, [field]: editingValue } : log
+          log.id === rowId ? { ...log, [field]: valueToSend } : log
         )));
         
         console.log('Update result:', result);
@@ -130,23 +160,36 @@ export const useLoggerOperations = (currentUser, csrfToken) => {
     if (nextRow && !nextRow.locked) {
       try {
         if (currentField !== 'analyst') {
-          // Log what we're about to send from tab navigation
-          console.log(`Tab updating ${currentField} with value:`, currentValue);
+          // FIXED: Handle empty values properly when tabbing
+          let valueToSend = currentValue;
           
-          // Send raw value to the server without modifications
-          await updateLog(currentRowId, { [currentField]: currentValue });
+          if (currentField === 'secrets') {
+            if (valueToSend === '' || valueToSend === null || valueToSend === undefined) {
+              valueToSend = null;
+            }
+          }
           
-          // Update local state with the exact same value
+          console.log(`Tab updating ${currentField} with value:`, valueToSend);
+          
+          await updateLog(currentRowId, { [currentField]: valueToSend });
+          
           setLogs(prevLogs => sortLogs(prevLogs.map(log => 
-            log.id === currentRowId ? { ...log, [currentField]: currentValue } : log
+            log.id === currentRowId ? { ...log, [currentField]: valueToSend } : log
           )));
         }
   
-        // Set the next cell's value, ensuring it's treated as a string
-        const nextValue = nextRow[nextField] !== null && nextRow[nextField] !== undefined 
-          ? String(nextRow[nextField]) 
-          : '';
-          
+        // Set the next cell's value, ensuring proper handling
+        let nextValue = nextRow[nextField];
+        
+        if (nextValue === null || nextValue === undefined) {
+          nextValue = '';
+        } else if (typeof nextValue === 'object') {
+          console.warn(`Next field ${nextField} contains object:`, nextValue);
+          nextValue = '';
+        } else {
+          nextValue = String(nextValue);
+        }
+        
         setEditingCell({ rowId: nextRowId, field: nextField });
         setEditingValue(nextValue);
       } catch (err) {
@@ -170,150 +213,126 @@ export const useLoggerOperations = (currentUser, csrfToken) => {
         locked_by: newLockState ? currentUser.username : null
       });
 
-      if (newLockState && editingCell?.rowId === rowId) {
-        setEditingCell(null);
-        setEditingValue('');
-      }
-
       setLogs(prevLogs => sortLogs(prevLogs.map(log => 
-        log.id === rowId ? {
-          ...log,
-          locked: newLockState,
-          locked_by: newLockState ? currentUser.username : null
-        } : log
+        log.id === rowId 
+          ? { ...log, locked: newLockState, locked_by: newLockState ? currentUser.username : null }
+          : log
       )));
     } catch (err) {
       console.error('Error toggling lock:', err);
-      setTimeout(() => setError(null), 5000);
+      setError('Failed to toggle lock status');
     }
   };
 
   const handleAddRow = async () => {
     try {
-      // Create the timestamp in UTC/Zulu time format
-      const now = new Date();
-      const zuluTimestamp = now.toISOString();
-      
-      console.log('Creating new log with Zulu timestamp:', zuluTimestamp);
-      
-      const newRow = {
-        timestamp: zuluTimestamp, // This is already in ISO format with Z suffix (Zulu time)
-        internal_ip: '',
-        external_ip: '',
-        mac_address: '',
-        hostname: '',
-        domain: '',
-        username: '',
-        command: '',
-        notes: '',
-        filename: '',
-        status: '',
-        pid: '',
-        analyst: currentUser.username,
-        locked: false,
-        locked_by: null
-      };
-      
-      const createdRow = await createLog(newRow);
-      setLogs(prevLogs => sortLogs([...prevLogs, createdRow]));
+      const newLog = await createLog({
+        analyst: currentUser.username
+      });
+
+      if (newLog) {
+        setLogs(prevLogs => sortLogs([newLog, ...prevLogs]));
+        
+        // Notify relation service about new row with timeout
+        try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 10000); // 10-second timeout
+          
+          await fetch('/relation-service/api/relations/analyze', {
+            method: 'POST',
+            credentials: 'include',
+            headers: {
+              'Content-Type': 'application/json',
+              'CSRF-Token': csrfToken
+            },
+            body: JSON.stringify({ logId: newLog.id }),
+            signal: controller.signal
+          });
+          
+          clearTimeout(timeoutId);
+          console.log('Analysis triggered for new row');
+        } catch (analyzeError) {
+          if (analyzeError.name === 'AbortError') {
+            console.log('Analysis request timed out, but processing continues on server');
+          } else {
+            console.error('Error triggering analysis:', analyzeError);
+          }
+        }
+      }
     } catch (err) {
-      // Error is handled by useLoggerApi
-      console.error('Error creating new row:', err);
+      console.error('Error adding new row:', err);
+      setError('Failed to add new row');
     }
   };
 
-  // New handler for adding a row with template data
   const handleAddRowWithTemplate = async (templateData) => {
     try {
-      // Create the timestamp in UTC/Zulu time format
-      const now = new Date();
-      const zuluTimestamp = now.toISOString();
+      // Remove any fields that shouldn't be sent to the API
+      const cleanTemplateData = { ...templateData };
+      delete cleanTemplateData.id;
+      delete cleanTemplateData.timestamp;
+      delete cleanTemplateData.created_at;
+      delete cleanTemplateData.updated_at;
       
-      console.log('Creating new log from template with Zulu timestamp:', zuluTimestamp);
+      // Add the current user as analyst
+      cleanTemplateData.analyst = currentUser.username;
       
-      // Make sure we have a new timestamp and the current user as analyst
-      const newRow = {
-        ...templateData,
-        timestamp: zuluTimestamp, // This is already in ISO format with Z suffix (Zulu time)
-        analyst: currentUser.username,
-        locked: false,
-        locked_by: null
-      };
-      
-      console.log('Creating new log with template data:', newRow);
-      
-      // Create the log with the template data
-      const createdRow = await createLog(newRow);
-      
-      // Update the logs state with the new row
-      setLogs(prevLogs => sortLogs([...prevLogs, createdRow]));
-      
-      // Notify relation service about template update with timeout
-      try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 10000); // 10-second timeout
+      const newLog = await createLog(cleanTemplateData);
+
+      if (newLog) {
+        setLogs(prevLogs => sortLogs([newLog, ...prevLogs]));
         
-        await fetch('/relation-service/api/relations/notify/template-update', {
-          method: 'POST',
-          credentials: 'include',
-          headers: {
-            'Content-Type': 'application/json',
-            'CSRF-Token': csrfToken
-          },
-          signal: controller.signal
-        });
-        
-        clearTimeout(timeoutId);
-        console.log('Template update notification sent after row creation');
-      } catch (analyzeError) {
-        if (analyzeError.name === 'AbortError') {
-          console.log('Template update notification timed out, but processing continues on server');
-        } else {
-          console.error('Error triggering relation analysis:', analyzeError);
+        // Notify relation service about new row with timeout
+        try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 10000); // 10-second timeout
+          
+          await fetch('/relation-service/api/relations/analyze', {
+            method: 'POST',
+            credentials: 'include',
+            headers: {
+              'Content-Type': 'application/json',
+              'CSRF-Token': csrfToken
+            },
+            body: JSON.stringify({ logId: newLog.id }),
+            signal: controller.signal
+          });
+          
+          clearTimeout(timeoutId);
+          console.log('Analysis triggered for new row from template');
+        } catch (analyzeError) {
+          if (analyzeError.name === 'AbortError') {
+            console.log('Analysis request timed out, but processing continues on server');
+          } else {
+            console.error('Error triggering analysis:', analyzeError);
+          }
         }
       }
       
-      return createdRow;
+      return newLog;
     } catch (err) {
-      console.error('Error creating new row from template:', err);
-      setError('Failed to create new log from template');
+      console.error('Error adding new row with template:', err);
+      setError('Failed to add new row with template');
       return null;
     }
   };
 
-  const handleDeleteRow = async (rowId) => {
-    if (!isAdmin) return;
-
+  const handleUpdateRowWithTemplate = async (templateData, rowId) => {
     try {
-      await deleteLog(rowId);
-      setLogs(prevLogs => sortLogs(prevLogs.filter(log => log.id !== rowId)));
-    } catch (err) {
-      console.error('Error deleting row:', err);
-      setTimeout(() => setError(null), 5000);
-    }
-  };
-
-  const handleExpand = (rowId, field) => {
-    setExpandedCell(current => 
-      current?.rowId === rowId && current?.field === field ? null : { rowId, field }
-    );
-  };
-
-  const handleUpdateRowWithTemplate = async (rowId, templateData) => {
-    try {
-      if (!rowId) {
-        console.error('Cannot update row: No row ID provided');
-        setError('Failed to update log: No row ID provided');
-        return null;
-      }
-  
-      console.log('Updating existing log with template data:', templateData);
-      console.log('Row ID to update:', rowId);
+      // Clean up template data before sending
+      const cleanTemplateData = { ...templateData };
+      delete cleanTemplateData.id;
+      delete cleanTemplateData.timestamp;
+      delete cleanTemplateData.created_at;
+      delete cleanTemplateData.updated_at;
+      delete cleanTemplateData.analyst;
+      delete cleanTemplateData.locked;
+      delete cleanTemplateData.locked_by;
       
-      // Send the update to the server
-      const updatedRow = await updateLog(rowId, templateData);
+      // Update the row with template data
+      const updatedRow = await updateLog(rowId, cleanTemplateData);
       
-      // Update the logs state with the updated row
+      // Update local state
       setLogs(prevLogs => sortLogs(prevLogs.map(log => 
         log.id === rowId ? { ...log, ...templateData } : log
       )));
@@ -350,6 +369,24 @@ export const useLoggerOperations = (currentUser, csrfToken) => {
       console.error('Error updating row with template:', err);
       setError('Failed to update log with template data');
       return null;
+    }
+  };
+
+  const handleDeleteRow = async (rowId) => {
+    try {
+      await deleteLog(rowId);
+      setLogs(prevLogs => prevLogs.filter(log => log.id !== rowId));
+    } catch (err) {
+      console.error('Error deleting row:', err);
+      setError('Failed to delete row');
+    }
+  };
+
+  const handleExpand = (rowId, field) => {
+    if (expandedCell?.rowId === rowId && expandedCell?.field === field) {
+      setExpandedCell(null);
+    } else {
+      setExpandedCell({ rowId, field });
     }
   };
 
