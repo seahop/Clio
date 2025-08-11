@@ -36,7 +36,7 @@ const LogRowCard = ({
   const [isLoadingTags, setIsLoadingTags] = useState(false);
   
   // Use tags API hook
-  const { fetchLogTags, addTagsToLog, removeTagFromLog } = useTagsApi();
+const { fetchLogTags, addTagsToLog, removeTagFromLog } = useTagsApi(csrfToken);
   
   // Row is only editable if it's not locked
   const canEdit = !row.locked;

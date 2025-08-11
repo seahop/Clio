@@ -36,7 +36,7 @@ const LoggerCardView = ({
   const [showTagFilter, setShowTagFilter] = useState(false);
   
   // Use tags API hook
-  const { fetchAllTags, fetchTagsForLogs } = useTagsApi();
+const { fetchAllTags, fetchTagsForLogs } = useTagsApi(csrfToken);
   
   // State for template operations
   const [selectedCardForSave, setSelectedCardForSave] = useState(null);

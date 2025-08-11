@@ -1,23 +1,18 @@
 // frontend/src/hooks/useTagsApi.js
 import { useState, useCallback } from 'react';
 
-export const useTagsApi = () => {
+// CHANGED: Now accepts csrfToken as a parameter like useLoggerApi does
+export const useTagsApi = (csrfToken) => {
   const [error, setError] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
 
-  // Helper to get CSRF token - matching pattern from useLoggerApi
-  const getCsrfToken = () => {
-    // Try to get from window first (where App.jsx stores it)
-    return window.csrfToken || '';
-  };
-
-  // Helper to get auth headers - matching pattern from useLoggerApi
-  const getAuthHeaders = () => {
-    return {
-      'Content-Type': 'application/json',
-      'CSRF-Token': getCsrfToken() // Match the exact header name used in other hooks
-    };
-  };
+  // REMOVED: getCsrfToken function - no longer needed
+  
+  // CHANGED: Updated to match the pattern from useLoggerApi exactly
+  const getAuthHeaders = () => ({
+    'Content-Type': 'application/json',
+    'CSRF-Token': csrfToken || window.csrfToken || ''
+  });
 
   // Execute API request with error handling
   const executeApiRequest = async (url, options = {}) => {
@@ -56,7 +51,7 @@ export const useTagsApi = () => {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [csrfToken]); // CHANGED: Added csrfToken as dependency
 
   // Fetch tags for a specific log
   const fetchLogTags = useCallback(async (logId) => {
@@ -72,7 +67,7 @@ export const useTagsApi = () => {
       console.error('Error fetching log tags:', err);
       return [];
     }
-  }, []);
+  }, [csrfToken]); // CHANGED: Added csrfToken as dependency
 
   // Fetch tags for multiple logs (batch)
   const fetchTagsForLogs = useCallback(async (logIds) => {
@@ -89,7 +84,7 @@ export const useTagsApi = () => {
       console.error('Error fetching tags for logs:', err);
       return {};
     }
-  }, []);
+  }, [csrfToken]); // CHANGED: Added csrfToken as dependency
 
   // Search tags (for autocomplete)
   const searchTags = useCallback(async (query) => {
@@ -105,7 +100,7 @@ export const useTagsApi = () => {
       console.error('Error searching tags:', err);
       return [];
     }
-  }, []);
+  }, [csrfToken]); // CHANGED: Added csrfToken as dependency
 
   // Create a new tag
   const createTag = useCallback(async (tagData) => {
@@ -122,12 +117,13 @@ export const useTagsApi = () => {
       console.error('Error creating tag:', err);
       throw err;
     }
-  }, []);
+  }, [csrfToken]); // CHANGED: Added csrfToken as dependency
 
   // Add tags to a log - WITH DEBUG LOGGING
   const addTagsToLog = useCallback(async (logId, tagIds = [], tagNames = []) => {
     try {
       console.log('addTagsToLog called with:', { logId, tagIds, tagNames }); // Debug
+      console.log('CSRF Token being used:', csrfToken ? 'Present' : 'Missing'); // ADDED: Debug CSRF token
       
       const requestBody = { 
         tagIds: tagIds.length > 0 ? tagIds : undefined,
@@ -151,7 +147,7 @@ export const useTagsApi = () => {
       console.error('Error adding tags to log:', err);
       throw err;
     }
-  }, []);
+  }, [csrfToken]); // CHANGED: Added csrfToken as dependency
 
   // Remove a tag from a log
   const removeTagFromLog = useCallback(async (logId, tagId) => {
@@ -167,7 +163,7 @@ export const useTagsApi = () => {
       console.error('Error removing tag from log:', err);
       throw err;
     }
-  }, []);
+  }, [csrfToken]); // CHANGED: Added csrfToken as dependency
 
   // Remove all tags from a log
   const removeAllTagsFromLog = useCallback(async (logId) => {
@@ -183,7 +179,7 @@ export const useTagsApi = () => {
       console.error('Error removing all tags from log:', err);
       throw err;
     }
-  }, []);
+  }, [csrfToken]); // CHANGED: Added csrfToken as dependency
 
   // Update a tag (admin only)
   const updateTag = useCallback(async (tagId, updates) => {
@@ -200,7 +196,7 @@ export const useTagsApi = () => {
       console.error('Error updating tag:', err);
       throw err;
     }
-  }, []);
+  }, [csrfToken]); // CHANGED: Added csrfToken as dependency
 
   // Delete a tag (admin only)
   const deleteTag = useCallback(async (tagId) => {
@@ -216,7 +212,7 @@ export const useTagsApi = () => {
       console.error('Error deleting tag:', err);
       throw err;
     }
-  }, []);
+  }, [csrfToken]); // CHANGED: Added csrfToken as dependency
 
   // Get tag statistics
   const fetchTagStats = useCallback(async () => {
@@ -232,7 +228,7 @@ export const useTagsApi = () => {
       console.error('Error fetching tag stats:', err);
       throw err;
     }
-  }, []);
+  }, [csrfToken]); // CHANGED: Added csrfToken as dependency
 
   // Get related tags (co-occurrence)
   const fetchRelatedTags = useCallback(async (tagId) => {
@@ -248,7 +244,7 @@ export const useTagsApi = () => {
       console.error('Error fetching related tags:', err);
       return [];
     }
-  }, []);
+  }, [csrfToken]); // CHANGED: Added csrfToken as dependency
 
   // Filter logs by tags
   const filterLogsByTags = useCallback(async (tagIds = [], tagNames = []) => {
@@ -268,7 +264,7 @@ export const useTagsApi = () => {
       console.error('Error filtering logs by tags:', err);
       return [];
     }
-  }, []);
+  }, [csrfToken]); // CHANGED: Added csrfToken as dependency
 
   return {
     error,
