@@ -136,7 +136,7 @@ const CardFieldSettings = ({ currentUser, onSettingsChange }) => {
   }, []);
 
   return (
-    <div className="relative" style={{ zIndex: 9999 }}>
+    <div className="relative" style={{ zIndex: 9998 }}>
       <button
         ref={buttonRef}
         onClick={() => setIsOpen(!isOpen)}

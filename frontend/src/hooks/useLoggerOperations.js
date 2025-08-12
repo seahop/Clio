@@ -1,4 +1,4 @@
-// frontend/src/hooks/useLoggerOperations.js
+// frontend/src/hooks/useLoggerOperations.js - Updated with operations support
 import { useState, useEffect } from 'react';
 import { useLoggerApi } from './useLoggerApi';
 import { COLUMNS } from '../utils/constants';
@@ -14,6 +14,7 @@ export const useLoggerOperations = (currentUser, csrfToken) => {
   const [editingValue, setEditingValue] = useState('');
   const [loading, setLoading] = useState(true);
   const [expandedCell, setExpandedCell] = useState(null);
+  const [activeOperation, setActiveOperation] = useState(null); // NEW: Add active operation state
 
   const {
     error,
@@ -38,7 +39,19 @@ export const useLoggerOperations = (currentUser, csrfToken) => {
     const loadLogs = async () => {
       const data = await fetchLogs();
       if (data) {
-        setLogs(sortLogs(data));
+        // NEW: Handle new response format with operations
+        if (data.logs && data.activeOperation !== undefined) {
+          setLogs(sortLogs(data.logs));
+          setActiveOperation(data.activeOperation);
+        } else if (Array.isArray(data)) {
+          // Fallback for old format
+          setLogs(sortLogs(data));
+          setActiveOperation(null);
+        } else {
+          // Handle unexpected format
+          console.warn('Unexpected data format from fetchLogs:', data);
+          setLogs([]);
+        }
       }
       setLoading(false);
     };
@@ -395,6 +408,7 @@ export const useLoggerOperations = (currentUser, csrfToken) => {
     loading,
     error,
     isAdmin,
+    activeOperation, // NEW: Include active operation in return
     tableState: {
       editingCell,
       editingValue,

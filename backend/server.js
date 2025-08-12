@@ -1,3 +1,4 @@
+// backend/server.js
 const express = require('express');
 const https = require('https');
 const fs = require('fs');
@@ -27,6 +28,7 @@ const url = require('url');
 const passport = require('passport');
 const { initializeGoogleSSO } = require('./lib/passport-google');
 const templatesRoutes = require('./routes/templates.routes');
+const operationsRoutes = require('./routes/operations.routes');
 
 const app = express();
 
@@ -222,6 +224,7 @@ app.use('/api/sessions', sessionRoutes);
 app.use('/api/evidence', evidenceRoutes);
 app.use('/api/api-keys', apiKeyRoutes);
 app.use('/api/ingest', ingestRoutes);
+app.use('/api/operations', operationsRoutes);
 app.use('/api/logs/s3-config', require('./routes/s3-config.routes'));
 app.use('/api/health/logs', require('./routes/logs-health.routes'));
 app.use('/api/templates', templatesRoutes);

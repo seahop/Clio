@@ -1,4 +1,4 @@
-// backend/models/tags.js
+// backend/models/tags.js - Updated with smart operation tag protection
 const db = require('../db');
 
 class TagsModel {
@@ -76,6 +76,82 @@ class TagsModel {
     } catch (error) {
       console.error('Error getting tags for multiple logs:', error);
       throw error;
+    }
+  }
+
+  /**
+   * Check if a tag is the native operation tag for a log
+   * A native operation tag is one that was auto-assigned when the log was created
+   */
+  static async isNativeOperationTag(logId, tagId) {
+    try {
+      // Get the log's analyst and creation time
+      const logResult = await db.query(
+        `SELECT analyst, created_at FROM logs WHERE id = $1`,
+        [logId]
+      );
+      
+      if (logResult.rows.length === 0) {
+        return false;
+      }
+      
+      const { analyst, created_at } = logResult.rows[0];
+      
+      // Get the user's active operation at the time of log creation
+      // This would be the native operation
+      const nativeOpResult = await db.query(
+        `SELECT 
+          o.tag_id
+         FROM user_operations uo
+         JOIN operations o ON uo.operation_id = o.id
+         WHERE uo.username = $1
+           AND o.tag_id = $2
+           AND o.is_active = true`,
+        [analyst, tagId]
+      );
+      
+      // If this tag matches the user's active operation, it's likely native
+      // But we also need to check timing to be sure
+      if (nativeOpResult.rows.length > 0) {
+        // Check when this tag was added to the log
+        const tagTimingResult = await db.query(
+          `SELECT 
+            lt.tagged_at,
+            lt.tagged_by
+           FROM log_tags lt
+           WHERE lt.log_id = $1 AND lt.tag_id = $2`,
+          [logId, tagId]
+        );
+        
+        if (tagTimingResult.rows.length > 0) {
+          const { tagged_at, tagged_by } = tagTimingResult.rows[0];
+          
+          // Check if this tag was added at approximately the same time as log creation
+          // (within 10 seconds) and by the same user
+          const createdAt = new Date(created_at);
+          const taggedAt = new Date(tagged_at);
+          const timeDiff = Math.abs(taggedAt - createdAt) / 1000; // difference in seconds
+          
+          // It's a native operation tag if:
+          // 1. It was tagged within 10 seconds of log creation (increased from 5)
+          // 2. It was tagged by the same user who created the log
+          const isNative = timeDiff <= 10 && tagged_by === analyst;
+          
+          console.log(`Native tag check for log ${logId}, tag ${tagId}:`);
+          console.log(`  - Created at: ${createdAt.toISOString()}`);
+          console.log(`  - Tagged at: ${taggedAt.toISOString()}`);
+          console.log(`  - Time diff: ${timeDiff}s`);
+          console.log(`  - Tagged by: ${tagged_by}, Analyst: ${analyst}`);
+          console.log(`  - Is native: ${isNative}`);
+          
+          return isNative;
+        }
+      }
+      
+      return false;
+    } catch (error) {
+      console.error('Error checking if tag is native operation tag:', error);
+      return false;
     }
   }
 
@@ -224,10 +300,50 @@ class TagsModel {
   }
 
   /**
-   * Remove a tag from a log
+   * Remove a tag from a log - ONLY protect the FIRST operation tag (native)
+   * The first operation tag added to a log is considered native and protected
    */
   static async removeTagFromLog(logId, tagId) {
     try {
+      // First, check if this is an operation tag
+      const tagResult = await db.query(
+        `SELECT category, name FROM tags WHERE id = $1`,
+        [tagId]
+      );
+      
+      if (tagResult.rows.length > 0) {
+        const tag = tagResult.rows[0];
+        // If it's an operation tag, check if it's the first/native one
+        if (tag.category === 'operation' && tag.name.startsWith('OP:')) {
+          // Get all operation tags for this log, ordered by when they were added
+          const allOpTags = await db.query(
+            `SELECT 
+              lt.tag_id,
+              lt.tagged_at,
+              t.name
+             FROM log_tags lt
+             JOIN tags t ON lt.tag_id = t.id
+             WHERE lt.log_id = $1
+               AND t.category = 'operation'
+               AND t.name LIKE 'OP:%'
+             ORDER BY lt.tagged_at ASC`,
+            [logId]
+          );
+          
+          // If this is the FIRST operation tag (native), protect it
+          if (allOpTags.rows.length > 0 && allOpTags.rows[0].tag_id === tagId) {
+            console.warn(`Attempted to remove native operation tag: ${tag.name} from log ${logId}`);
+            console.log('This was the first operation tag added to the log');
+            throw new Error('Cannot remove the native operation tag from this log');
+          }
+          
+          // If it's not the first operation tag, allow removal
+          console.log(`Allowing removal of manually added operation tag: ${tag.name} from log ${logId}`);
+          console.log(`This log has ${allOpTags.rows.length} operation tags, removing tag at position ${allOpTags.rows.findIndex(r => r.tag_id === tagId) + 1}`);
+        }
+      }
+      
+      // Proceed with removal (either not an operation tag, or not the first one)
       const result = await db.query(
         `DELETE FROM log_tags
          WHERE log_id = $1 AND tag_id = $2
@@ -243,14 +359,40 @@ class TagsModel {
   }
 
   /**
-   * Remove all tags from a log
+   * Remove all tags from a log - EXCEPT the first operation tag (native)
    */
   static async removeAllTagsFromLog(logId) {
     try {
-      const result = await db.query(
-        `DELETE FROM log_tags WHERE log_id = $1 RETURNING *`,
+      // Get the first operation tag for this log (native)
+      const firstOpTag = await db.query(
+        `SELECT lt.tag_id
+         FROM log_tags lt
+         JOIN tags t ON lt.tag_id = t.id
+         WHERE lt.log_id = $1 
+           AND t.category = 'operation' 
+           AND t.name LIKE 'OP:%'
+         ORDER BY lt.tagged_at ASC
+         LIMIT 1`,
         [logId]
       );
+      
+      // Remove all tags except the first operation tag if it exists
+      let query;
+      let params;
+      
+      if (firstOpTag.rows.length > 0) {
+        query = `DELETE FROM log_tags 
+                 WHERE log_id = $1 
+                 AND tag_id != $2
+                 RETURNING *`;
+        params = [logId, firstOpTag.rows[0].tag_id];
+      } else {
+        // No operation tags, can remove all
+        query = `DELETE FROM log_tags WHERE log_id = $1 RETURNING *`;
+        params = [logId];
+      }
+      
+      const result = await db.query(query, params);
       
       return result.rows;
     } catch (error) {
@@ -260,10 +402,25 @@ class TagsModel {
   }
 
   /**
-   * Update a tag (admin only)
+   * Update a tag (admin only) - PROTECTED against operation tag modification
    */
   static async updateTag(tagId, updates) {
     try {
+      // First check if this is an operation tag
+      const tagCheck = await db.query(
+        `SELECT category, name FROM tags WHERE id = $1`,
+        [tagId]
+      );
+      
+      if (tagCheck.rows.length > 0) {
+        const tag = tagCheck.rows[0];
+        // Prevent modification of any operation tags (both native and manual)
+        // This is for data integrity - operation tags should remain consistent
+        if (tag.category === 'operation' && tag.name.startsWith('OP:')) {
+          throw new Error('Cannot modify operation tags');
+        }
+      }
+      
       const allowedUpdates = ['name', 'color', 'category', 'description'];
       
       // Filter out any fields that aren't in allowedUpdates
@@ -314,11 +471,25 @@ class TagsModel {
   }
 
   /**
-   * Delete a tag (admin only)
+   * Delete a tag (admin only) - PROTECTED against operation tag deletion
    * This will cascade delete all log_tags references
    */
   static async deleteTag(tagId) {
     try {
+      // First check if this is an operation tag
+      const tagCheck = await db.query(
+        `SELECT category, name FROM tags WHERE id = $1`,
+        [tagId]
+      );
+      
+      if (tagCheck.rows.length > 0) {
+        const tag = tagCheck.rows[0];
+        // Prevent deletion of any operation tags
+        if (tag.category === 'operation' && tag.name.startsWith('OP:')) {
+          throw new Error('Cannot delete operation tags');
+        }
+      }
+      
       const result = await db.query(
         `DELETE FROM tags WHERE id = $1 RETURNING *`,
         [tagId]

@@ -24,7 +24,13 @@ export const useTagsApi = (csrfToken) => {
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ error: 'Request failed' }));
-        throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+        // Create an error with the response attached for better error handling
+        const error = new Error(errorData.error || errorData.message || `HTTP error! status: ${response.status}`);
+        error.response = {
+          status: response.status,
+          data: errorData
+        };
+        throw error;
       }
 
       return await response.json();
@@ -149,7 +155,7 @@ export const useTagsApi = (csrfToken) => {
     }
   }, [csrfToken]); // CHANGED: Added csrfToken as dependency
 
-  // Remove a tag from a log
+  // Remove a tag from a log - WITH PROPER ERROR HANDLING
   const removeTagFromLog = useCallback(async (logId, tagId) => {
     try {
       const options = {
@@ -161,6 +167,7 @@ export const useTagsApi = (csrfToken) => {
       return true;
     } catch (err) {
       console.error('Error removing tag from log:', err);
+      // Re-throw the error so the component can handle it
       throw err;
     }
   }, [csrfToken]); // CHANGED: Added csrfToken as dependency

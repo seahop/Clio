@@ -1,7 +1,8 @@
-//routes/logs.routes.js
+// backend/routes/logs.routes.js - Complete file with operations integration and all existing features
 const express = require('express');
 const router = express.Router();
 const LogsModel = require('../models/logs');
+const OperationsModel = require('../models/operations');
 const eventLogger = require('../lib/eventLogger');
 const { authenticateJwt, verifyAdmin } = require('../middleware/jwt.middleware');
 const { redactSensitiveData } = require('../utils/sanitize');
@@ -37,21 +38,36 @@ const notifyRelationService = async () => {
   }
 };
 
+// Get all logs (with operation filtering)
 router.get('/', authenticateJwt, async (req, res, next) => {
   try {
-    // Always get all logs including secrets for UI display
-    const logs = await LogsModel.getAllLogs();
+    const username = req.user.username;
+    const isAdmin = req.user.role === 'admin';
+    
+    // Get logs with operation filtering
+    const logs = await LogsModel.getAllLogs(username, isAdmin);
+    
+    // Get the active operation for context
+    const activeOp = await OperationsModel.getUserActiveOperation(username);
 
     // For logging purposes, create a redacted version that doesn't include secrets
     const logsForLogging = logs.map(log => redactSensitiveData(log, ['secrets']));
     
     await eventLogger.logDataEvent('view_logs', req.user.username, {
       count: logs.length,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      activeOperation: activeOp ? activeOp.name : null
     });
 
-    // Return the logs with actual secrets to the UI
-    res.json(logs);
+    // Return the logs with actual secrets to the UI, plus operation context
+    res.json({
+      logs,
+      activeOperation: activeOp ? {
+        id: activeOp.id,
+        name: activeOp.name,
+        tagName: activeOp.tag_name
+      } : null
+    });
   } catch (error) {
     console.error('Error getting logs:', error);
     await eventLogger.logDataEvent('view_logs_error', req.user.username, {
@@ -62,13 +78,14 @@ router.get('/', authenticateJwt, async (req, res, next) => {
   }
 });
 
+// Create new log
 router.post('/', authenticateJwt, async (req, res, next) => {
   try {
-    // Create the log with secrets intact
+    // Create the log with secrets intact and username for auto-tagging
     const newLog = await LogsModel.createLog({
       ...req.body,
       analyst: req.user.username
-    });
+    }, req.user.username); // Pass username for operation auto-tagging
 
     // Notify relation service
     await notifyRelationService();
@@ -102,6 +119,7 @@ router.post('/', authenticateJwt, async (req, res, next) => {
   }
 });
 
+// Update log
 router.put('/:id', authenticateJwt, async (req, res, next) => {
   try {
     const id = parseInt(req.params.id);
@@ -317,6 +335,7 @@ router.put('/:id', authenticateJwt, async (req, res, next) => {
   }
 });
 
+// Delete log (admin only)
 router.delete('/:id', authenticateJwt, verifyAdmin, async (req, res, next) => {
   try {
     const id = parseInt(req.params.id);
@@ -364,7 +383,7 @@ router.post('/rotate', authenticateJwt, verifyAdmin, async (req, res, next) => {
 
     // Check if S3 is available and configured if explicitly requested
     if (useS3 === true) {
-      // UPDATED PATH: Changed from ../config/s3-config.json to ../data/s3-config.json
+      // Path to S3 config in data directory
       const s3ConfigPath = path.join(__dirname, '../data/s3-config.json');
       
       try {
@@ -435,6 +454,126 @@ router.post('/rotate', authenticateJwt, verifyAdmin, async (req, res, next) => {
       error: 'Failed to trigger log rotation',
       message: error.message
     });
+  }
+});
+
+// Get single log by ID
+router.get('/:id', authenticateJwt, async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const log = await LogsModel.getLogById(id);
+    
+    if (!log) {
+      return res.status(404).json({ error: 'Log not found' });
+    }
+    
+    // Log the view event with redacted data
+    await eventLogger.logDataEvent('view_single_log', req.user.username, {
+      logId: id,
+      timestamp: new Date().toISOString()
+    });
+    
+    res.json(log);
+  } catch (error) {
+    console.error('Error fetching log:', error);
+    res.status(500).json({ error: 'Failed to fetch log' });
+  }
+});
+
+// Bulk delete logs (admin only)
+router.post('/bulk-delete', authenticateJwt, verifyAdmin, async (req, res, next) => {
+  try {
+    const { ids } = req.body;
+    
+    if (!ids || !Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ error: 'Invalid IDs provided' });
+    }
+    
+    const deletedIds = await LogsModel.bulkDelete(ids);
+    
+    // Notify relation service after bulk deletion
+    await notifyRelationService();
+    
+    // Log bulk deletion
+    await eventLogger.logDataEvent('bulk_delete', req.user.username, {
+      deletedCount: deletedIds.length,
+      deletedIds,
+      timestamp: new Date().toISOString()
+    });
+    
+    res.json({ 
+      message: `${deletedIds.length} logs deleted successfully`,
+      deletedIds 
+    });
+  } catch (error) {
+    console.error('Error bulk deleting logs:', error);
+    res.status(500).json({ error: 'Failed to delete logs' });
+  }
+});
+
+// Toggle lock on a log
+router.post('/:id/lock', authenticateJwt, async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { lock } = req.body;
+    const isAdmin = req.user.role === 'admin';
+    
+    const lockStatus = await LogsModel.getLockStatus(id);
+    
+    if (lock && lockStatus.locked && !isAdmin) {
+      return res.status(403).json({ 
+        error: 'Already locked',
+        detail: `This record is locked by ${lockStatus.locked_by}`
+      });
+    }
+    
+    if (!lock && lockStatus.locked && lockStatus.locked_by !== req.user.username && !isAdmin) {
+      return res.status(403).json({ 
+        error: 'Cannot unlock',
+        detail: `Only ${lockStatus.locked_by} or an admin can unlock this record`
+      });
+    }
+    
+    const result = await LogsModel.toggleLock(id, req.user.username, lock);
+    
+    // Log lock/unlock
+    if (lock) {
+      await eventLogger.logRowLock(req.user.username, id, {
+        timestamp: new Date().toISOString()
+      });
+    } else {
+      await eventLogger.logRowUnlock(req.user.username, id, {
+        timestamp: new Date().toISOString()
+      });
+    }
+    
+    res.json(result);
+  } catch (error) {
+    console.error('Error toggling lock:', error);
+    res.status(500).json({ error: 'Failed to toggle lock' });
+  }
+});
+
+// Search logs (with operation filtering)
+router.post('/search', authenticateJwt, async (req, res, next) => {
+  try {
+    const searchParams = req.body;
+    const username = req.user.username;
+    const isAdmin = req.user.role === 'admin';
+    
+    const logs = await LogsModel.searchLogs(searchParams, username, isAdmin);
+    
+    // Log the search
+    await eventLogger.logDataEvent('search_logs', req.user.username, {
+      searchParams: redactSensitiveData(searchParams, ['secrets']),
+      resultCount: logs.length,
+      timestamp: new Date().toISOString()
+    });
+    
+    res.json(logs);
+  } catch (error) {
+    console.error('Error searching logs:', error);
+    res.status(500).json({ error: 'Failed to search logs' });
   }
 });
 

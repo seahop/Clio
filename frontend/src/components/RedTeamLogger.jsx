@@ -1,6 +1,6 @@
-// frontend/src/components/RedTeamLogger.jsx
+// frontend/src/components/RedTeamLogger.jsx - Updated with Operations tab
 import React, { useState } from 'react';
-import { Network, File, Database, Users, Key, Book, HardDrive, Settings, Shield } from 'lucide-react';
+import { Network, File, Database, Users, Key, Book, HardDrive, Settings, Shield, Briefcase } from 'lucide-react';
 import LoggerCardView from './LoggerCardView';
 import RelationViewer from './RelationViewer';
 import FileStatusTracker from './FileStatusTracker';
@@ -11,6 +11,7 @@ import ApiDocumentation from './ApiDocumentation';
 import LogManagement from './LogManagement';
 import UserSettings from './UserSettings';
 import CertificateManager from './CertificateManager';
+import { OperationsManagement } from './Operations';
 import useLoggerOperations from '../hooks/useLoggerOperations';
 
 const RedTeamLogger = ({ currentUser, csrfToken }) => {
@@ -90,6 +91,18 @@ const RedTeamLogger = ({ currentUser, csrfToken }) => {
             {/* Admin-only buttons */}
             {isAdmin && (
               <>
+                <button
+                  onClick={() => setActiveView('operations')}
+                  className={`px-4 py-2 rounded-md flex items-center gap-2 transition-colors duration-200 ${
+                    activeView === 'operations' 
+                      ? 'bg-blue-600 text-white' 
+                      : 'bg-gray-700 text-white hover:bg-gray-600'
+                  }`}
+                >
+                  <Briefcase className="w-5 h-5" />
+                  <span className="inline">Operations</span>
+                </button>
+                
                 <button
                   onClick={() => setActiveView('export')}
                   className={`px-4 py-2 rounded-md flex items-center gap-2 transition-colors duration-200 ${
@@ -199,6 +212,14 @@ const RedTeamLogger = ({ currentUser, csrfToken }) => {
         )}
         
         {/* Admin Views */}
+        {activeView === 'operations' && isAdmin && (
+          <div className="w-full">
+            <div className="bg-gray-800 rounded-lg shadow-lg p-4">
+              <OperationsManagement csrfToken={csrfToken} currentUser={currentUser} />
+            </div>
+          </div>
+        )}
+        
         {activeView === 'export' && isAdmin && (
           <div className="w-full">
             <div className="bg-gray-800 rounded-lg shadow-lg p-4">

@@ -5,6 +5,7 @@ const TagsModel = require('../models/tags');
 const eventLogger = require('../lib/eventLogger');
 const { authenticateJwt, verifyAdmin } = require('../middleware/jwt.middleware');
 const { sanitizeRequestMiddleware } = require('../middleware/sanitize.middleware');
+const db = require('../db'); // Add this import for the protection check
 
 // Get all tags
 router.get('/', authenticateJwt, async (req, res, next) => {
@@ -192,7 +193,7 @@ router.post('/log/:logId', authenticateJwt, sanitizeRequestMiddleware, async (re
   }
 });
 
-// Remove a tag from a log
+// Remove a tag from a log - Let the model handle protection
 router.delete('/log/:logId/tag/:tagId', authenticateJwt, async (req, res, next) => {
   try {
     const logId = parseInt(req.params.logId);
@@ -202,6 +203,7 @@ router.delete('/log/:logId/tag/:tagId', authenticateJwt, async (req, res, next) 
       return res.status(400).json({ error: 'Invalid log ID or tag ID' });
     }
     
+    // Let the model handle all protection logic
     await TagsModel.removeTagFromLog(logId, tagId);
     
     await eventLogger.logDataEvent('remove_tag_from_log', req.user.username, {
@@ -213,6 +215,15 @@ router.delete('/log/:logId/tag/:tagId', authenticateJwt, async (req, res, next) 
     res.json({ message: 'Tag removed successfully' });
   } catch (error) {
     console.error('Error removing tag from log:', error);
+    
+    // Handle operation tag protection error from model
+    if (error.message === 'Cannot remove the native operation tag from this log') {
+      return res.status(403).json({ 
+        error: 'Cannot remove native operation tag',
+        message: 'This is the primary operation tag for this log and cannot be removed. Other operation tags can be removed.'
+      });
+    }
+    
     next(error);
   }
 });
@@ -241,7 +252,7 @@ router.delete('/log/:logId/all', authenticateJwt, async (req, res, next) => {
   }
 });
 
-// Update a tag (admin only)
+// Update a tag (admin only) - PROTECTED VERSION
 router.put('/:tagId', authenticateJwt, verifyAdmin, sanitizeRequestMiddleware, async (req, res, next) => {
   try {
     const tagId = parseInt(req.params.tagId);
@@ -266,6 +277,14 @@ router.put('/:tagId', authenticateJwt, verifyAdmin, sanitizeRequestMiddleware, a
   } catch (error) {
     console.error('Error updating tag:', error);
     
+    // Check for operation tag protection
+    if (error.message === 'Cannot modify operation tags') {
+      return res.status(403).json({ 
+        error: 'Operation tags cannot be modified',
+        message: 'This tag is associated with an operation and cannot be changed'
+      });
+    }
+    
     // Check for duplicate tag name
     if (error.code === '23505') {
       return res.status(409).json({ error: 'Tag with this name already exists' });
@@ -275,7 +294,7 @@ router.put('/:tagId', authenticateJwt, verifyAdmin, sanitizeRequestMiddleware, a
   }
 });
 
-// Delete a tag (admin only)
+// Delete a tag (admin only) - PROTECTED VERSION
 router.delete('/:tagId', authenticateJwt, verifyAdmin, async (req, res, next) => {
   try {
     const tagId = parseInt(req.params.tagId);
@@ -299,6 +318,15 @@ router.delete('/:tagId', authenticateJwt, verifyAdmin, async (req, res, next) =>
     res.json({ message: 'Tag deleted successfully', tag: deletedTag });
   } catch (error) {
     console.error('Error deleting tag:', error);
+    
+    // Check for operation tag protection
+    if (error.message === 'Cannot delete operation tags') {
+      return res.status(403).json({ 
+        error: 'Operation tags cannot be deleted',
+        message: 'This tag is associated with an operation and cannot be removed'
+      });
+    }
+    
     next(error);
   }
 });

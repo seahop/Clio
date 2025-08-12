@@ -1,10 +1,8 @@
-// frontend/src/App.jsx - With proxy support
+// frontend/src/App.jsx - Complete file with operations integration (simplified)
 import React, { useState, useEffect, useCallback } from 'react';
 import RedTeamLogger from './components/RedTeamLogger';
 import Login from './components/Login';
-
-// No need for API_URL, we use proxy with relative URLs
-// console.log('Using API URL:', API_URL);
+import { OperationsProvider, OperationSwitcher } from './components/Operations';
 
 // Debug function to help diagnose CSRF and CORS issues
 const debugNetworkIssues = async () => {
@@ -91,6 +89,7 @@ function App() {
       // Clear all application storage
       localStorage.removeItem('user');
       localStorage.removeItem('passwordChangeRequired');
+      localStorage.removeItem('activeOperationId'); // Clear operations data
       
       // Clear any other application state
       sessionStorage.clear();
@@ -377,35 +376,41 @@ function App() {
   return (
     <div className="min-h-screen bg-gray-900">
       {user ? (
-        <div>
-          <div className="bg-gray-800 shadow">
-            <div className="w-full px-2 sm:px-4 py-4">
-              <div className="flex justify-between items-center">
-                <h1 className="text-xl font-semibold text-white">Clio Logging Platform</h1>
-                <div className="flex items-center gap-4">
-                  <span className="text-gray-300">Welcome, {user.username}</span>
-                  {user.role === 'admin' && (
-                    <span className="bg-red-900 text-red-200 text-xs font-medium px-2.5 py-0.5 rounded">
-                      Admin
-                    </span>
-                  )}
-                  <button
-                    onClick={handleLogout}
-                    className="px-4 py-2 bg-gray-700 text-gray-300 rounded-md hover:bg-gray-600"
-                  >
-                    Logout
-                  </button>
+        <OperationsProvider csrfToken={csrfToken}>
+          <div>
+            <div className="bg-gray-800 shadow">
+              <div className="w-full px-2 sm:px-4 py-4">
+                <div className="flex justify-between items-center">
+                  <div className="flex items-center gap-4">
+                    <h1 className="text-xl font-semibold text-white">Clio Logging Platform</h1>
+                    {/* Add Operation Switcher here */}
+                    <OperationSwitcher />
+                  </div>
+                  <div className="flex items-center gap-4">
+                    <span className="text-gray-300">Welcome, {user.username}</span>
+                    {user.role === 'admin' && (
+                      <span className="bg-red-900 text-red-200 text-xs font-medium px-2.5 py-0.5 rounded">
+                        Admin
+                      </span>
+                    )}
+                    <button
+                      onClick={handleLogout}
+                      className="px-4 py-2 bg-gray-700 text-gray-300 rounded-md hover:bg-gray-600"
+                    >
+                      Logout
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
+            <div className="py-4 max-w-full overflow-hidden">
+              <RedTeamLogger 
+                currentUser={user}
+                csrfToken={csrfToken}
+              />
+            </div>
           </div>
-          <div className="py-4 max-w-full overflow-hidden">
-            <RedTeamLogger 
-              currentUser={user}
-              csrfToken={csrfToken}
-            />
-          </div>
-        </div>
+        </OperationsProvider>
       ) : (
         <Login 
           onLoginSuccess={handleLoginSuccess}

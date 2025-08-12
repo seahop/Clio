@@ -1,6 +1,6 @@
 // frontend/src/components/LogRowCard.jsx
 import React, { useState, useEffect } from 'react';
-import { ChevronRight, ChevronDown, Lock, Unlock, Trash2, Eye, EyeOff, FileText, Tag as TagIcon } from 'lucide-react';
+import { ChevronRight, ChevronDown, Lock, Unlock, Trash2, Eye, EyeOff, FileText, Tag } from 'lucide-react';
 import CardHeader from './LogCard/CardHeader';
 import CardContent from './LogCard/CardContent';
 import EvidenceTab from './EvidenceTab';
@@ -36,7 +36,7 @@ const LogRowCard = ({
   const [isLoadingTags, setIsLoadingTags] = useState(false);
   
   // Use tags API hook
-const { fetchLogTags, addTagsToLog, removeTagFromLog } = useTagsApi(csrfToken);
+  const { fetchLogTags, addTagsToLog, removeTagFromLog } = useTagsApi(csrfToken);
   
   // Row is only editable if it's not locked
   const canEdit = !row.locked;
@@ -189,10 +189,17 @@ const { fetchLogTags, addTagsToLog, removeTagFromLog } = useTagsApi(csrfToken);
     }
   };
 
-  // Handle removing a tag
+  // Handle removing a tag - SMART PROTECTION for native operation tags only
   const handleRemoveTag = async (tagId) => {
     try {
+      // Find the tag to check what we're removing (for logging)
+      const tagToRemove = tags.find(t => t.id === tagId);
+      console.log('Attempting to remove tag:', tagToRemove);
+      
+      // Attempt to remove the tag - let the backend decide if it's allowed
       await removeTagFromLog(row.id, tagId);
+      
+      // Only update the state if removal was successful
       const updatedTags = tags.filter(t => t.id !== tagId);
       setTags(updatedTags);
       
@@ -201,7 +208,23 @@ const { fetchLogTags, addTagsToLog, removeTagFromLog } = useTagsApi(csrfToken);
         onTagsUpdate(row.id, updatedTags);
       }
     } catch (error) {
-      console.error('Failed to remove tag:', error);
+      console.error('Failed to remove tag - Full error:', error);
+      console.error('Error response:', error.response);
+      console.error('Error message:', error.message);
+      
+      // Check the actual error to determine what happened
+      if (error.message?.includes('native operation tag')) {
+        alert('This is the primary operation tag for this log and cannot be removed. You can remove other operation tags that were manually added.');
+      } else if (error.response?.status === 403) {
+        // Check the error message from the response
+        const errorMsg = error.response?.data?.message || error.response?.data?.error || 'This tag cannot be removed as it is protected.';
+        alert(errorMsg);
+      } else {
+        alert('Failed to remove tag. Please try again.');
+      }
+      
+      // Don't update the state if there was an error
+      // This prevents the UI from getting into a bad state
     }
   };
 
@@ -235,7 +258,7 @@ const { fetchLogTags, addTagsToLog, removeTagFromLog } = useTagsApi(csrfToken);
       {/* Tags Section - Always visible */}
       <div className="px-4 pb-2">
         <div className="flex items-center gap-2">
-          <TagIcon size={14} className="text-gray-500" />
+          <Tag size={14} className="text-gray-500" />
           <TagDisplay
             tags={tags}
             onTagClick={handleTagClick}

@@ -1,7 +1,8 @@
-// models/logs.js - Complete file with fix for empty secrets field
+// backend/models/logs.js
 const db = require('../db');
 const { redactSensitiveData } = require('../utils/sanitize');
 const fieldEncryption = require('../utils/encryption');
+const OperationsModel = require('./operations');
 
 // List of fields that should be protected in logs and responses
 const SENSITIVE_FIELDS = ['secrets'];
@@ -20,7 +21,7 @@ const LogsModel = {
     
     // Encrypt fields that need encryption
     ENCRYPTED_FIELDS.forEach(field => {
-      // FIXED: Check for empty string and convert to null
+      // Check for empty string and convert to null
       // Only encrypt if the field has actual content
       if (processed[field] !== undefined && processed[field] !== null && processed[field] !== '') {
         processed[field] = JSON.stringify(fieldEncryption.encrypt(processed[field]));
@@ -51,11 +52,11 @@ const LogsModel = {
           processed[field] = fieldEncryption.decrypt(encryptedData);
         } catch (error) {
           console.error(`Error decrypting ${field}:`, error);
-          // FIXED: Return null instead of leaving corrupted data
+          // Return null instead of leaving corrupted data
           processed[field] = null;
         }
       }
-      // FIXED: Ensure null values remain null (not undefined)
+      // Ensure null values remain null (not undefined)
       else if (processed[field] === null) {
         processed[field] = null;
       }
@@ -64,14 +65,57 @@ const LogsModel = {
     return processed;
   },
 
-  async getAllLogs() {
+  async getAllLogs(username = null, isAdmin = false) {
     try {
-      const result = await db.query(`
-        SELECT * FROM logs 
-        ORDER BY timestamp DESC, id DESC
-      `);
+      // Admins see everything unless they have an active operation filter
+      if (isAdmin) {
+        // Check if admin has chosen to filter by operation
+        const activeOp = username ? await OperationsModel.getUserActiveOperation(username) : null;
+        
+        if (activeOp && activeOp.tag_id) {
+          // Admin has chosen to filter by operation
+          const result = await db.query(`
+            SELECT DISTINCT l.* 
+            FROM logs l
+            JOIN log_tags lt ON l.id = lt.log_id
+            WHERE lt.tag_id = $1
+            ORDER BY l.timestamp DESC, l.id DESC
+          `, [activeOp.tag_id]);
+          
+          return result.rows.map(row => this._processFromStorage(row));
+        }
+        
+        // No filter - show all logs
+        const result = await db.query(`
+          SELECT * FROM logs 
+          ORDER BY timestamp DESC, id DESC
+        `);
+        
+        return result.rows.map(row => this._processFromStorage(row));
+      }
       
-      // Process each record to decrypt encrypted fields
+      // Non-admin users - filter by their active operation
+      if (!username) {
+        throw new Error('Username required for non-admin users');
+      }
+      
+      const activeOp = await OperationsModel.getUserActiveOperation(username);
+      
+      // If user has no operations, return empty array
+      if (!activeOp || !activeOp.tag_id) {
+        console.log(`User ${username} has no active operation`);
+        return [];
+      }
+      
+      // Filter logs by operation tag
+      const result = await db.query(`
+        SELECT DISTINCT l.* 
+        FROM logs l
+        JOIN log_tags lt ON l.id = lt.log_id
+        WHERE lt.tag_id = $1
+        ORDER BY l.timestamp DESC, l.id DESC
+      `, [activeOp.tag_id]);
+      
       return result.rows.map(row => this._processFromStorage(row));
     } catch (error) {
       console.error('Error fetching logs:', error);
@@ -130,10 +174,15 @@ const LogsModel = {
     }
   },
   
-  async createLog(logData) {
+  async createLog(logData, username = null) {
     try {
       // Process data for storage (encrypt sensitive fields)
       const processedData = this._processForStorage(logData);
+      
+      // Set the analyst field if username is provided
+      if (username) {
+        processedData.analyst = username;
+      }
       
       // Parse the provided timestamp or use current UTC time
       const timestamp = logData.timestamp ? new Date(logData.timestamp) : new Date();
@@ -168,74 +217,61 @@ const LogsModel = {
       // Process the returned record to decrypt fields
       const createdLog = this._processFromStorage(result.rows[0]);
       
-      // Return the actual log with secrets intact for the UI
+      // Auto-tag with operation if username is provided
+      if (username) {
+        await OperationsModel.autoTagLogWithOperation(createdLog.id, username);
+      }
+      
       return createdLog;
     } catch (error) {
       console.error('Error creating log:', error);
       throw error;
     }
   },
-
+  
   async updateLog(id, updates) {
     try {
-      const allowedUpdates = [
-        'internal_ip', 'external_ip', 'mac_address', 'hostname', 'domain',
-        'username', 'command', 'notes', 'filename', 'status',
-        'secrets', 'locked', 'locked_by', 'hash_algorithm', 'hash_value', 'pid',
-        'timestamp' // Allow timestamp updates
-      ];
-
-      // Process updates for storage (encrypt sensitive fields)
+      // Process updates for storage
       const processedUpdates = this._processForStorage(updates);
-
-      // Filter out any fields that aren't in allowedUpdates
-      const filteredUpdates = Object.keys(processedUpdates)
-        .filter(key => allowedUpdates.includes(key))
-        .reduce((obj, key) => {
-          // FIXED: Consistent handling of empty strings
-          // Convert empty strings to null for all fields except those that should preserve empty strings
-          if (processedUpdates[key] === '') {
-            // For most fields, convert empty string to null
-            obj[key] = null;
-          } else {
-            obj[key] = processedUpdates[key];
-          }
-          return obj;
-        }, {});
-
-      // Build the update query dynamically
-      const updateFields = Object.keys(filteredUpdates);
-      if (updateFields.length === 0) {
-        throw new Error('No valid fields to update');
+      
+      // Build dynamic update query
+      const fields = [];
+      const values = [];
+      let valueIndex = 1;
+      
+      Object.keys(processedUpdates).forEach(key => {
+        if (processedUpdates[key] !== undefined && key !== 'id') {
+          fields.push(`${key} = $${valueIndex}`);
+          values.push(processedUpdates[key]);
+          valueIndex++;
+        }
+      });
+      
+      if (fields.length === 0) {
+        return null; // No valid updates
       }
-
-      const setClause = updateFields
-        .map((field, index) => `${field} = $${index + 2}`)
-        .join(', ');
-
-      const values = [id, ...updateFields.map(field => filteredUpdates[field])];
-
+      
+      // Add updated_at timestamp
+      fields.push(`updated_at = CURRENT_TIMESTAMP`);
+      
+      // Add ID for WHERE clause
+      values.push(id);
+      
       const query = `
         UPDATE logs 
-        SET ${setClause}, updated_at = CURRENT_TIMESTAMP
-        WHERE id = $1
+        SET ${fields.join(', ')}
+        WHERE id = $${valueIndex}
         RETURNING *
       `;
-
+      
       const result = await db.query(query, values);
-
-      if (result.rows.length === 0) {
-        throw new Error('Log not found');
-      }
-
-      // Process the returned record to decrypt fields
-      return this._processFromStorage(result.rows[0]);
+      return result.rows.length > 0 ? this._processFromStorage(result.rows[0]) : null;
     } catch (error) {
       console.error('Error updating log:', error);
       throw error;
     }
   },
-
+  
   async deleteLog(id) {
     try {
       const result = await db.query('DELETE FROM logs WHERE id = $1 RETURNING *', [id]);
@@ -245,106 +281,139 @@ const LogsModel = {
       throw error;
     }
   },
-
-  async bulkCreate(logsArray) {
+  
+  async getLogsByOperation(operationId) {
     try {
-      const createdLogs = [];
-      const errors = [];
-
-      for (const logData of logsArray) {
-        try {
-          // Check for duplicate before creating
-          const duplicate = await this.checkForDuplicate(logData);
-          
-          if (duplicate) {
-            console.log('Skipping duplicate log entry');
-            createdLogs.push(duplicate);
-          } else {
-            const created = await this.createLog(logData);
-            createdLogs.push(created);
-          }
-        } catch (error) {
-          console.error('Error creating individual log:', error);
-          errors.push({ data: logData, error: error.message });
-        }
+      // Get the operation to find its tag
+      const operation = await OperationsModel.getOperationById(operationId);
+      
+      if (!operation || !operation.tag_id) {
+        return [];
       }
-
-      return { createdLogs, errors };
+      
+      const result = await db.query(`
+        SELECT DISTINCT l.* 
+        FROM logs l
+        JOIN log_tags lt ON l.id = lt.log_id
+        WHERE lt.tag_id = $1
+        ORDER BY l.timestamp DESC, l.id DESC
+      `, [operation.tag_id]);
+      
+      return result.rows.map(row => this._processFromStorage(row));
     } catch (error) {
-      console.error('Error in bulk create:', error);
+      console.error('Error fetching logs by operation:', error);
       throw error;
     }
   },
-
-  async searchLogs(searchParams) {
+  
+  async searchLogs(searchParams, username = null, isAdmin = false) {
     try {
-      let query = 'SELECT * FROM logs WHERE 1=1';
+      let baseQuery = `
+        SELECT DISTINCT l.* 
+        FROM logs l
+        LEFT JOIN log_tags lt ON l.id = lt.log_id
+      `;
+      
+      const conditions = [];
       const values = [];
       let valueIndex = 1;
-
-      // Add search conditions based on provided parameters
-      Object.entries(searchParams).forEach(([key, value]) => {
-        if (value !== undefined && value !== null && value !== '') {
-          if (key === 'command' || key === 'notes') {
-            query += ` AND ${key} ILIKE $${valueIndex}`;
-            values.push(`%${value}%`);
-          } else {
-            query += ` AND ${key} = $${valueIndex}`;
-            values.push(value);
-          }
-          valueIndex++;
-        }
-      });
-
-      query += ' ORDER BY timestamp DESC, id DESC';
-
-      const result = await db.query(query, values);
       
-      // Process each record to decrypt encrypted fields
+      // Add operation filter for non-admins or if admin has active operation
+      if (!isAdmin || username) {
+        const activeOp = username ? await OperationsModel.getUserActiveOperation(username) : null;
+        
+        if (activeOp && activeOp.tag_id) {
+          conditions.push(`lt.tag_id = $${valueIndex++}`);
+          values.push(activeOp.tag_id);
+        } else if (!isAdmin) {
+          // Non-admin with no operation sees nothing
+          return [];
+        }
+      }
+      
+      // Add other search conditions
+      if (searchParams.hostname) {
+        conditions.push(`l.hostname ILIKE $${valueIndex++}`);
+        values.push(`%${searchParams.hostname}%`);
+      }
+      
+      if (searchParams.internal_ip) {
+        conditions.push(`l.internal_ip = $${valueIndex++}`);
+        values.push(searchParams.internal_ip);
+      }
+      
+      if (searchParams.command) {
+        conditions.push(`l.command ILIKE $${valueIndex++}`);
+        values.push(`%${searchParams.command}%`);
+      }
+      
+      if (searchParams.username) {
+        conditions.push(`l.username ILIKE $${valueIndex++}`);
+        values.push(`%${searchParams.username}%`);
+      }
+      
+      if (searchParams.dateFrom) {
+        conditions.push(`l.timestamp >= $${valueIndex++}`);
+        values.push(searchParams.dateFrom);
+      }
+      
+      if (searchParams.dateTo) {
+        conditions.push(`l.timestamp <= $${valueIndex++}`);
+        values.push(searchParams.dateTo);
+      }
+      
+      // Build final query
+      if (conditions.length > 0) {
+        baseQuery += ` WHERE ${conditions.join(' AND ')}`;
+      }
+      
+      baseQuery += ` ORDER BY l.timestamp DESC, l.id DESC`;
+      
+      if (searchParams.limit) {
+        baseQuery += ` LIMIT $${valueIndex++}`;
+        values.push(searchParams.limit);
+      }
+      
+      const result = await db.query(baseQuery, values);
       return result.rows.map(row => this._processFromStorage(row));
     } catch (error) {
       console.error('Error searching logs:', error);
       throw error;
     }
   },
-
-  async getStatistics() {
+  
+  async getLockStatus(id) {
     try {
-      const stats = await db.query(`
-        SELECT 
-          COUNT(*) as total,
-          COUNT(DISTINCT internal_ip) as unique_internal_ips,
-          COUNT(DISTINCT external_ip) as unique_external_ips,
-          COUNT(DISTINCT hostname) as unique_hostnames,
-          COUNT(DISTINCT username) as unique_usernames,
-          COUNT(CASE WHEN locked = true THEN 1 END) as locked_count
-        FROM logs
-      `);
-
-      return stats.rows[0];
+      const result = await db.query('SELECT locked, locked_by FROM logs WHERE id = $1', [id]);
+      return result.rows[0] || { locked: false, locked_by: null };
     } catch (error) {
-      console.error('Error getting statistics:', error);
+      console.error('Error checking lock status:', error);
       throw error;
     }
   },
-
-  async getLockStatus(id) {
+  
+  async toggleLock(id, username, lock) {
     try {
       const result = await db.query(
-        'SELECT locked, locked_by FROM logs WHERE id = $1',
-        [id]
+        'UPDATE logs SET locked = $1, locked_by = $2 WHERE id = $3 RETURNING locked, locked_by',
+        [lock, lock ? username : null, id]
       );
-      
-      if (result.rows.length === 0) {
-        return null;
-      }
-      
-      return {
-        locked: result.rows[0].locked || false,
-        locked_by: result.rows[0].locked_by || null
-      };
+      return result.rows[0];
     } catch (error) {
-      console.error('Error getting lock status:', error);
+      console.error('Error toggling lock:', error);
+      throw error;
+    }
+  },
+  
+  async bulkDelete(ids) {
+    try {
+      const result = await db.query(
+        'DELETE FROM logs WHERE id = ANY($1) RETURNING id',
+        [ids]
+      );
+      return result.rows.map(row => row.id);
+    } catch (error) {
+      console.error('Error bulk deleting logs:', error);
       throw error;
     }
   }
