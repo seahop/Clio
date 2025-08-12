@@ -3,7 +3,7 @@
 <img src="./images/Clio_Logging_Platform_Logo.png" alt="Clio Logo" width="400"/>
 </p>
 
-A secure, collaborative logging system designed for red team operations and security assessments. This application provides real-time logging capabilities with features like row locking, user authentication, and audit trails.
+A secure, collaborative logging system designed for red team operations and security assessments. This application provides real-time logging capabilities with features like row locking, user authentication, audit trails, and comprehensive tagging and operations management.
 
 ## Key Features
 
@@ -11,6 +11,9 @@ A secure, collaborative logging system designed for red team operations and secu
 - **Row-Level Locking**: Prevent conflicts with row-level locking mechanism
 - **Role-Based Access Control**: Admin and user roles with different permissions
 - **Secure Authentication**: CSRF protection, secure session management, and password policies
+- **Operations Management**: Organize work by engagement with automatic operation tagging
+- **Comprehensive Tagging System**: Categorize logs with MITRE ATT&CK techniques, tools, and custom tags
+- **Auto-tagging**: Logs automatically tagged with user's active operation for consistent tracking
 - **Relationship Analysis**: Visualize connections between hosts, IPs, domains, and user commands
 - **File Status Tracking**: Monitor file status across systems (ON_DISK, IN_MEMORY, ENCRYPTED, etc.)
 - **API Integration**: Programmatic access for automated log submission and integration with external tools
@@ -67,7 +70,7 @@ For detailed information about Clio, please refer to our documentation:
 
 - [Architecture Overview](./docs/architecture.md) - System architecture and technology stack
 - [Security Features](./docs/security.md) - In-depth security information
-- [User Guide](./docs/user-guide.md) - How to use the application
+- [User Guide](./docs/user-guide.md) - How to use the application including tags and operations
 - [API Documentation](./docs/api-guide.md) - Working with the Clio API
 - [Using Log Forwarders](./log_exporter/README.md) - Forwarding of logs for C2s
 - [Google OAuth Integration](./docs/sso-integration.md) - How to set up and use Google SSO
@@ -75,15 +78,3 @@ For detailed information about Clio, please refer to our documentation:
 ## License
 
 This software is provided as-is for use by red team professionals.
-
-The license requires:
-- You must include the original license and copyright notice
-- The authors cannot be held liable
-
-You can:
-- ✔️ Use this software for commercial purposes
-- ✔️ Modify this software
-- ✔️ Distribute this software
-- ✔️ Use this software privately
-- ✔️ Use this software for patent purposes
-- ✔️ Fork and modify for internal company use

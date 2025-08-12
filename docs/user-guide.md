@@ -13,8 +13,8 @@ This guide explains how to use the Clio Logging Platform for red team operations
 
 ### User Roles
 
-- **Admin**: Full access to all features, including user management, exports, and system settings
-- **User**: Access to log entries, relationships, and file status tracking
+- **Admin**: Full access to all features, including user management, exports, system settings, and operations management
+- **User**: Access to log entries, relationships, file status tracking, and assigned operations
 
 ## Main Interface
 
@@ -35,6 +35,8 @@ The Logs view is the main logging interface for recording and tracking activitie
 - **Cell Navigation**: Use Tab key to navigate between cells
 - **Templates**: Save and reuse common log patterns across the team
 - **Evidence Management**: Attach files and evidence to log entries
+- **Tags**: Organize and categorize logs with tags
+- **Auto-tagging**: Logs are automatically tagged with your active operation
 
 <p align="center">
 <img src="../images/Clio_user_card_view.png" alt="Clio Card View Expanded" width="1000"/>
@@ -56,6 +58,7 @@ If there is interest in keeping it, let me know
 2. Fill in relevant details such as IPs, hostnames, commands, and status
 3. Use the lock icon to lock/unlock rows as needed
 4. Add evidence files by clicking the file icon in each row
+5. Add or remove tags to categorize your logs
 
 **Log Entry Fields:**
 - **Internal IP**: Target system internal IP address
@@ -69,54 +72,104 @@ If there is interest in keeping it, let me know
 - **Hash Algorithm**: Algorithm of following file hash
 - **Hash Value**: Hash value of file or other
 - **Status**: Current status (ON_DISK, IN_MEMORY, etc.)
-- **Secrets**: Credentials or tokens (automatically masked)
+- **Tags**: Labels for categorization and filtering
 
-**Evidence Handling:**
-- Upload screenshots, logs, code, and other evidence files
-- Supported formats: JPG, PNG, GIF, PDF, TXT, PCAP
-- Maximum file size: 10MB per file, 5 files per upload
-- Add descriptions to evidence for better context
+## Tags System
 
-<p align="center">
-<img src="../images/Clio_user_evidence_view1.png" alt="Clio Evidence View 1" width="1000"/>
-</p>
-<p align="center">
-<img src="../images/Clio_user_evidence_view2.png" alt="Clio Evidence View 2" width="1000"/>
-</p>
+Clio includes a comprehensive tagging system to organize and categorize your logs. Tags help you quickly filter, search, and report on specific activities.
 
-**Working with Log Entries:**
-1. Click "Add Row" to create a new log entry
-2. Fill in relevant details such as IPs, hostnames, commands, and status
-3. Use the lock icon to lock/unlock rows as needed
-4. Add evidence files by clicking the file icon in each row
+### Tag Categories
 
-**Using Templates:**
-1. Click the "Templates" button to show the templates panel
-2. To create a template:
-   - Select a row by clicking the template icon on the left side
-   - Click "Save As Template"
-   - Enter a name and select which fields to include
-   - Click "Save Template"
-3. To apply a template:
-   - Click on any template card in the templates panel
-   - A new row will be created with the template's fields pre-filled
-4. Templates are shared across all users for consistent logging
+Tags are organized into the following categories:
 
-<p align="center">
-<img src="../images/Clio_cell_templates.png" alt="Cell Templates" width="1000"/>
-</p>
+- **Technique**: MITRE ATT&CK techniques (e.g., reconnaissance, lateral-movement, persistence)
+- **Tool**: Common red team tools (e.g., mimikatz, cobalt-strike, metasploit)
+- **Workflow**: Process status tags (e.g., in-progress, needs-review, completed)
+- **Evidence**: Evidence type indicators (e.g., screenshot, packet-capture, log-file)
+- **Security**: Classification levels (e.g., sensitive, pii, classified)
+- **Operation**: Operation-specific tags (automatically created for each operation)
 
-### Relations View
+### Working with Tags
 
-The Relations view visualizes connections between different system elements.
+**Adding Tags to Logs:**
+1. Click on a log entry to view its details
+2. Click the tag icon or "Add Tag" button
+3. Select from existing tags or create a new one
+4. Tags are immediately applied and visible on the log
 
-**Key Features:**
-- **Network Visualization**: See connections between entities
-- **Filtering**: Filter by relationship type (IP, hostname, domain, user)
-- **Expandable Nodes**: Click to see detailed connection information
-- **User Command Analysis**: Track command patterns by user
+**Filtering by Tags:**
+1. Use the tag filter dropdown in the logs view
+2. Select one or more tags to filter logs
+3. You can combine multiple tags for advanced filtering
 
-**Using Relationships:**
+**Tag Management (Admin Only):**
+- Create new tags with custom colors and descriptions
+- Edit existing tags (except operation tags which are protected)
+- View tag usage statistics
+- Delete unused tags
+
+### Operations and Auto-tagging
+
+When you're assigned to an operation, your logs are automatically tagged with that operation's tag. This ensures consistent tracking across team members working on the same engagement.
+
+## Operations Management
+
+Operations allow teams to organize their work by engagement, project, or campaign. Each operation automatically creates an associated tag for tracking all related activities.
+
+### For Users
+
+**Viewing Your Operations:**
+1. Navigate to "My Operations" in the user menu
+2. View all operations you're assigned to
+3. See your currently active operation highlighted
+
+**Setting Your Active Operation:**
+1. Go to "My Operations"
+2. Select the operation you want to work under
+3. Click "Set as Active"
+4. All new logs will be automatically tagged with this operation
+
+**Operation Auto-tagging:**
+- When you create a new log, it's automatically tagged with your active operation
+- This ensures all team activities are properly categorized
+- You can add additional tags as needed
+
+### For Administrators
+
+**Creating Operations:**
+1. Navigate to Admin → Operations Management
+2. Click "Create Operation"
+3. Enter operation details:
+   - **Name**: Unique operation identifier
+   - **Description**: Details about the engagement
+4. An operation tag (prefixed with "OP:") is automatically created
+
+**Managing User Assignments:**
+1. Select an operation from the list
+2. Click "Manage Users"
+3. Assign users to the operation:
+   - Search for users by username
+   - Click "Assign" to add them to the operation
+   - Remove users when they complete their work
+
+**Operation Features:**
+- Each operation generates a unique tag for tracking
+- Users can be assigned to multiple operations
+- Users can switch between operations as needed
+- Operation tags are protected from editing/deletion
+- View all users assigned to each operation
+
+### Relationships View
+
+The Relationships view provides a visual representation of connections between various entities.
+
+**Relationship Types:**
+- **Host Relations**: Connections between different hosts
+- **IP Relations**: Relationships between IP addresses
+- **Domain Relations**: Domain interconnections
+- **User Commands**: Commands executed by specific users
+
+**Using the Relationships View:**
 1. Select the relationship type from the top filter buttons
 2. Expand nodes to view connected entities
 3. Use the refresh button to update relationship data
@@ -147,6 +200,7 @@ The File Status view tracks files across systems with different statuses.
 - View file history and changes over time
 - Track hashes and file metadata
 - Search for specific files
+- Filter by operation tags
 
 <p align="center">
 <img src="../images/Clio_user_file_view.png" alt="Clio File View" width="1000"/>
@@ -158,6 +212,24 @@ The File Status view tracks files across systems with different statuses.
 <img src="../images/Clio_admin_init.png" alt="Clio Admin View" width="1000"/>
 </p>
 
+### Operations Management
+
+Administrators can create and manage operations for organizing team activities:
+
+1. **Create Operations**: Set up new engagements with automatic tag generation
+2. **Assign Users**: Add team members to operations
+3. **Monitor Activity**: Track which users are working on which operations
+4. **Manage Lifecycle**: Deactivate completed operations while preserving history
+
+### Tags Management
+
+Administrators have full control over the tagging system:
+
+1. **Create Tags**: Add new tags with custom colors and categories
+2. **Edit Tags**: Modify tag properties (except protected operation tags)
+3. **View Statistics**: See tag usage across all logs
+4. **Delete Tags**: Remove unused tags from the system
+
 ### Export Database
 
 Admins can export data for offline analysis or reporting:
@@ -165,7 +237,8 @@ Admins can export data for offline analysis or reporting:
 1. Select columns to include in the export
 2. Choose between CSV-only or full evidence package
 3. Optional: Include relationship data and hash information
-4. Export files are saved on the server for secure handling
+4. Filter by operation tags for operation-specific exports
+5. Export files are saved on the server for secure handling
 
 <p align="center">
 <img src="../images/Clio_admin_export.png" alt="Clio Admin Report Export" width="1000"/>
@@ -216,49 +289,67 @@ Admins can configure S3 storage for log archives:
 
 1. Navigate to the Log Management view
 2. Click "S3 Export Configuration"
-3. Configure the following settings:
-   - **Enable S3 Export**: Toggle to enable/disable S3 integration
-   - **S3 Bucket Name**: Your AWS S3 bucket name
-   - **AWS Region**: Region where your bucket is hosted
-   - **Access Key ID**: AWS access key with S3 permissions
-   - **Secret Access Key**: AWS secret key
-   - **S3 Path Prefix**: Optional prefix for S3 objects (default: "logs/")
-4. Click "Test Connection" to verify your settings
-5. Click "Save Configuration" to store your settings
+3. Enter your S3 credentials and bucket information
+4. Enable automatic log archival to S3
 
-Please make sure on the bucket side to update the CORS configuration for the S3 bucket:
-```json
-[
-    {
-        "AllowedHeaders": [
-            "*"
-        ],
-        "AllowedMethods": [
-            "PUT",
-            "POST",
-            "GET"
-        ],
-        "AllowedOrigins": [
-            "https://yourdomain.com"
-        ],
-        "ExposeHeaders": [
-            "ETag"
-        ]
-    }
-]
-```
+## Best Practices
 
-Once enabled, log archives will be automatically uploaded to S3 during log rotation. You can also:
+### Effective Tagging
+- Use consistent tags across your team
+- Apply MITRE ATT&CK technique tags for better reporting
+- Tag evidence types for quick reference
+- Use workflow tags to track log status
 
-- Manually rotate logs with S3 export by clicking "Rotate Logs with S3 Export"
-- Monitor upload progress and status in real-time
-- Choose to rotate logs locally only, even when S3 is configured
+### Operation Management
+- Set your active operation at the start of each work session
+- Verify your active operation before creating logs
+- Coordinate with your team lead on operation assignments
 
-## Tips and Best Practices
+### Collaboration
+- Lock rows when making extensive edits
+- Use templates for consistent logging patterns
+- Add detailed notes for complex activities
+- Tag logs appropriately for team visibility
 
-1. **Lock rows** when actively working on them to prevent conflicts
-2. **Add detailed notes** to provide context for other team members
-3. **Attach evidence files** to document findings and observations
-4. **Update file status** consistently as operations progress
-5. **Use consistent hostnames and IPs** to ensure proper relationship mapping
-6. **Check relationships view** to understand network connections
+### Security
+- Change default passwords immediately
+- Use strong, unique passwords
+- Log out when not actively using the system
+- Report any suspicious activity to administrators
+
+## Keyboard Shortcuts
+
+- **Tab**: Navigate to next cell
+- **Shift+Tab**: Navigate to previous cell
+- **Enter**: Save current cell and move down
+- **Escape**: Cancel current edit
+- **Ctrl+S** / **Cmd+S**: Save current row
+
+## Troubleshooting
+
+### Common Issues
+
+**Cannot edit a row:**
+- Check if the row is locked by another user
+- Verify you have the appropriate permissions
+
+**Tags not appearing:**
+- Refresh the page to load latest tags
+- Check if you have permission to view certain tag categories
+
+**Operation not available:**
+- Verify you've been assigned to the operation
+- Contact your administrator for assignment
+
+**API key not working:**
+- Verify the key hasn't expired
+- Check that the key has appropriate permissions
+- Ensure you're using the correct header format
+
+## Support
+
+For technical issues or questions:
+1. Check this user guide for answers
+2. Contact your system administrator
+3. Report bugs through the designated channel
+4. For security concerns, contact your security team immediately
