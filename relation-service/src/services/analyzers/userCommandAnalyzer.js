@@ -20,17 +20,22 @@ class UserCommandAnalyzer extends BaseAnalyzer {
    * @returns {Promise<boolean>} Success status
    */
   async analyze(logs) {
-    console.log('Analyzing user-command relations with parallel batch processing...');
+    const callId = Math.random().toString(36).substring(7);
+    console.log(`[${callId}] Analyzing user-command relations with parallel batch processing...`);
+    console.log(`[${callId}] DEBUG: analyze() called with ${logs.length} logs, IDs: ${logs.map(l => l.id).join(', ')}`);
 
     // Debug incoming logs to see what we're working with
     if (logs.length > 0) {
-      console.log('Sample log command for analysis:',
+      console.log(`[${callId}] Sample log command for analysis:`,
         logs[0].command ? logs[0].command.substring(0, 50) + (logs[0].command.length > 50 ? '...' : '') : 'none');
     }
 
     // Fetch operation tags for all logs upfront
     const logIds = logs.map(log => log.id).filter(id => id);
     const operationTagsMap = await this._fetchOperationTags(logIds);
+    console.log(`[${callId}] DEBUG: Fetched operation tags for ${logIds.length} logs, map size: ${operationTagsMap.size}`);
+    console.log(`[${callId}] DEBUG: Map keys: ${Array.from(operationTagsMap.keys()).join(', ')}`);
+    console.log(`[${callId}] DEBUG: Map values: ${JSON.stringify(Array.from(operationTagsMap.entries()))}`);
 
     // Extract user commands from logs
     const userCommands = this._extractUserCommands(logs);
@@ -55,11 +60,13 @@ class UserCommandAnalyzer extends BaseAnalyzer {
     await this._processBatch(userCommands, async (commandBatch) => {
       // Process commands in parallel inside each batch for better performance
       await Promise.all(
-        commandBatch.map(data => {
-          console.log(`Storing relation: ${data.username} → ${data.command.substring(0, 50)}${data.command.length > 50 ? '...' : ''}`);
+        commandBatch.map(async (data) => {
+          console.log(`[${callId}] Storing relation: ${data.username} → ${data.command.substring(0, 50)}${data.command.length > 50 ? '...' : ''}`);
+          console.log(`[${callId}]   DEBUG: logId=${data.logId}, mapHasKey=${operationTagsMap.has(data.logId)}, mapSize=${operationTagsMap.size}`);
 
-          // Get operation tags for this log
-          const operationTags = operationTagsMap.get(data.logId) || [];
+          // Get operation tags for this log, with fallback to direct DB query if not in map
+          const operationTags = await this._getOperationTagsWithFallback(data.logId, operationTagsMap, callId);
+          console.log(`[${callId}]   DEBUG: operationTags=${JSON.stringify(operationTags)}`);
 
           return RelationsModel.upsertRelation(
             'username',
@@ -85,37 +92,7 @@ class UserCommandAnalyzer extends BaseAnalyzer {
     return true;
   }
 
-  /**
-   * Fetch operation tags for a set of log IDs
-   * @param {Array} logIds - Array of log IDs
-   * @returns {Promise<Map>} Map of logId -> operation tag IDs
-   */
-  async _fetchOperationTags(logIds) {
-    if (logIds.length === 0) {
-      return new Map();
-    }
-
-    try {
-      const result = await db.query(`
-        SELECT
-          lt.log_id,
-          ARRAY_AGG(DISTINCT lt.tag_id) as tag_ids
-        FROM log_tags lt
-        WHERE lt.log_id = ANY($1)
-        GROUP BY lt.log_id
-      `, [logIds]);
-
-      const tagMap = new Map();
-      result.rows.forEach(row => {
-        tagMap.set(row.log_id, row.tag_ids || []);
-      });
-
-      return tagMap;
-    } catch (error) {
-      console.error('Error fetching operation tags:', error);
-      return new Map();
-    }
-  }
+  // _fetchOperationTags and _getOperationTagsWithFallback are now in BaseAnalyzer
 
   /**
    * Extract user commands from logs with proper formatting

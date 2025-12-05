@@ -62,9 +62,11 @@ const loginUser = async (req, res) => {
         tokenId: tokenData.jti.substring(0, 8) // Log only first 8 chars for security
       });
 
-      // Set the JWT token in a secure cookie
+      // Set the JWT token in httpOnly cookies
+      res.cookie('token', tokenData.token, SESSION_OPTIONS);
+      // Also set auth_token for backward compatibility
       res.cookie('auth_token', tokenData.token, SESSION_OPTIONS);
-      
+
       // If password reset required, return that info to trigger the password change form
       if (passwordResetRequired) {
         return res.json({
@@ -75,7 +77,7 @@ const loginUser = async (req, res) => {
           }
         });
       }
-      
+
       res.json({
         user: {
           username: user.username,
@@ -123,7 +125,7 @@ const changePassword = async (req, res) => {
   const { currentPassword, newPassword } = req.body;
   const username = req.user.username;
   const isAdmin = req.user.role === 'admin';
-  const oldToken = req.cookies.auth_token;
+  const oldToken = req.cookies.token || req.cookies.auth_token;
 
   try {
     // Validate new password
@@ -171,7 +173,8 @@ const changePassword = async (req, res) => {
       throw new Error('Failed to create new authentication token');
     }
 
-    // Set the new token in a cookie
+    // Set the new token in httpOnly cookies
+    res.cookie('token', tokenData.token, SESSION_OPTIONS);
     res.cookie('auth_token', tokenData.token, SESSION_OPTIONS);
     
     res.json({ 
@@ -207,7 +210,7 @@ const changePassword = async (req, res) => {
 
 const logoutUser = async (req, res) => {
   try {
-    const token = req.cookies.auth_token;
+    const token = req.cookies.token || req.cookies.auth_token;
     const username = req.user.username;
     
     // Get the JWT ID from the token
@@ -244,10 +247,11 @@ const logoutUser = async (req, res) => {
       tokenId: tokenId ? tokenId.substring(0, 8) : 'unknown' // Log only first 8 chars for security
     });
 
-    // Clear all cookies, not just auth_token
+    // Clear all cookies
+    res.clearCookie('token', SESSION_OPTIONS);
     res.clearCookie('auth_token', SESSION_OPTIONS);
     res.clearCookie('_csrf');
-    
+
     res.json({ message: 'Logged out successfully' });
   } catch (error) {
     console.error('Logout error:', error);
@@ -259,9 +263,10 @@ const logoutUser = async (req, res) => {
     });
 
     // Clear cookies even if there's an error
+    res.clearCookie('token', SESSION_OPTIONS);
     res.clearCookie('auth_token', SESSION_OPTIONS);
     res.clearCookie('_csrf');
-    
+
     res.status(500).json({ error: 'Logout failed' });
   }
 };
@@ -367,7 +372,8 @@ const revokeAllUserSessions = async (req, res) => {
       timestamp: new Date().toISOString()
     });
 
-    // Set the new token in a cookie
+    // Set the new token in httpOnly cookies
+    res.cookie('token', tokenData.token, SESSION_OPTIONS);
     res.cookie('auth_token', tokenData.token, SESSION_OPTIONS);
     res.json({ message: 'All sessions revoked successfully' });
   } catch (error) {
@@ -457,7 +463,7 @@ const changeOwnPassword = async (req, res) => {
   const { currentPassword, newPassword } = req.body;
   const username = req.user.username;
   const isAdmin = req.user.role === 'admin';
-  const oldToken = req.cookies.auth_token;
+  const oldToken = req.cookies.token || req.cookies.auth_token;
 
   try {
     // Validate new password
@@ -505,7 +511,8 @@ const changeOwnPassword = async (req, res) => {
       throw new Error('Failed to create new authentication token');
     }
 
-    // Set the new token in a cookie
+    // Set the new token in httpOnly cookies
+    res.cookie('token', tokenData.token, SESSION_OPTIONS);
     res.cookie('auth_token', tokenData.token, SESSION_OPTIONS);
     
     res.json({ 
@@ -581,9 +588,10 @@ const googleLoginCallback = async (req, res) => {
       throw new Error('Failed to create authentication token');
     }
     
-    // Set the JWT token in a cookie
+    // Set the JWT token in httpOnly cookies
+    res.cookie('token', tokenData.token, SESSION_OPTIONS);
     res.cookie('auth_token', tokenData.token, SESSION_OPTIONS);
-    
+
     // Log successful login
     await eventLogger.logSecurityEvent('google_login_success', user.username, {
       ip: req.ip,

@@ -109,9 +109,11 @@ setInterval(cleanupRefreshAttempts, 60 * 60 * 1000); // Every hour
  */
 const authenticateJwt = async (req, res, next) => {
   try {
-    // Extract token from cookie or Authorization header
-    let token = req.cookies.auth_token;
-    
+    // Extract token from httpOnly cookie (new approach)
+    // Also support auth_token for backward compatibility during migration
+    let token = req.cookies.token || req.cookies.auth_token;
+
+    // Fallback to Authorization header for API keys
     if (!token && req.headers.authorization) {
       const authHeader = req.headers.authorization;
       if (authHeader.startsWith('Bearer ')) {
@@ -131,6 +133,7 @@ const authenticateJwt = async (req, res, next) => {
     try {
       decoded = jwt.decode(token);
     } catch (error) {
+      res.clearCookie('token', SESSION_OPTIONS);
       res.clearCookie('auth_token', SESSION_OPTIONS);
       return res.status(401).json(createErrorResponse(
         'token_malformed',
@@ -140,16 +143,18 @@ const authenticateJwt = async (req, res, next) => {
     
     // Check if token has a valid structure
     if (!decoded || !decoded.jti || !decoded.exp || !decoded.iat) {
+      res.clearCookie('token', SESSION_OPTIONS);
       res.clearCookie('auth_token', SESSION_OPTIONS);
       return res.status(401).json(createErrorResponse(
         'token_invalid',
         'Invalid token structure'
       ));
     }
-    
+
     // Check expiration directly (fast check before Redis)
     const now = Math.floor(Date.now() / 1000);
     if (decoded.exp < now) {
+      res.clearCookie('token', SESSION_OPTIONS);
       res.clearCookie('auth_token', SESSION_OPTIONS);
       return res.status(401).json(createErrorResponse(
         'token_expired',
@@ -167,6 +172,7 @@ const authenticateJwt = async (req, res, next) => {
       );
       
       if (!tokenExists) {
+        res.clearCookie('token', SESSION_OPTIONS);
         res.clearCookie('auth_token', SESSION_OPTIONS);
         return res.status(401).json(createErrorResponse(
           'token_revoked',
@@ -180,17 +186,19 @@ const authenticateJwt = async (req, res, next) => {
     
     // Now verify the token cryptographically
     const decodedToken = await jwtHandler.verifyToken(token);
-    
+
     if (!decodedToken) {
+      res.clearCookie('token', SESSION_OPTIONS);
       res.clearCookie('auth_token', SESSION_OPTIONS);
       return res.status(401).json(createErrorResponse(
         'token_invalid',
         'Invalid or expired token'
       ));
     }
-    
+
     // Check server instance binding
     if (decodedToken.serverInstanceId !== security.SERVER_INSTANCE_ID) {
+      res.clearCookie('token', SESSION_OPTIONS);
       res.clearCookie('auth_token', SESSION_OPTIONS);
       return res.status(401).json(createErrorResponse(
         'server_mismatch',
@@ -207,10 +215,13 @@ const authenticateJwt = async (req, res, next) => {
         // Rate limited token refresh
         const userId = decodedToken.id;
         const refreshedToken = await refreshToken(token, userId);
-        
+
         if (refreshedToken) {
+          // Set new token cookie
+          res.cookie('token', refreshedToken.token, SESSION_OPTIONS);
+          // Also set auth_token for backward compatibility
           res.cookie('auth_token', refreshedToken.token, SESSION_OPTIONS);
-          
+
           // Log token refresh
           await eventLogger.logSecurityEvent('token_auto_refresh', decodedToken.username, {
             username: decodedToken.username,
@@ -242,6 +253,7 @@ const authenticateJwt = async (req, res, next) => {
     next();
   } catch (error) {
     console.error('JWT authentication error:', error);
+    res.clearCookie('token', SESSION_OPTIONS);
     res.clearCookie('auth_token', SESSION_OPTIONS);
     res.status(500).json(createErrorResponse(
       'auth_error',

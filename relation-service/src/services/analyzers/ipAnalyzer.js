@@ -31,17 +31,17 @@ class IPAnalyzer extends BaseAnalyzer {
 
     // Extract IP command relations - new enhancement
     const ipCommandRelations = this._extractIPCommandRelations(logs);
-    
+
     let processedCount = 0;
-    
+
     if (ipRelations.length > 0) {
       // Process the IP relations in batches
       await this._processBatch(ipRelations, async (ipBatch) => {
         // Process IP relations in parallel within each batch
         await Promise.all(
-          ipBatch.map(data => {
-            // Get operation tags for this log
-            const operationTags = operationTagsMap.get(data.logId) || [];
+          ipBatch.map(async (data) => {
+            // Get operation tags for this log with fallback
+            const operationTags = await this._getOperationTagsWithFallback(data.logId, operationTagsMap);
 
             return RelationsModel.upsertRelation(
               'ip',
@@ -70,9 +70,9 @@ class IPAnalyzer extends BaseAnalyzer {
       await this._processBatch(ipCommandRelations, async (batchItems) => {
         // Process relations in parallel within each batch
         await Promise.all(
-          batchItems.map(data => {
-            // Get operation tags for this log
-            const operationTags = operationTagsMap.get(data.logId) || [];
+          batchItems.map(async (data) => {
+            // Get operation tags for this log with fallback
+            const operationTags = await this._getOperationTagsWithFallback(data.logId, operationTagsMap);
 
             return RelationsModel.upsertRelation(
               'ip',
@@ -216,37 +216,7 @@ class IPAnalyzer extends BaseAnalyzer {
     return combined;
   }
 
-  /**
-   * Fetch operation tags for a set of log IDs
-   * @param {Array} logIds - Array of log IDs
-   * @returns {Promise<Map>} Map of logId -> operation tag IDs
-   */
-  async _fetchOperationTags(logIds) {
-    if (logIds.length === 0) {
-      return new Map();
-    }
-
-    try {
-      const result = await db.query(`
-        SELECT
-          lt.log_id,
-          ARRAY_AGG(DISTINCT lt.tag_id) as tag_ids
-        FROM log_tags lt
-        WHERE lt.log_id = ANY($1)
-        GROUP BY lt.log_id
-      `, [logIds]);
-
-      const tagMap = new Map();
-      result.rows.forEach(row => {
-        tagMap.set(row.log_id, row.tag_ids || []);
-      });
-
-      return tagMap;
-    } catch (error) {
-      console.error('Error fetching operation tags:', error);
-      return new Map();
-    }
-  }
+  // _fetchOperationTags and _getOperationTagsWithFallback are now in BaseAnalyzer
 }
 
 module.exports = { IPAnalyzer };

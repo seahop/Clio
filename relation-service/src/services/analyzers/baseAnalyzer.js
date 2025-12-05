@@ -1,6 +1,7 @@
 // relation-service/src/services/analyzers/baseAnalyzer.js
 const _ = require('lodash');
 const batchService = require('../batchService');
+const db = require('../../db');
 
 /**
  * Base class for all relation analyzers
@@ -110,6 +111,71 @@ class BaseAnalyzer {
     }
     
     return processed;
+  }
+
+  /**
+   * Fetch operation tags for given log IDs
+   * Handles race conditions by providing fresh tag data when needed
+   * @param {Array} logIds - Array of log IDs to fetch tags for
+   * @returns {Promise<Map>} Map of logId -> array of tag IDs
+   * @protected
+   */
+  async _fetchOperationTags(logIds) {
+    if (!logIds || logIds.length === 0) {
+      return new Map();
+    }
+
+    try {
+      const result = await db.query(`
+        SELECT
+          lt.log_id,
+          ARRAY_AGG(DISTINCT lt.tag_id) as tag_ids
+        FROM log_tags lt
+        WHERE lt.log_id = ANY($1)
+        GROUP BY lt.log_id
+      `, [logIds]);
+
+      const tagMap = new Map();
+      result.rows.forEach(row => {
+        tagMap.set(row.log_id, row.tag_ids || []);
+      });
+
+      return tagMap;
+    } catch (error) {
+      console.error('Error fetching operation tags:', error);
+      return new Map();
+    }
+  }
+
+  /**
+   * Get operation tags for a log, fetching from database if not in the provided map
+   * This handles race conditions where analysis runs before tags are fully committed
+   * @param {number} logId - The log ID to get tags for
+   * @param {Map} operationTagsMap - Existing map of log ID -> tags
+   * @param {string} callId - Optional call ID for debug logging
+   * @returns {Promise<Array>} Array of tag IDs for the log
+   * @protected
+   */
+  async _getOperationTagsWithFallback(logId, operationTagsMap, callId = '') {
+    // Try to get from the map first
+    let operationTags = operationTagsMap.get(logId);
+
+    // If not in map and we have a valid logId, fetch directly from database
+    // This handles the case where analysis was scheduled before the log was tagged
+    if (!operationTags && logId) {
+      if (callId) {
+        console.log(`[${callId}]   DEBUG: Tags not in map for logId ${logId}, fetching directly...`);
+      }
+      const freshTags = await this._fetchOperationTags([logId]);
+      operationTags = freshTags.get(logId) || [];
+      if (callId) {
+        console.log(`[${callId}]   DEBUG: Fetched tags: ${JSON.stringify(operationTags)}`);
+      }
+    } else if (!operationTags) {
+      operationTags = [];
+    }
+
+    return operationTags;
   }
 }
 
