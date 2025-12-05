@@ -43,6 +43,30 @@ CREATE TABLE IF NOT EXISTS log_tags (
     UNIQUE(log_id, tag_id)
 );
 
+-- Operations table for operation-based data siloing (mirrored from main database)
+CREATE TABLE IF NOT EXISTS operations (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(100) UNIQUE NOT NULL,
+    description TEXT,
+    tag_id INTEGER REFERENCES tags(id) ON DELETE SET NULL,
+    is_active BOOLEAN DEFAULT true,
+    created_by VARCHAR(100) NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+-- User-operations junction table for assignments (mirrored from main database)
+CREATE TABLE IF NOT EXISTS user_operations (
+    id SERIAL PRIMARY KEY,
+    username VARCHAR(100) NOT NULL,
+    operation_id INTEGER NOT NULL REFERENCES operations(id) ON DELETE CASCADE,
+    is_primary BOOLEAN DEFAULT false,
+    assigned_by VARCHAR(100) NOT NULL,
+    assigned_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    last_accessed TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(username, operation_id)
+);
+
 -- Create relationship types enum
 CREATE TYPE relationship_type AS ENUM (
     'parent_child',
@@ -87,6 +111,8 @@ CREATE TABLE IF NOT EXISTS relations (
     first_seen TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     last_seen TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     metadata JSONB DEFAULT '{}'::jsonb,
+    operation_tags INTEGER[] DEFAULT '{}',
+    source_log_ids INTEGER[] DEFAULT '{}',
     UNIQUE(source_type, source_value, target_type, target_value)
 );
 
@@ -108,7 +134,9 @@ CREATE TABLE IF NOT EXISTS file_status (
     secrets TEXT,
     first_seen TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     last_seen TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    metadata JSONB DEFAULT '{}'::jsonb
+    metadata JSONB DEFAULT '{}'::jsonb,
+    operation_tags INTEGER[] DEFAULT '{}',
+    source_log_ids INTEGER[] DEFAULT '{}'
 );
 
 -- Create a composite unique constraint on filename, hostname, and internal_ip
@@ -133,7 +161,8 @@ CREATE TABLE IF NOT EXISTS file_status_history (
     notes TEXT,
     command TEXT,
     secrets TEXT,
-    timestamp TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+    timestamp TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    operation_tags INTEGER[] DEFAULT '{}'
 );
 
 -- Tag relationship analysis table
@@ -174,6 +203,8 @@ CREATE INDEX IF NOT EXISTS idx_relations_target ON relations(target_type, target
 CREATE INDEX IF NOT EXISTS idx_relations_last_seen ON relations(last_seen);
 CREATE INDEX IF NOT EXISTS idx_relations_metadata ON relations USING gin (metadata);
 CREATE INDEX IF NOT EXISTS idx_relations_pattern ON relations(source_type, target_type, pattern_type);
+CREATE INDEX IF NOT EXISTS idx_relations_operation_tags ON relations USING gin (operation_tags);
+CREATE INDEX IF NOT EXISTS idx_relations_source_log_ids ON relations USING gin (source_log_ids);
 
 -- Tag-specific relation indexes
 CREATE INDEX IF NOT EXISTS idx_relations_tag_source ON relations(source_value) 
@@ -191,12 +222,15 @@ CREATE INDEX IF NOT EXISTS idx_file_status_hostname ON file_status(hostname);
 CREATE INDEX IF NOT EXISTS idx_file_status_last_seen ON file_status(last_seen);
 CREATE INDEX IF NOT EXISTS idx_file_status_hash_value ON file_status(hash_value);
 CREATE INDEX IF NOT EXISTS idx_file_status_mac_address ON file_status(mac_address);
+CREATE INDEX IF NOT EXISTS idx_file_status_operation_tags ON file_status USING gin (operation_tags);
+CREATE INDEX IF NOT EXISTS idx_file_status_source_log_ids ON file_status USING gin (source_log_ids);
 
 -- File status history indexes
 CREATE INDEX IF NOT EXISTS idx_file_status_history_filename ON file_status_history(filename);
 CREATE INDEX IF NOT EXISTS idx_file_status_history_host_ip ON file_status_history(hostname, internal_ip);
 CREATE INDEX IF NOT EXISTS idx_file_status_history_timestamp ON file_status_history(timestamp);
 CREATE INDEX IF NOT EXISTS idx_file_status_history_mac_address ON file_status_history(mac_address);
+CREATE INDEX IF NOT EXISTS idx_file_status_history_operation_tags ON file_status_history USING gin (operation_tags);
 
 -- Tag relationship indexes
 CREATE INDEX IF NOT EXISTS idx_tag_relationships_source ON tag_relationships(source_tag_id);

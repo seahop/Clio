@@ -38,6 +38,35 @@ const notifyRelationService = async () => {
   }
 };
 
+// Function to notify relation service of log deletion (cascade delete)
+const notifyRelationServiceDelete = async (logIds) => {
+  try {
+    // Support both single ID and array of IDs
+    const idsArray = Array.isArray(logIds) ? logIds : [logIds];
+
+    const response = await fetch('https://relation-service:3002/api/relations/notify/log-delete', {
+      method: 'POST',
+      agent: httpsAgent,
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ logIds: idsArray })
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Failed to notify relation service of deletion: ${response.status} - ${errorText}`);
+    }
+
+    const result = await response.json();
+    console.log(`Relation service cascade delete completed: ${result.relationsRemoved} relations, ${result.fileStatusesRemoved} file statuses removed`);
+    return result;
+  } catch (error) {
+    console.error('Error notifying relation service of deletion:', error);
+    // Don't throw - log deletion should succeed even if relation cleanup fails
+  }
+};
+
 // Get all logs (with operation filtering)
 router.get('/', authenticateJwt, async (req, res, next) => {
   try {
@@ -222,6 +251,7 @@ router.put('/:id', authenticateJwt, async (req, res, next) => {
       'username': 'username',
       'command': 'command',
       'filename': 'filename',
+      'mac_address': 'mac_address',
       'pid': 'process',
       'status': 'status',
       'analyst': 'analyst'
@@ -264,7 +294,7 @@ router.put('/:id', authenticateJwt, async (req, res, next) => {
             const safeNewValue = newValue === null || newValue === undefined ? '' : newValue;
             
             // Do specific notifications for relation service
-            if (['internal_ip', 'external_ip', 'hostname', 'domain', 'username', 'command', 'filename'].includes(field)) {
+            if (['internal_ip', 'external_ip', 'hostname', 'domain', 'username', 'command', 'filename', 'mac_address'].includes(field)) {
               console.log('Sending update to relation service:', {
                 fieldType: field,
                 oldValue: safeOldValue,
@@ -341,7 +371,7 @@ router.delete('/:id', authenticateJwt, verifyAdmin, async (req, res, next) => {
     const id = parseInt(req.params.id);
     
     const deletedLog = await LogsModel.deleteLog(id);
-    
+
     if (!deletedLog) {
       await eventLogger.logDataEvent('delete_failed', req.user.username, {
         rowId: id,
@@ -351,8 +381,8 @@ router.delete('/:id', authenticateJwt, verifyAdmin, async (req, res, next) => {
       return res.status(404).json({ error: 'Log not found' });
     }
 
-    // Notify relation service after deletion
-    await notifyRelationService();
+    // Notify relation service of deletion with cascade delete
+    await notifyRelationServiceDelete(id);
 
     // For logging purposes, create a redacted version that doesn't include secrets
     const safeDeletedLog = redactSensitiveData(deletedLog, ['secrets']);
@@ -490,9 +520,9 @@ router.post('/bulk-delete', authenticateJwt, verifyAdmin, async (req, res, next)
     }
     
     const deletedIds = await LogsModel.bulkDelete(ids);
-    
-    // Notify relation service after bulk deletion
-    await notifyRelationService();
+
+    // Notify relation service of bulk deletion with cascade delete
+    await notifyRelationServiceDelete(deletedIds);
     
     // Log bulk deletion
     await eventLogger.logDataEvent('bulk_delete', req.user.username, {

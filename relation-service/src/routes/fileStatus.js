@@ -7,7 +7,16 @@ const { authenticateToken, verifyAdmin } = require('../middleware/auth.middlewar
 // Get all file statuses
 router.get('/', authenticateToken, async (req, res) => {
   try {
-    const files = await FileStatusService.getAllFileStatuses();
+    // Get operation filtering context
+    const isAdmin = req.user.role === 'admin';
+    const operationTagId = req.user.activeOperation?.tag_id;
+
+    // Non-admin users must have an active operation
+    if (!isAdmin && !operationTagId) {
+      return res.json([]);
+    }
+
+    const files = await FileStatusService.getAllFileStatuses(operationTagId, isAdmin);
     res.json(files);
   } catch (error) {
     console.error('Error getting file statuses:', error);
@@ -20,21 +29,30 @@ router.get('/status/:status', authenticateToken, async (req, res) => {
   try {
     const { status } = req.params;
     const validStatuses = [
-      'ON_DISK', 'IN_MEMORY', 'ENCRYPTED', 'REMOVED', 
+      'ON_DISK', 'IN_MEMORY', 'ENCRYPTED', 'REMOVED',
       'CLEANED', 'DORMANT', 'DETECTED', 'UNKNOWN'
     ];
-    
+
     // Allow case-insensitive status check
     const normalizedStatus = status.toUpperCase();
-    
+
     if (!validStatuses.includes(normalizedStatus)) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         error: 'Invalid status',
         validStatuses
       });
     }
-    
-    const files = await FileStatusService.getFileStatusesByStatus(normalizedStatus);
+
+    // Get operation filtering context
+    const isAdmin = req.user.role === 'admin';
+    const operationTagId = req.user.activeOperation?.tag_id;
+
+    // Non-admin users must have an active operation
+    if (!isAdmin && !operationTagId) {
+      return res.json([]);
+    }
+
+    const files = await FileStatusService.getFileStatusesByStatus(normalizedStatus, operationTagId, isAdmin);
     res.json(files);
   } catch (error) {
     console.error('Error getting file statuses by status:', error);
@@ -47,30 +65,39 @@ router.get('/:filename', authenticateToken, async (req, res) => {
   try {
     const { filename } = req.params;
     const { hostname, internal_ip } = req.query;
-    
+
+    // Get operation filtering context
+    const isAdmin = req.user.role === 'admin';
+    const operationTagId = req.user.activeOperation?.tag_id;
+
+    // Non-admin users must have an active operation
+    if (!isAdmin && !operationTagId) {
+      return res.status(404).json({ error: 'File not found' });
+    }
+
     // If hostname or IP is provided, get the specific file
     if (hostname || internal_ip) {
-      const file = await FileStatusService.getFileByName(filename, hostname, internal_ip);
-      
+      const file = await FileStatusService.getFileByName(filename, hostname, internal_ip, operationTagId, isAdmin);
+
       if (!file) {
         return res.status(404).json({ error: 'File not found' });
       }
-      
+
       res.json(file);
     } else {
       // Otherwise get all files with that name
-      const files = await FileStatusService.getFilesByName(filename);
-      
+      const files = await FileStatusService.getFilesByName(filename, operationTagId, isAdmin);
+
       if (!files || files.length === 0) {
         return res.status(404).json({ error: 'File not found' });
       }
-      
+
       // If there's only one file, return it directly for backward compatibility
       if (files.length === 1) {
         res.json(files[0]);
       } else {
-        res.json({ 
-          multiple: true, 
+        res.json({
+          multiple: true,
           count: files.length,
           files: files
         });

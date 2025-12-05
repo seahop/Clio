@@ -21,39 +21,46 @@ class UserCommandAnalyzer extends BaseAnalyzer {
    */
   async analyze(logs) {
     console.log('Analyzing user-command relations with parallel batch processing...');
-    
+
     // Debug incoming logs to see what we're working with
     if (logs.length > 0) {
-      console.log('Sample log command for analysis:', 
+      console.log('Sample log command for analysis:',
         logs[0].command ? logs[0].command.substring(0, 50) + (logs[0].command.length > 50 ? '...' : '') : 'none');
     }
-    
+
+    // Fetch operation tags for all logs upfront
+    const logIds = logs.map(log => log.id).filter(id => id);
+    const operationTagsMap = await this._fetchOperationTags(logIds);
+
     // Extract user commands from logs
     const userCommands = this._extractUserCommands(logs);
-    
+
     // Early exit if no user commands to process
     if (userCommands.length === 0) {
       console.log('No user commands found to analyze');
       return true;
     }
-    
+
     // Get existing relations for efficient comparison
     const existingRelations = await this._getExistingUserCommands();
-    
+
     // Create a set of existing username:command combinations for quick lookup
     // Use a special separator to avoid conflicts with command content
     const existingUserCommandSet = new Set();
     existingRelations.forEach(row => {
       existingUserCommandSet.add(`${row.username}§${row.command}`);
     });
-    
+
     // Process the commands in batches
     await this._processBatch(userCommands, async (commandBatch) => {
       // Process commands in parallel inside each batch for better performance
       await Promise.all(
         commandBatch.map(data => {
           console.log(`Storing relation: ${data.username} → ${data.command.substring(0, 50)}${data.command.length > 50 ? '...' : ''}`);
-          
+
+          // Get operation tags for this log
+          const operationTags = operationTagsMap.get(data.logId) || [];
+
           return RelationsModel.upsertRelation(
             'username',
             data.username,
@@ -63,17 +70,51 @@ class UserCommandAnalyzer extends BaseAnalyzer {
               type: 'user_command',
               timestamp: data.lastSeen,
               firstSeen: data.firstSeen
-            }
+            },
+            operationTags,
+            data.logId
           );
         })
       );
     });
-    
+
     // Handle removals for stale commands - commands that exist in the database
     // but are no longer present in the logs we're analyzing
     await this._removeStaleCommands(userCommands, existingUserCommandSet);
-    
+
     return true;
+  }
+
+  /**
+   * Fetch operation tags for a set of log IDs
+   * @param {Array} logIds - Array of log IDs
+   * @returns {Promise<Map>} Map of logId -> operation tag IDs
+   */
+  async _fetchOperationTags(logIds) {
+    if (logIds.length === 0) {
+      return new Map();
+    }
+
+    try {
+      const result = await db.query(`
+        SELECT
+          lt.log_id,
+          ARRAY_AGG(DISTINCT lt.tag_id) as tag_ids
+        FROM log_tags lt
+        WHERE lt.log_id = ANY($1)
+        GROUP BY lt.log_id
+      `, [logIds]);
+
+      const tagMap = new Map();
+      result.rows.forEach(row => {
+        tagMap.set(row.log_id, row.tag_ids || []);
+      });
+
+      return tagMap;
+    } catch (error) {
+      console.error('Error fetching operation tags:', error);
+      return new Map();
+    }
   }
 
   /**
@@ -87,26 +128,30 @@ class UserCommandAnalyzer extends BaseAnalyzer {
     return this._extractFromLogs(logs, {
       // Filter logs that have both username and command
       filter: log => log.username && log.command,
-      
+
       // Group by username and command using a special separator
       groupBy: log => `${log.username}§${log.command}`,
-      
+
       // Map each group to a user command object
       mapFn: (entries, key) => {
         // Split using our special separator
         const [username, command] = key.split('§');
-        
+
         // Verify the command is intact
         console.log(`Processing command for user ${username}: ${command.substring(0, 50)}${command.length > 50 ? '...' : ''}`);
-        
+
         // Find min and max timestamps in one pass
         const timestamps = _.map(entries, 'timestamp');
-        
+
+        // Use the most recent log's ID for tracking
+        const mostRecentLog = _.maxBy(entries, 'timestamp');
+
         return {
           username,
           command,
           firstSeen: _.min(timestamps),
-          lastSeen: _.max(timestamps)
+          lastSeen: _.max(timestamps),
+          logId: mostRecentLog?.id // Add log ID for tracking
         };
       }
     });

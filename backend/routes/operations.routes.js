@@ -9,6 +9,7 @@ router.use(authenticateJwt);
 
 // User routes (available to all authenticated users)
 router.get('/my-operations', operationsController.getMyOperations);
+router.get('/active', operationsController.getActiveOperation);
 router.post('/set-active', operationsController.setActiveOperation);
 
 // Admin routes

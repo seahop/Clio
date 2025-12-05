@@ -197,22 +197,46 @@ const operationsController = {
   async setActiveOperation(req, res) {
     try {
       const { operationId } = req.body;
-      
+
       if (!operationId) {
         return res.status(400).json({ error: 'Operation ID is required' });
       }
-      
+
       await OperationsModel.setUserActiveOperation(req.user.username, operationId);
-      
+
       await eventLogger.logAuditEvent('active_operation_changed', req.user.username, {
         operationId,
         ip: req.ip
       });
-      
+
       res.json({ message: 'Active operation updated successfully', operationId });
     } catch (error) {
       console.error('Error setting active operation:', error);
       res.status(500).json({ error: error.message || 'Failed to set active operation' });
+    }
+  },
+
+  /**
+   * Get current user's active operation
+   */
+  async getActiveOperation(req, res) {
+    try {
+      const activeOp = await OperationsModel.getUserActiveOperation(req.user.username);
+
+      if (!activeOp) {
+        return res.json(null);
+      }
+
+      res.json({
+        id: activeOp.id,
+        name: activeOp.name,
+        tag_id: activeOp.tag_id,
+        tag_name: activeOp.tag_name,
+        tag_color: activeOp.tag_color
+      });
+    } catch (error) {
+      console.error('Error fetching active operation:', error);
+      res.status(500).json({ error: 'Failed to fetch active operation' });
     }
   }
 };

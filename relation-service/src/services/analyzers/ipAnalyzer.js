@@ -1,5 +1,6 @@
 // relation-service/src/services/analyzers/ipAnalyzer.js
 const _ = require('lodash');
+const db = require('../../db');
 const RelationsModel = require('../../models/relations');
 const { BaseAnalyzer } = require('./baseAnalyzer');
 
@@ -20,10 +21,14 @@ class IPAnalyzer extends BaseAnalyzer {
    */
   async analyze(logs) {
     console.log('Analyzing IP relations with parallel batch processing...');
-    
+
+    // Fetch operation tags for all logs upfront
+    const logIds = logs.map(log => log.id).filter(id => id);
+    const operationTagsMap = await this._fetchOperationTags(logIds);
+
     // Extract IP relations from logs
     const ipRelations = this._extractIPRelations(logs);
-    
+
     // Extract IP command relations - new enhancement
     const ipCommandRelations = this._extractIPCommandRelations(logs);
     
@@ -34,8 +39,11 @@ class IPAnalyzer extends BaseAnalyzer {
       await this._processBatch(ipRelations, async (ipBatch) => {
         // Process IP relations in parallel within each batch
         await Promise.all(
-          ipBatch.map(data => 
-            RelationsModel.upsertRelation(
+          ipBatch.map(data => {
+            // Get operation tags for this log
+            const operationTags = operationTagsMap.get(data.logId) || [];
+
+            return RelationsModel.upsertRelation(
               'ip',
               data.internal,
               'ip',
@@ -44,24 +52,29 @@ class IPAnalyzer extends BaseAnalyzer {
                 type: 'ip_connection',
                 timestamp: data.lastSeen,
                 firstSeen: data.firstSeen
-              }
-            )
-          )
+              },
+              operationTags,
+              data.logId
+            );
+          })
         );
       });
-      
+
       processedCount += ipRelations.length;
     }
     
     // Process the IP command relations - new enhancement
     if (ipCommandRelations.length > 0) {
       console.log(`Processing ${ipCommandRelations.length} IP command relations`);
-      
+
       await this._processBatch(ipCommandRelations, async (batchItems) => {
         // Process relations in parallel within each batch
         await Promise.all(
-          batchItems.map(data => 
-            RelationsModel.upsertRelation(
+          batchItems.map(data => {
+            // Get operation tags for this log
+            const operationTags = operationTagsMap.get(data.logId) || [];
+
+            return RelationsModel.upsertRelation(
               'ip',
               data.ip,
               'command',
@@ -72,12 +85,14 @@ class IPAnalyzer extends BaseAnalyzer {
                 timestamp: data.lastSeen,
                 firstSeen: data.firstSeen,
                 ipType: data.ipType
-              }
-            )
-          )
+              },
+              operationTags,
+              data.logId
+            );
+          })
         );
       });
-      
+
       processedCount += ipCommandRelations.length;
     }
     
@@ -95,20 +110,24 @@ class IPAnalyzer extends BaseAnalyzer {
     return this._extractFromLogs(logs, {
       // Filter logs that have both internal and external IPs
       filter: log => log.internal_ip && log.external_ip,
-      
+
       // Group by internal and external IPs
       groupBy: log => `${log.internal_ip}:${log.external_ip}`,
-      
+
       // Map each group to an IP relation object
       mapFn: (entries, key) => {
         const [internal, external] = key.split(':');
         const timestamps = _.map(entries, 'timestamp');
-        
+
+        // Use the most recent log's ID for tracking
+        const mostRecentLog = _.maxBy(entries, 'timestamp');
+
         return {
           internal,
           external,
           firstSeen: _.min(timestamps),
-          lastSeen: _.max(timestamps)
+          lastSeen: _.max(timestamps),
+          logId: mostRecentLog?.id
         };
       }
     });
@@ -125,29 +144,33 @@ class IPAnalyzer extends BaseAnalyzer {
     const internalIPCommands = this._extractFromLogs(logs, {
       // Filter logs that have both command and internal_ip
       filter: log => log.command && log.internal_ip && log.command.trim() !== '',
-      
+
       // Group by IP and command to avoid duplicates
       groupBy: log => `${log.internal_ip}:${log.command}`,
-      
+
       // Map each group to a relation object
       mapFn: (entries, key) => {
         // Split by first colon only to preserve command content with colons
         const colonIndex = key.indexOf(':');
         if (colonIndex === -1) return null;
-        
+
         const ip = key.substring(0, colonIndex);
         const command = key.substring(colonIndex + 1);
-        
+
         const timestamps = _.map(entries, 'timestamp');
         const usernames = _.uniq(entries.map(entry => entry.username).filter(Boolean));
-        
+
+        // Use the most recent log's ID for tracking
+        const mostRecentLog = _.maxBy(entries, 'timestamp');
+
         return {
           ip,
           command,
           username: usernames.length > 0 ? usernames[0] : null,
           ipType: 'internal',
           firstSeen: _.min(timestamps),
-          lastSeen: _.max(timestamps)
+          lastSeen: _.max(timestamps),
+          logId: mostRecentLog?.id
         };
       }
     });
@@ -156,37 +179,73 @@ class IPAnalyzer extends BaseAnalyzer {
     const externalIPCommands = this._extractFromLogs(logs, {
       // Filter logs that have both command and external_ip
       filter: log => log.command && log.external_ip && log.command.trim() !== '',
-      
+
       // Group by IP and command to avoid duplicates
       groupBy: log => `${log.external_ip}:${log.command}`,
-      
+
       // Map each group to a relation object
       mapFn: (entries, key) => {
         // Split by first colon only to preserve command content with colons
         const colonIndex = key.indexOf(':');
         if (colonIndex === -1) return null;
-        
+
         const ip = key.substring(0, colonIndex);
         const command = key.substring(colonIndex + 1);
-        
+
         const timestamps = _.map(entries, 'timestamp');
         const usernames = _.uniq(entries.map(entry => entry.username).filter(Boolean));
-        
+
+        // Use the most recent log's ID for tracking
+        const mostRecentLog = _.maxBy(entries, 'timestamp');
+
         return {
           ip,
           command,
           username: usernames.length > 0 ? usernames[0] : null,
           ipType: 'external',
           firstSeen: _.min(timestamps),
-          lastSeen: _.max(timestamps)
+          lastSeen: _.max(timestamps),
+          logId: mostRecentLog?.id
         };
       }
     });
     
     // Filter out any null entries that might have been created
     const combined = [...internalIPCommands, ...externalIPCommands].filter(item => item !== null);
-    
+
     return combined;
+  }
+
+  /**
+   * Fetch operation tags for a set of log IDs
+   * @param {Array} logIds - Array of log IDs
+   * @returns {Promise<Map>} Map of logId -> operation tag IDs
+   */
+  async _fetchOperationTags(logIds) {
+    if (logIds.length === 0) {
+      return new Map();
+    }
+
+    try {
+      const result = await db.query(`
+        SELECT
+          lt.log_id,
+          ARRAY_AGG(DISTINCT lt.tag_id) as tag_ids
+        FROM log_tags lt
+        WHERE lt.log_id = ANY($1)
+        GROUP BY lt.log_id
+      `, [logIds]);
+
+      const tagMap = new Map();
+      result.rows.forEach(row => {
+        tagMap.set(row.log_id, row.tag_ids || []);
+      });
+
+      return tagMap;
+    } catch (error) {
+      console.error('Error fetching operation tags:', error);
+      return new Map();
+    }
   }
 }
 

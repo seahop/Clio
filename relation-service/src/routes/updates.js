@@ -91,9 +91,10 @@ async function batchUpdateProcessor(batchItems) {
         'domain': 'domain',
         'username': 'username',
         'command': 'command',
-        'filename': 'filename'
+        'filename': 'filename',
+        'mac_address': 'mac_address'
       };
-      
+
       // Map field types to analysis types for targeted refresh
       const fieldToAnalysisType = {
         'internal_ip': ['ip', 'user_ip'],
@@ -103,7 +104,8 @@ async function batchUpdateProcessor(batchItems) {
         'username': ['user', 'user_hostname', 'user_ip'],
         'command': 'command',
         'filename': 'file',
-        'status': 'file'
+        'status': 'file',
+        'mac_address': 'mac_address'
       };
       
       // Add the analysis type to our set for targeted refresh
@@ -134,16 +136,17 @@ async function batchUpdateProcessor(batchItems) {
         case 'hostname':
         case 'domain':
         case 'command':
+        case 'mac_address':
           // Process updates with deduplication
           const uniqueUpdates = deduplicateUpdates(updates);
           console.log(`Processing ${uniqueUpdates.length} unique ${fieldType} updates`);
-          
+
           for (const update of uniqueUpdates) {
             try {
               // Update with standard pattern
               const updateCount = await RelationsModel.updateFieldValue(
-                relationType, 
-                update.oldValue, 
+                relationType,
+                update.oldValue,
                 update.newValue
               );
               updatedCount += updateCount;

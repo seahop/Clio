@@ -3,14 +3,14 @@ const authenticateToken = async (req, res, next) => {
     try {
       // Get auth cookie
       const token = req.cookies?.auth_token;
-  
+
       if (!token) {
         return res.status(401).json({ error: 'No token provided' });
       }
-  
+
       // Make sure fetch is available
       const fetch = require('node-fetch');
-  
+
       // Use Docker service name 'backend' instead of localhost
       const response = await fetch('https://backend:3001/api/auth/me', {
         headers: {
@@ -23,14 +23,37 @@ const authenticateToken = async (req, res, next) => {
           rejectUnauthorized: false
         })
       });
-  
+
       if (!response.ok) {
         console.error('Auth verification failed:', await response.text());
         return res.status(401).json({ error: 'Invalid token' });
       }
-  
+
       const userData = await response.json();
       req.user = userData;
+
+      // Fetch user's active operation for filtering
+      try {
+        const operationsResponse = await fetch('https://backend:3001/api/operations/active', {
+          headers: {
+            'Cookie': `auth_token=${token}`,
+            'Accept': 'application/json'
+          },
+          credentials: 'include',
+          agent: new (require('https').Agent)({
+            rejectUnauthorized: false
+          })
+        });
+
+        if (operationsResponse.ok) {
+          const operationData = await operationsResponse.json();
+          req.user.activeOperation = operationData;
+        }
+      } catch (opError) {
+        console.error('Error fetching active operation:', opError);
+        // Continue without operation context - will be handled by routes
+      }
+
       next();
     } catch (error) {
       console.error('Authentication error:', {

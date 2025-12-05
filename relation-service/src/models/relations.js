@@ -8,8 +8,10 @@ let relationsCache = new Map();
 class RelationsModel {
   /**
    * Upsert a relation with optimized query
+   * @param {Array} operationTags - Array of operation tag IDs from source logs
+   * @param {Number} logId - ID of the source log creating this relation
    */
-  static async upsertRelation(sourceType, sourceValue, targetType, targetValue, metadata = {}) {
+  static async upsertRelation(sourceType, sourceValue, targetType, targetValue, metadata = {}, operationTags = [], logId = null) {
     try {
       // Validate required values before proceeding
       if (!sourceType || sourceValue === null || sourceValue === undefined || 
@@ -54,9 +56,10 @@ class RelationsModel {
         const result = await db.query(`
           INSERT INTO relations (
             source_type, source_value, target_type, target_value,
-            metadata, first_seen, last_seen, strength, connection_count
+            metadata, first_seen, last_seen, strength, connection_count,
+            operation_tags, source_log_ids
           )
-          VALUES ($1, $2, $3, $4, $5, $6, $7, 1, 1)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, 1, 1, $8, $9)
           RETURNING *`,
           [
             sourceType,
@@ -65,34 +68,43 @@ class RelationsModel {
             uniqueCommand, // Store the unique command with timestamp
             metadata,
             metadata.firstSeen || timestamp,
-            timestamp
+            timestamp,
+            operationTags || [],
+            logId ? [logId] : []
           ]
         );
 
         return result.rows[0];
       }
-      
+
       // For non-command relations, use the standard behavior with ON CONFLICT
       // Invalidate cache for this relation type
       this._invalidateCache(sourceType);
       this._invalidateCache(targetType);
-      
+
       const result = await db.query(`
         INSERT INTO relations (
           source_type, source_value, target_type, target_value,
-          metadata, first_seen, last_seen, strength, connection_count
+          metadata, first_seen, last_seen, strength, connection_count,
+          operation_tags, source_log_ids
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, 1, 1)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, 1, 1, $8, $9)
         ON CONFLICT (source_type, source_value, target_type, target_value)
         DO UPDATE SET
-          last_seen = CASE 
-            WHEN EXCLUDED.last_seen > relations.last_seen 
-            THEN EXCLUDED.last_seen 
-            ELSE relations.last_seen 
+          last_seen = CASE
+            WHEN EXCLUDED.last_seen > relations.last_seen
+            THEN EXCLUDED.last_seen
+            ELSE relations.last_seen
           END,
           metadata = EXCLUDED.metadata,
           strength = relations.strength + 1,
-          connection_count = relations.connection_count + 1
+          connection_count = relations.connection_count + 1,
+          operation_tags = ARRAY(
+            SELECT DISTINCT unnest(relations.operation_tags || EXCLUDED.operation_tags)
+          ),
+          source_log_ids = ARRAY(
+            SELECT DISTINCT unnest(relations.source_log_ids || EXCLUDED.source_log_ids)
+          )
         RETURNING *`,
         [
           sourceType,
@@ -101,7 +113,9 @@ class RelationsModel {
           targetValue,
           metadata,
           metadata.firstSeen || new Date(),
-          metadata.timestamp || new Date()
+          metadata.timestamp || new Date(),
+          operationTags || [],
+          logId ? [logId] : []
         ]
       );
 
@@ -115,23 +129,25 @@ class RelationsModel {
   /**
    * Get MAC address relations with optimized query
    * @param {Number} limit - Maximum number of relations to return
+   * @param {Number} operationTagId - Optional operation tag ID for filtering
+   * @param {Boolean} isAdmin - Whether the user is an admin
    * @returns {Promise<Array>} Formatted MAC address relations
    */
-  static async getMacAddressRelations(limit = 100) {
+  static async getMacAddressRelations(limit = 100, operationTagId = null, isAdmin = false) {
     try {
-      // Check cache first
-      const cacheKey = `mac_address_${limit}`;
+      // Check cache first (include operation context in cache key)
+      const cacheKey = `mac_address_${limit}_${operationTagId || 'all'}_${isAdmin}`;
       const cachedData = this._getCachedData(cacheKey);
       if (cachedData) {
         return cachedData;
       }
-      
-      console.log('Fetching MAC address relations...');
-      
-      // Not in cache, fetch from database with optimized query
-      const result = await db.query(`
+
+      console.log(`[DEBUG] getMacAddressRelations - limit: ${limit}, operationTagId: ${operationTagId}, isAdmin: ${isAdmin}`);
+
+      // Build query with operation filtering
+      let query = `
         WITH mac_relations AS (
-          SELECT 
+          SELECT
             source_value as mac_address,
             target_value as ip_address,
             first_seen,
@@ -140,44 +156,84 @@ class RelationsModel {
             connection_count,
             metadata
           FROM relations
-          WHERE source_type = 'mac_address' AND target_type = 'ip'
+          WHERE source_type = 'mac_address' AND target_type = 'ip'`;
+
+      const params = [limit];
+
+      // Add operation filtering for non-admins or admins with active operation
+      if (operationTagId) {
+        query += ` AND operation_tags @> ARRAY[$2]::INTEGER[]`;
+        params.push(operationTagId);
+        console.log(`[DEBUG] Filtering MAC relations by operationTagId: ${operationTagId}`);
+      } else {
+        console.log('[DEBUG] No operation filter applied for MAC relations');
+      }
+
+      query += `
           ORDER BY last_seen DESC
           LIMIT $1
         )
-        SELECT * FROM mac_relations
-      `, [limit]);
+        SELECT * FROM mac_relations`;
 
-      console.log('Raw query results:', result.rows.slice(0, 3));
+      const result = await db.query(query, params);
 
-      // Group by MAC address
+      console.log(`[DEBUG] MAC address query returned ${result.rows.length} rows`);
+      if (result.rows.length > 0) {
+        console.log('[DEBUG] First 5 MAC results:');
+        result.rows.slice(0, 5).forEach(row => {
+          console.log(`  ${row.mac_address} → ${row.ip_address} (strength: ${row.strength}, seen: ${row.last_seen})`);
+        });
+      }
+
+      // Check for duplicates
+      const macIpPairs = result.rows.map(r => `${r.mac_address}→${r.ip_address}`);
+      const uniquePairs = new Set(macIpPairs);
+      if (macIpPairs.length !== uniquePairs.size) {
+        console.log('[WARNING] Found duplicate MAC→IP pairs in database!');
+        const duplicates = macIpPairs.filter((item, index) => macIpPairs.indexOf(item) !== index);
+        console.log('[WARNING] Duplicate pairs:', [...new Set(duplicates)]);
+      }
+
+      // Group by MAC address and deduplicate IP addresses
       const macAddressMap = new Map();
-      
+
       result.rows.forEach(row => {
-        console.log('Processing MAC:', row.mac_address);
-        
         // Use the MAC address as-is since we're standardizing on dashes in input
         const macAddress = row.mac_address;
-        
+
         if (!macAddressMap.has(macAddress)) {
           macAddressMap.set(macAddress, {
             source: macAddress,
             type: 'mac_address',
-            related: []
+            related: [],
+            ipSet: new Set() // Track unique IPs to prevent duplicates
           });
         }
-        
+
         const relation = macAddressMap.get(macAddress);
-        
-        // Add this IP to the related items
-        relation.related.push({
-          target: row.ip_address,
-          type: 'ip',
-          strength: row.strength,
-          connectionCount: row.connection_count,
-          firstSeen: row.first_seen,
-          lastSeen: row.last_seen,
-          metadata: row.metadata || {}
-        });
+
+        // Only add this IP if we haven't seen it before for this MAC
+        if (!relation.ipSet.has(row.ip_address)) {
+          relation.ipSet.add(row.ip_address);
+
+          // Add this IP to the related items
+          relation.related.push({
+            target: row.ip_address,
+            type: 'ip',
+            strength: row.strength,
+            connectionCount: row.connection_count,
+            firstSeen: row.first_seen,
+            lastSeen: row.last_seen,
+            metadata: row.metadata || {}
+          });
+        } else {
+          console.log(`[DEBUG] Skipping duplicate IP ${row.ip_address} for MAC ${macAddress}`);
+        }
+      });
+
+      // Remove the temporary ipSet before returning
+      macAddressMap.forEach(relation => {
+        delete relation.ipSet;
       });
       
       // Convert map to array of relations
@@ -293,19 +349,22 @@ class RelationsModel {
   /**
    * Get relations by type with caching optimization
    */
-  static async getRelations(type, limit = 100) {
+  static async getRelations(type, limit = 100, operationTagId = null, isAdmin = false) {
     try {
-      // Check cache first
-      const cacheKey = `${type}_${limit}`;
+      console.log(`[DEBUG] getRelations - type: ${type}, limit: ${limit}, operationTagId: ${operationTagId}, isAdmin: ${isAdmin}`);
+
+      // Check cache first (include operation context in cache key)
+      const cacheKey = `${type}_${limit}_${operationTagId || 'all'}_${isAdmin}`;
       const cachedData = this._getCachedData(cacheKey);
       if (cachedData) {
+        console.log(`[DEBUG] Returning cached data for ${type} (${cachedData.length} items)`);
         return cachedData;
       }
-      
-      // Not in cache, fetch from database with optimized query
-      const result = await db.query(`
+
+      // Build query with operation filtering
+      let query = `
         WITH ranked_relations AS (
-          SELECT 
+          SELECT
             source_type,
             source_value,
             target_type,
@@ -315,23 +374,40 @@ class RelationsModel {
             first_seen,
             last_seen,
             metadata,
-            ROW_NUMBER() OVER(PARTITION BY 
-              CASE WHEN source_type = $1 THEN source_value ELSE target_value END 
+            ROW_NUMBER() OVER(PARTITION BY
+              CASE WHEN source_type = $1 THEN source_value ELSE target_value END
               ORDER BY last_seen DESC) as row_num
           FROM relations
-          WHERE source_type = $1 OR target_type = $1
+          WHERE (source_type = $1 OR target_type = $1)`;
+
+      const params = [type, limit];
+
+      // Add operation filtering for non-admins or admins with active operation
+      if (operationTagId) {
+        query += ` AND operation_tags @> ARRAY[$3]::INTEGER[]`;
+        params.push(operationTagId);
+        console.log(`[DEBUG] Filtering ${type} relations by operationTagId: ${operationTagId}`);
+      } else {
+        console.log(`[DEBUG] No operation filter applied for ${type} relations`);
+      }
+
+      query += `
         )
         SELECT * FROM ranked_relations
         WHERE row_num <= $2
-        ORDER BY last_seen DESC`,
-        [type, limit]
-      );
+        ORDER BY last_seen DESC`;
+
+      const result = await db.query(query, params);
+
+      console.log(`[DEBUG] Query for ${type} returned ${result.rows.length} rows`);
 
       const formattedRelations = this.formatRelations(result.rows);
-      
+
+      console.log(`[DEBUG] Formatted to ${formattedRelations.length} relations`);
+
       // Store in cache
       this._cacheData(cacheKey, formattedRelations);
-      
+
       return formattedRelations;
     } catch (error) {
       console.error('Error getting relations:', error);
@@ -342,20 +418,21 @@ class RelationsModel {
   /**
    * Get user commands with optimization
    */
-  static async getUserCommands() {
+  static async getUserCommands(operationTagId = null, isAdmin = false) {
     try {
-      // Check cache first
-      const cacheKey = 'user_commands';
+      // Check cache first (include operation context in cache key)
+      const cacheKey = `user_commands_${operationTagId || 'all'}_${isAdmin}`;
       const cachedData = this._getCachedData(cacheKey);
       if (cachedData) {
         return cachedData;
       }
-      
+
       // Not in cache, fetch from database with optimized query
       console.log('Fetching user commands from database');
-      
-      const result = await db.query(`
-        SELECT 
+
+      // Build query with operation filtering
+      let query = `
+        SELECT
           source_value as username,
           target_value as command,
           first_seen,
@@ -363,9 +440,19 @@ class RelationsModel {
           metadata
         FROM relations
         WHERE source_type = 'username'
-          AND target_type = 'command'
-        ORDER BY last_seen DESC
-      `);
+          AND target_type = 'command'`;
+
+      const params = [];
+
+      // Add operation filtering for non-admins or admins with active operation
+      if (operationTagId) {
+        query += ` AND operation_tags @> ARRAY[$1]::INTEGER[]`;
+        params.push(operationTagId);
+      }
+
+      query += ` ORDER BY last_seen DESC`;
+
+      const result = await db.query(query, params);
       
       // Process commands to clean them up
       const commandsByUser = {};
@@ -417,11 +504,11 @@ class RelationsModel {
   /**
    * Get relations by specific value with optimization
    */
-  static async getRelationsByValue(type, value) {
+  static async getRelationsByValue(type, value, operationTagId = null, isAdmin = false) {
     try {
-      // Use a more efficient query with proper indexing
-      const result = await db.query(`
-        SELECT 
+      // Build query with operation filtering
+      let query = `
+        SELECT
           source_type,
           source_value,
           target_type,
@@ -432,11 +519,20 @@ class RelationsModel {
           last_seen,
           metadata
         FROM relations
-        WHERE (source_type = $1 AND source_value = $2)
-           OR (target_type = $1 AND target_value = $2)
-        ORDER BY last_seen DESC`,
-        [type, value]
-      );
+        WHERE ((source_type = $1 AND source_value = $2)
+           OR (target_type = $1 AND target_value = $2))`;
+
+      const params = [type, value];
+
+      // Add operation filtering for non-admins or admins with active operation
+      if (operationTagId) {
+        query += ` AND operation_tags @> ARRAY[$3]::INTEGER[]`;
+        params.push(operationTagId);
+      }
+
+      query += ` ORDER BY last_seen DESC`;
+
+      const result = await db.query(query, params);
 
       return this.formatRelations(result.rows);
     } catch (error) {
@@ -464,23 +560,37 @@ class RelationsModel {
       
       // Invalidate related caches
       this._invalidateCache(fieldType);
+
+      // If updating IP addresses, also invalidate MAC cache since MACs are linked to IPs
+      if (fieldType === 'ip' || fieldType === 'internal_ip' || fieldType === 'external_ip') {
+        this._invalidateCache('mac_address');
+        console.log('[DEBUG] Invalidated MAC address cache due to IP update');
+      }
+
+      // If updating hostname, invalidate MAC cache as well
+      if (fieldType === 'hostname') {
+        this._invalidateCache('mac_address');
+        console.log('[DEBUG] Invalidated MAC address cache due to hostname update');
+      }
       
       // Use a transaction for data consistency
       const client = await db.pool.connect();
       try {
         await client.query('BEGIN');
         
-        // First, identify all relations that use the old value
+        // First, identify all relations that use the old value (include operation_tags and source_log_ids)
         const sourceResult = await client.query(`
           SELECT source_type, source_value, target_type, target_value, metadata,
-                 strength, connection_count, first_seen, last_seen
+                 strength, connection_count, first_seen, last_seen,
+                 operation_tags, source_log_ids
           FROM relations
           WHERE source_type = $1 AND source_value = $2
         `, [fieldType, oldValue]);
-        
+
         const targetResult = await client.query(`
           SELECT source_type, source_value, target_type, target_value, metadata,
-                 strength, connection_count, first_seen, last_seen
+                 strength, connection_count, first_seen, last_seen,
+                 operation_tags, source_log_ids
           FROM relations
           WHERE target_type = $1 AND target_value = $2
         `, [fieldType, oldValue]);
@@ -500,26 +610,35 @@ class RelationsModel {
         for (const relation of sourceResult.rows) {
           await client.query(`
             INSERT INTO relations (
-              source_type, source_value, target_type, target_value, 
-              strength, connection_count, first_seen, last_seen, metadata
+              source_type, source_value, target_type, target_value,
+              strength, connection_count, first_seen, last_seen, metadata,
+              operation_tags, source_log_ids
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             ON CONFLICT (source_type, source_value, target_type, target_value)
             DO UPDATE SET
               last_seen = EXCLUDED.last_seen,
               strength = GREATEST(relations.strength, EXCLUDED.strength),
               connection_count = relations.connection_count + 1,
-              metadata = EXCLUDED.metadata
+              metadata = EXCLUDED.metadata,
+              operation_tags = ARRAY(
+                SELECT DISTINCT unnest(relations.operation_tags || EXCLUDED.operation_tags)
+              ),
+              source_log_ids = ARRAY(
+                SELECT DISTINCT unnest(relations.source_log_ids || EXCLUDED.source_log_ids)
+              )
           `, [
             relation.source_type,
             newValue, // Use new value
             relation.target_type,
             relation.target_value,
-            relation.strength, 
+            relation.strength,
             relation.connection_count,
             relation.first_seen,
             new Date(), // Update last_seen
-            relation.metadata
+            relation.metadata,
+            relation.operation_tags || [],
+            relation.source_log_ids || []
           ]);
         }
         
@@ -527,16 +646,23 @@ class RelationsModel {
         for (const relation of targetResult.rows) {
           await client.query(`
             INSERT INTO relations (
-              source_type, source_value, target_type, target_value, 
-              strength, connection_count, first_seen, last_seen, metadata
+              source_type, source_value, target_type, target_value,
+              strength, connection_count, first_seen, last_seen, metadata,
+              operation_tags, source_log_ids
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             ON CONFLICT (source_type, source_value, target_type, target_value)
             DO UPDATE SET
               last_seen = EXCLUDED.last_seen,
               strength = GREATEST(relations.strength, EXCLUDED.strength),
               connection_count = relations.connection_count + 1,
-              metadata = EXCLUDED.metadata
+              metadata = EXCLUDED.metadata,
+              operation_tags = ARRAY(
+                SELECT DISTINCT unnest(relations.operation_tags || EXCLUDED.operation_tags)
+              ),
+              source_log_ids = ARRAY(
+                SELECT DISTINCT unnest(relations.source_log_ids || EXCLUDED.source_log_ids)
+              )
           `, [
             relation.source_type,
             relation.source_value,
@@ -546,7 +672,9 @@ class RelationsModel {
             relation.connection_count,
             relation.first_seen,
             new Date(), // Update last_seen
-            relation.metadata
+            relation.metadata,
+            relation.operation_tags || [],
+            relation.source_log_ids || []
           ]);
         }
         

@@ -163,6 +163,8 @@ const initializeDatabase = async () => {
         first_seen TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
         last_seen TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
         metadata JSONB DEFAULT '{}'::jsonb,
+        operation_tags INTEGER[] DEFAULT '{}',
+        source_log_ids INTEGER[] DEFAULT '{}',
         UNIQUE(source_type, source_value, target_type, target_value)
       );
 
@@ -172,6 +174,8 @@ const initializeDatabase = async () => {
       CREATE INDEX IF NOT EXISTS idx_relations_last_seen ON relations(last_seen);
       CREATE INDEX IF NOT EXISTS idx_relations_compound ON relations(source_type, source_value, target_type, target_value);
       CREATE INDEX IF NOT EXISTS idx_relations_metadata_gin ON relations USING GIN (metadata);
+      CREATE INDEX IF NOT EXISTS idx_relations_operation_tags ON relations USING GIN (operation_tags);
+      CREATE INDEX IF NOT EXISTS idx_relations_source_log_ids ON relations USING GIN (source_log_ids);
       
       -- Specialized indices for MAC address relations
       CREATE INDEX IF NOT EXISTS idx_relations_mac_address_source ON relations(source_value) 
@@ -220,7 +224,9 @@ const initializeDatabase = async () => {
         hash_value VARCHAR(128),
         first_seen TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
         last_seen TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-        metadata JSONB DEFAULT '{}'::jsonb
+        metadata JSONB DEFAULT '{}'::jsonb,
+        operation_tags INTEGER[] DEFAULT '{}',
+        source_log_ids INTEGER[] DEFAULT '{}'
       );
     `);
     
@@ -259,6 +265,8 @@ const initializeDatabase = async () => {
       CREATE INDEX IF NOT EXISTS idx_file_status_hash_value ON file_status(hash_value);
       CREATE INDEX IF NOT EXISTS idx_file_status_combined ON file_status(filename, hostname, internal_ip);
       CREATE INDEX IF NOT EXISTS idx_file_status_mac_address ON file_status(mac_address);
+      CREATE INDEX IF NOT EXISTS idx_file_status_operation_tags ON file_status USING GIN (operation_tags);
+      CREATE INDEX IF NOT EXISTS idx_file_status_source_log_ids ON file_status USING GIN (source_log_ids);
     `);
     
     // Create file status history table
@@ -279,12 +287,14 @@ const initializeDatabase = async () => {
         secrets TEXT,
         hash_algorithm VARCHAR(50),
         hash_value VARCHAR(128),
-        timestamp TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+        timestamp TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        operation_tags INTEGER[] DEFAULT '{}'
       );
 
       CREATE INDEX IF NOT EXISTS idx_file_status_history_filename ON file_status_history(filename);
       CREATE INDEX IF NOT EXISTS idx_file_status_history_timestamp ON file_status_history(timestamp);
       CREATE INDEX IF NOT EXISTS idx_file_status_history_mac_address ON file_status_history(mac_address);
+      CREATE INDEX IF NOT EXISTS idx_file_status_history_operation_tags ON file_status_history USING GIN (operation_tags);
     `);
     
     console.log('Database tables initialized with optimized indexes including MAC address support');

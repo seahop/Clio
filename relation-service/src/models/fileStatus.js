@@ -48,28 +48,38 @@ class FileStatusModel {
 
 
 /**
- * Get files by name with support for multiple hosts/IPs
+ * Get files by name with support for multiple hosts/IPs and operation filtering
  */
-static async getFilesByName(filename) {
+static async getFilesByName(filename, operationTagId = null, isAdmin = false) {
   try {
-    // Get all file statuses with this filename
-    const statusResult = await db.query(`
+    // Build query with operation filtering
+    let query = `
       SELECT * FROM file_status
-      WHERE filename = $1
-      ORDER BY last_seen DESC
-    `, [filename]);
+      WHERE filename = $1`;
+
+    const params = [filename];
+
+    // Add operation filtering for non-admins or admins with active operation
+    if (operationTagId) {
+      query += ` AND operation_tags @> ARRAY[$2]::INTEGER[]`;
+      params.push(operationTagId);
+    }
+
+    query += ` ORDER BY last_seen DESC`;
+
+    const statusResult = await db.query(query, params);
 
     if (statusResult.rows.length === 0) {
       return [];
     }
 
-    // For each file status, get its history
+    // For each file status, get its history (also filtered by operation)
     const fileResults = [];
 
     for (const fileStatus of statusResult.rows) {
-      // Get history for this specific combination of filename, host, and IP
-      const historyResult = await db.query(`
-        SELECT 
+      // Build history query with operation filtering
+      let historyQuery = `
+        SELECT
           id, filename, status, previous_status, hostname, internal_ip,
           external_ip, username, analyst, notes, command,
           CASE WHEN secrets IS NOT NULL THEN '[REDACTED]' ELSE NULL END as secrets,
@@ -77,9 +87,18 @@ static async getFilesByName(filename) {
         FROM file_status_history
         WHERE filename = $1
           AND (hostname = $2 OR (hostname IS NULL AND $2 IS NULL))
-          AND (internal_ip = $3 OR (internal_ip IS NULL AND $3 IS NULL))
-        ORDER BY timestamp DESC
-      `, [filename, fileStatus.hostname, fileStatus.internal_ip]);
+          AND (internal_ip = $3 OR (internal_ip IS NULL AND $3 IS NULL))`;
+
+      const historyParams = [filename, fileStatus.hostname, fileStatus.internal_ip];
+
+      if (operationTagId) {
+        historyQuery += ` AND operation_tags @> ARRAY[$4]::INTEGER[]`;
+        historyParams.push(operationTagId);
+      }
+
+      historyQuery += ` ORDER BY timestamp DESC`;
+
+      const historyResult = await db.query(historyQuery, historyParams);
 
       fileResults.push({
         ...fileStatus,
@@ -95,30 +114,40 @@ static async getFilesByName(filename) {
 }
 
 /**
- * Get a single file by name and specific host/IP
+ * Get a single file by name and specific host/IP with operation filtering
  */
-static async getFileByName(filename, hostname = null, internal_ip = null) {
+static async getFileByName(filename, hostname = null, internal_ip = null, operationTagId = null, isAdmin = false) {
   try {
-    // If hostname and internal_ip are provided, get that specific file
+    // Build query with operation filtering
     let query, params;
-    
+
     if (hostname || internal_ip) {
       query = `
         SELECT * FROM file_status
         WHERE filename = $1
           AND (hostname = $2 OR (hostname IS NULL AND $2 IS NULL))
-          AND (internal_ip = $3 OR (internal_ip IS NULL AND $3 IS NULL))
-      `;
+          AND (internal_ip = $3 OR (internal_ip IS NULL AND $3 IS NULL))`;
       params = [filename, hostname, internal_ip];
+
+      if (operationTagId) {
+        query += ` AND operation_tags @> ARRAY[$4]::INTEGER[]`;
+        params.push(operationTagId);
+      }
     } else {
       // Otherwise just get the most recently updated file with that name
       query = `
         SELECT * FROM file_status
-        WHERE filename = $1
-        ORDER BY last_seen DESC
-        LIMIT 1
-      `;
+        WHERE filename = $1`;
       params = [filename];
+
+      if (operationTagId) {
+        query += ` AND operation_tags @> ARRAY[$2]::INTEGER[]`;
+        params.push(operationTagId);
+      }
+
+      query += `
+        ORDER BY last_seen DESC
+        LIMIT 1`;
     }
 
     const statusResult = await db.query(query, params);
@@ -129,9 +158,9 @@ static async getFileByName(filename, hostname = null, internal_ip = null) {
 
     const fileStatus = statusResult.rows[0];
 
-    // Get history for this specific combination of filename, host, and IP
-    const historyResult = await db.query(`
-      SELECT 
+    // Build history query with operation filtering
+    let historyQuery = `
+      SELECT
         id, filename, status, previous_status, hostname, internal_ip,
         external_ip, username, analyst, notes, command,
         CASE WHEN secrets IS NOT NULL THEN '[REDACTED]' ELSE NULL END as secrets,
@@ -139,9 +168,18 @@ static async getFileByName(filename, hostname = null, internal_ip = null) {
       FROM file_status_history
       WHERE filename = $1
         AND (hostname = $2 OR (hostname IS NULL AND $2 IS NULL))
-        AND (internal_ip = $3 OR (internal_ip IS NULL AND $3 IS NULL))
-      ORDER BY timestamp DESC
-    `, [filename, fileStatus.hostname, fileStatus.internal_ip]);
+        AND (internal_ip = $3 OR (internal_ip IS NULL AND $3 IS NULL))`;
+
+    const historyParams = [filename, fileStatus.hostname, fileStatus.internal_ip];
+
+    if (operationTagId) {
+      historyQuery += ` AND operation_tags @> ARRAY[$4]::INTEGER[]`;
+      historyParams.push(operationTagId);
+    }
+
+    historyQuery += ` ORDER BY timestamp DESC`;
+
+    const historyResult = await db.query(historyQuery, historyParams);
 
     // Return combined result
     return {
@@ -187,8 +225,14 @@ static async upsertFileStatus(fileData) {
           last_seen = $7,
           metadata = COALESCE(file_status.metadata, '{}'::jsonb) || $8,
           hash_algorithm = COALESCE($9, file_status.hash_algorithm),
-          hash_value = COALESCE($10, file_status.hash_value)
-        WHERE id = $11
+          hash_value = COALESCE($10, file_status.hash_value),
+          operation_tags = ARRAY(
+            SELECT DISTINCT unnest(file_status.operation_tags || COALESCE($11::INTEGER[], '{}'))
+          ),
+          source_log_ids = ARRAY(
+            SELECT DISTINCT unnest(file_status.source_log_ids || COALESCE($12::INTEGER[], '{}'))
+          )
+        WHERE id = $13
         RETURNING *
       `, [
         fileData.status || 'UNKNOWN',
@@ -201,6 +245,8 @@ static async upsertFileStatus(fileData) {
         fileData.metadata || {},
         fileData.hash_algorithm,
         fileData.hash_value,
+        fileData.operation_tags || null,
+        fileData.source_log_ids || null,
         existingResult.rows[0].id
       ]);
       
@@ -210,11 +256,11 @@ static async upsertFileStatus(fileData) {
     else {
       const result = await db.query(`
         INSERT INTO file_status (
-          filename, status, hostname, internal_ip, external_ip, 
+          filename, status, hostname, internal_ip, external_ip,
           username, analyst, first_seen, last_seen, metadata,
-          hash_algorithm, hash_value
-        ) 
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+          hash_algorithm, hash_value, operation_tags, source_log_ids
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
         RETURNING *
       `, [
         fileData.filename,
@@ -228,7 +274,9 @@ static async upsertFileStatus(fileData) {
         fileData.timestamp || new Date(),
         fileData.metadata || {},
         fileData.hash_algorithm,
-        fileData.hash_value
+        fileData.hash_value,
+        fileData.operation_tags || [],
+        fileData.source_log_ids || []
       ]);
 
       return result.rows[0];
@@ -255,10 +303,10 @@ static async upsertFileStatus(fileData) {
       const result = await db.query(`
         INSERT INTO file_status_history (
           filename, status, previous_status, hostname, internal_ip,
-          external_ip, username, analyst, notes, command, secrets, 
-          hash_algorithm, hash_value, timestamp
+          external_ip, username, analyst, notes, command, secrets,
+          hash_algorithm, hash_value, timestamp, operation_tags
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
         RETURNING *
       `, [
         safeHistoryData.filename,
@@ -274,7 +322,8 @@ static async upsertFileStatus(fileData) {
         safeHistoryData.secrets, // This will already be redacted
         safeHistoryData.hash_algorithm,
         safeHistoryData.hash_value,
-        safeHistoryData.timestamp || new Date()
+        safeHistoryData.timestamp || new Date(),
+        safeHistoryData.operation_tags || []
       ]);
   
       // Always redact secrets in returned data
@@ -291,29 +340,42 @@ static async upsertFileStatus(fileData) {
   }
 
   /**
-   * Get all file statuses with minimal caching
+   * Get all file statuses with minimal caching and operation filtering
    */
-  static async getAllFileStatuses() {
+  static async getAllFileStatuses(operationTagId = null, isAdmin = false) {
     try {
-      // Check if we have a valid cache
+      // Check if we have a valid cache (cache key includes operation context)
+      const cacheKey = `all_${operationTagId || 'all'}_${isAdmin}`;
       const now = Date.now();
-      if (fileStatusCache.data && (now - fileStatusCache.timestamp) < FILE_STATUS_CACHE_TTL) {
-        return fileStatusCache.data;
+      if (fileStatusCache[cacheKey] && (now - fileStatusCache.timestamp) < FILE_STATUS_CACHE_TTL) {
+        return fileStatusCache[cacheKey];
       }
-      
-      // Cache miss - fetch from database
-      const result = await db.query(`
+
+      // Build query with operation filtering
+      let query = `
         SELECT fs.*, COUNT(fsh.id) as history_count
         FROM file_status fs
         LEFT JOIN file_status_history fsh ON fs.filename = fsh.filename
+        WHERE 1=1`;
+
+      const params = [];
+
+      // Add operation filtering for non-admins or admins with active operation
+      if (operationTagId) {
+        query += ` AND (fs.operation_tags @> ARRAY[$1]::INTEGER[] OR fs.operation_tags = '{}')`;
+        params.push(operationTagId);
+      }
+
+      query += `
         GROUP BY fs.id
-        ORDER BY fs.last_seen DESC
-      `);
-      
+        ORDER BY fs.last_seen DESC`;
+
+      const result = await db.query(query, params);
+
       // Update cache
-      fileStatusCache.data = result.rows;
+      fileStatusCache[cacheKey] = result.rows;
       fileStatusCache.timestamp = now;
-      
+
       return result.rows;
     } catch (error) {
       console.error('Error getting all file statuses:', error);
@@ -322,20 +384,31 @@ static async upsertFileStatus(fileData) {
   }
 
   /**
-   * Get file statuses by status
+   * Get file statuses by status with operation filtering
    */
-  static async getFileStatusesByStatus(status) {
+  static async getFileStatusesByStatus(status, operationTagId = null, isAdmin = false) {
     try {
-      // Always fetch fresh data for status-specific queries
-      const result = await db.query(`
+      // Build query with operation filtering
+      let query = `
         SELECT fs.*, COUNT(fsh.id) as history_count
         FROM file_status fs
         LEFT JOIN file_status_history fsh ON fs.filename = fsh.filename
-        WHERE fs.status = $1
+        WHERE fs.status = $1`;
+
+      const params = [status];
+
+      // Add operation filtering for non-admins or admins with active operation
+      if (operationTagId) {
+        query += ` AND (fs.operation_tags @> ARRAY[$2]::INTEGER[] OR fs.operation_tags = '{}')`;
+        params.push(operationTagId);
+      }
+
+      query += `
         GROUP BY fs.id
-        ORDER BY fs.last_seen DESC
-      `, [status]);
-      
+        ORDER BY fs.last_seen DESC`;
+
+      const result = await db.query(query, params);
+
       return result.rows;
     } catch (error) {
       console.error('Error getting file statuses by status:', error);
