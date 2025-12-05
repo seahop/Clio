@@ -416,6 +416,42 @@ const LogsModel = {
       console.error('Error bulk deleting logs:', error);
       throw error;
     }
+  },
+
+  /**
+   * Find a duplicate log entry based on key fields
+   * @param {Object} criteria - Fields to match (timestamp, command, hostname, username)
+   * @returns {Promise<Object|null>} Existing log or null if not found
+   */
+  async findDuplicate(criteria) {
+    try {
+      const { timestamp, command, hostname, username } = criteria;
+
+      // Build the query to find exact matches
+      const result = await db.query(
+        `SELECT id, timestamp FROM logs
+         WHERE timestamp = $1
+         AND command = $2
+         AND hostname = $3
+         AND username = $4
+         LIMIT 1`,
+        [timestamp, command, hostname, username]
+      );
+
+      return result.rows.length > 0 ? result.rows[0] : null;
+    } catch (error) {
+      console.error('Error finding duplicate log:', error);
+      return null; // Return null on error to allow log creation
+    }
+  },
+
+  /**
+   * Get a redacted version of a log record for logging
+   * @param {Object} log - Log record
+   * @returns {Object} Redacted log record
+   */
+  getRedactedLog(log) {
+    return redactSensitiveData(log, ['secrets']);
   }
 };
 

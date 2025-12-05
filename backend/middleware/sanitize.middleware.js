@@ -36,18 +36,39 @@ const sanitizeRequestMiddleware = (req, res, next) => {
   try {
     // Check input lengths first
     if (req.body) {
-      const lengthErrors = validateInputLengths(req.body);
-      if (lengthErrors.length > 0) {
-        return res.status(400).json({
-          error: 'Input validation failed',
-          details: lengthErrors
+      // Handle arrays (batch submissions)
+      if (Array.isArray(req.body)) {
+        const allErrors = [];
+        req.body.forEach((item, index) => {
+          const lengthErrors = validateInputLengths(item);
+          if (lengthErrors.length > 0) {
+            allErrors.push(`Item ${index}: ${lengthErrors.join(', ')}`);
+          }
         });
+        if (allErrors.length > 0) {
+          return res.status(400).json({
+            error: 'Input validation failed',
+            details: allErrors
+          });
+        }
+      } else {
+        const lengthErrors = validateInputLengths(req.body);
+        if (lengthErrors.length > 0) {
+          return res.status(400).json({
+            error: 'Input validation failed',
+            details: lengthErrors
+          });
+        }
       }
     }
 
     // Sanitize body
     if (req.body) {
-      req.body = sanitizeObject(req.body);
+      if (Array.isArray(req.body)) {
+        req.body = req.body.map(item => sanitizeObject(item));
+      } else {
+        req.body = sanitizeObject(req.body);
+      }
     }
 
     // Sanitize query parameters
@@ -78,7 +99,12 @@ const sanitizeRequestMiddleware = (req, res, next) => {
 const sanitizeLogMiddleware = (req, res, next) => {
   try {
     if (req.body) {
-      req.body = sanitizeLogData(req.body);
+      // Handle arrays (batch submissions)
+      if (Array.isArray(req.body)) {
+        req.body = req.body.map(item => sanitizeLogData(item));
+      } else {
+        req.body = sanitizeLogData(req.body);
+      }
     }
     next();
   } catch (error) {

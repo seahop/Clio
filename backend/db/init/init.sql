@@ -111,7 +111,8 @@ CREATE TABLE IF NOT EXISTS api_keys (
     expires_at TIMESTAMPTZ,
     is_active BOOLEAN DEFAULT TRUE,
     last_used TIMESTAMPTZ,
-    metadata JSONB DEFAULT '{}'::jsonb
+    metadata JSONB DEFAULT '{}'::jsonb,
+    operation_id INTEGER REFERENCES operations(id) ON DELETE SET NULL
 );
 
 -- Create log templates table
@@ -154,6 +155,7 @@ CREATE INDEX IF NOT EXISTS idx_evidence_uploaded_by ON evidence_files(uploaded_b
 CREATE INDEX IF NOT EXISTS idx_api_keys_key_id ON api_keys(key_id);
 CREATE INDEX IF NOT EXISTS idx_api_keys_created_by ON api_keys(created_by);
 CREATE INDEX IF NOT EXISTS idx_api_keys_is_active ON api_keys(is_active);
+CREATE INDEX IF NOT EXISTS idx_api_keys_operation_id ON api_keys(operation_id);
 
 -- Create a function to auto-create operation tags
 CREATE OR REPLACE FUNCTION create_operation_tag()

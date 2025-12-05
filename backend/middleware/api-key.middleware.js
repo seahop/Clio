@@ -62,9 +62,10 @@ const authenticateApiKey = async (req, res, next) => {
         keyId: keyData.key_id,
         name: keyData.name,
         createdBy: keyData.created_by,
-        permissions: keyData.permissions
+        permissions: keyData.permissions,
+        operation_id: keyData.operation_id || null
       };
-      
+
       return next();
     }
     
@@ -96,7 +97,8 @@ const authenticateApiKey = async (req, res, next) => {
       keyId: keyData.key_id,
       name: keyData.name,
       createdBy: keyData.created_by,
-      permissions: keyData.permissions
+      permissions: keyData.permissions,
+      operation_id: keyData.operation_id || null
     };
     
     // Log successful usage

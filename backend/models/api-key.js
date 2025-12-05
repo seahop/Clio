@@ -31,9 +31,9 @@ class ApiKeyModel {
       
       const result = await db.query(
         `INSERT INTO api_keys (
-          name, key_id, key_hash, created_by, permissions, 
-          description, expires_at, is_active, last_used, metadata
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+          name, key_id, key_hash, created_by, permissions,
+          description, expires_at, is_active, last_used, metadata, operation_id
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
         RETURNING *`,
         [
           data.name,
@@ -45,7 +45,8 @@ class ApiKeyModel {
           data.expires_at || null,
           true, // is_active
           null, // last_used
-          data.metadata || {}
+          data.metadata || {},
+          data.operation_id || null
         ]
       );
       
@@ -69,12 +70,12 @@ class ApiKeyModel {
   static async getAllApiKeys() {
     try {
       const result = await db.query(
-        `SELECT id, name, key_id, created_by, permissions, description, 
-         created_at, expires_at, is_active, last_used, metadata
+        `SELECT id, name, key_id, created_by, permissions, description,
+         created_at, expires_at, is_active, last_used, metadata, operation_id
          FROM api_keys
          ORDER BY created_at DESC`
       );
-      
+
       return result.rows;
     } catch (error) {
       console.error('Error getting API keys:', error);
@@ -91,7 +92,7 @@ class ApiKeyModel {
     try {
       const result = await db.query(
         `SELECT id, name, key_id, created_by, permissions, description,
-         created_at, expires_at, is_active, last_used, metadata
+         created_at, expires_at, is_active, last_used, metadata, operation_id
          FROM api_keys
          WHERE id = $1`,
         [id]
@@ -128,7 +129,7 @@ class ApiKeyModel {
       // Find the API key by ID and hash
       const result = await db.query(
         `SELECT id, name, key_id, created_by, permissions, description,
-         created_at, expires_at, is_active, last_used, metadata
+         created_at, expires_at, is_active, last_used, metadata, operation_id
          FROM api_keys
          WHERE key_id = $1 AND key_hash = $2 AND is_active = true`,
         [keyId, keyHash]

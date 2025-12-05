@@ -73,6 +73,26 @@ class OperationsModel {
   }
 
   /**
+   * Get operation by name
+   */
+  static async getOperationByName(name) {
+    try {
+      const result = await db.query(
+        `SELECT o.*, t.id as tag_id, t.name as tag_name, t.color as tag_color
+         FROM operations o
+         LEFT JOIN tags t ON o.tag_id = t.id
+         WHERE o.name = $1 AND o.is_active = true`,
+        [name]
+      );
+
+      return result.rows[0];
+    } catch (error) {
+      console.error('Error fetching operation by name:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Update an operation
    */
   static async updateOperation(id, updates) {

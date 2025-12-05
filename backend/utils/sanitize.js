@@ -201,10 +201,18 @@ const normalizeMacAddress = (mac) => {
 const sanitizeObject = (obj) => {
   if (typeof obj !== 'object' || obj === null) return {};
 
+  // Handle arrays by mapping over elements
+  if (Array.isArray(obj)) {
+    return obj.map(item =>
+      typeof item === 'string' ? sanitizeString(item) :
+      typeof item === 'object' ? sanitizeObject(item) : item
+    );
+  }
+
   try {
     return Object.keys(obj).reduce((acc, key) => {
       const value = obj[key];
-      
+
       if (key === 'mac_address' && value) {
         // Always normalize MAC addresses
         acc[key] = normalizeMacAddress(value);
@@ -212,8 +220,8 @@ const sanitizeObject = (obj) => {
         // Pass the field name for specialized handling
         acc[key] = sanitizeString(value, key);
       } else if (Array.isArray(value)) {
-        acc[key] = value.map(item => 
-          typeof item === 'string' ? sanitizeString(item) : 
+        acc[key] = value.map(item =>
+          typeof item === 'string' ? sanitizeString(item) :
           typeof item === 'object' ? sanitizeObject(item) : item
         );
       } else if (typeof value === 'object' && value !== null) {
@@ -221,7 +229,7 @@ const sanitizeObject = (obj) => {
       } else {
         acc[key] = value;
       }
-      
+
       return acc;
     }, {});
   } catch (error) {

@@ -11,19 +11,20 @@ const apiKeyController = {
    */
   async createApiKey(req, res) {
     try {
-      const { name, description, permissions, expires_at } = req.body;
-      
+      const { name, description, permissions, expires_at, operation_id } = req.body;
+
       // Validate required fields
       if (!name) {
         return res.status(400).json({ error: 'API key name is required' });
       }
-      
+
       // Create API key
       const apiKey = await ApiKeyModel.createApiKey({
         name,
         description,
         permissions,
         expires_at: expires_at ? new Date(expires_at) : null,
+        operation_id: operation_id || null,
         created_by: req.user.username,
         metadata: {
           created_from_ip: req.ip,

@@ -101,6 +101,7 @@ const ApiKeyManager = ({ csrfToken }) => {
           onSubmit={handleCreateApiKey}
           onCancel={() => setShowCreateForm(false)}
           loading={loading}
+          csrfToken={csrfToken}
         />
       )}
 

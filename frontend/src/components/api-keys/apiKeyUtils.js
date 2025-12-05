@@ -28,7 +28,8 @@ export const formatDate = (dateString) => {
       "command": "cat /etc/passwd",
       "notes": "Privilege escalation attempt",
       "filename": "passwd",
-      "status": "ON_DISK"
+      "status": "ON_DISK",
+      "tags": ["OP1", "privilege-escalation", "linux"]
     }'`;
   };
   
@@ -40,10 +41,10 @@ export const formatDate = (dateString) => {
   export const generatePythonExample = (apiKey) => {
     return `import requests
   import urllib3
-  
+
   # Disable SSL warnings for self-signed certificates
   urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-  
+
   url = "https://your-IP-or-Host:3000/ingest/logs"
   headers = {
       "Content-Type": "application/json",
@@ -58,9 +59,10 @@ export const formatDate = (dateString) => {
       "command": "cat /etc/passwd",
       "notes": "Privilege escalation attempt",
       "filename": "passwd",
-      "status": "ON_DISK"
+      "status": "ON_DISK",
+      "tags": ["OP1", "privilege-escalation", "linux"]
   }
-  
+
   response = requests.post(url, headers=headers, json=payload, verify=False)
   print(f"Status code: {response.status_code}")
   print(f"Response: {response.json()}")`;

@@ -5,6 +5,8 @@ const { sanitizeRequestMiddleware, sanitizeLogMiddleware } = require('../middlew
 const { authenticateApiKey } = require('../middleware/api-key.middleware');
 const eventLogger = require('../lib/eventLogger');
 const LogsModel = require('../models/logs');
+const TagsModel = require('../models/tags');
+const OperationsModel = require('../models/operations');
 const rateLimit = require('express-rate-limit');
 const fetch = require('node-fetch');
 const https = require('https');
@@ -184,23 +186,26 @@ router.post('/logs', async (req, res) => {
     
     for (const log of logs) {
       try {
+        // Extract tags from the log data before processing
+        const { tags, ...logDataWithoutTags } = log;
+
         // Set the analyst to the API key's name instead of the creator's username
         // This allows tracking which API key submitted the log
         const logWithAnalyst = {
-          ...log,
+          ...logDataWithoutTags,
           analyst: req.apiKey.name
         };
-        
+
         // Validate and standardize the timestamp to UTC
         const { valid, timestamp } = validateAndStandardizeTimestamp(logWithAnalyst.timestamp);
         logWithAnalyst.timestamp = timestamp;
-        
+
         if (!valid) {
           console.warn(`Using UTC timestamp ${timestamp} for log entry (original was invalid)`);
         } else {
           console.log(`Using validated UTC timestamp: ${timestamp}`);
         }
-        
+
         // CHECK FOR DUPLICATES - new code starts here
         const existingLog = await LogsModel.findDuplicate({
           timestamp: logWithAnalyst.timestamp,
@@ -208,7 +213,7 @@ router.post('/logs', async (req, res) => {
           hostname: logWithAnalyst.hostname,
           username: logWithAnalyst.username
         });
-        
+
         if (existingLog) {
           // Skip this log and add it to the results as a duplicate
           console.log(`Skipping duplicate log: "${logWithAnalyst.command}" at ${logWithAnalyst.timestamp}`);
@@ -221,10 +226,50 @@ router.post('/logs', async (req, res) => {
           continue; // Skip to next log in the batch
         }
         // New code ends here
-        
+
         // Create the log
         const newLog = await LogsModel.createLog(logWithAnalyst);
-        
+
+        // Handle operation assignment from API key
+        let operationInfo = null;
+        if (req.apiKey.operation_id) {
+          try {
+            // Look up the operation details
+            const op = await OperationsModel.getOperationById(req.apiKey.operation_id);
+            if (op && op.tag_id) {
+              // Apply the operation's tag to the log
+              await TagsModel.addTagsToLog(newLog.id, [op.tag_id], req.apiKey.createdBy);
+              operationInfo = { id: op.id, name: op.name, tag: op.tag_name };
+              console.log(`Assigned log ${newLog.id} to operation "${op.name}" (tag: ${op.tag_name}) via API key`);
+            } else {
+              console.warn(`Operation ID ${req.apiKey.operation_id} not found or has no associated tag`);
+            }
+          } catch (opError) {
+            console.error(`Error assigning operation to log ${newLog.id}:`, opError);
+            // Continue with log creation even if operation assignment fails
+          }
+        }
+
+        // Apply additional tags if provided
+        let appliedTags = [];
+        if (tags && Array.isArray(tags) && tags.length > 0) {
+          try {
+            // Use addTagsByNameToLog to create tags if they don't exist and apply them
+            appliedTags = await TagsModel.addTagsByNameToLog(newLog.id, tags, req.apiKey.createdBy);
+            console.log(`Applied ${appliedTags.length} tags to log ${newLog.id}: ${tags.join(', ')}`);
+          } catch (tagError) {
+            console.error(`Error applying tags to log ${newLog.id}:`, tagError);
+            // Continue with log creation even if tagging fails
+          }
+        }
+
+        // Combine all tag names for response
+        const allTagNames = appliedTags.map(t => t.name);
+        if (operationInfo && !allTagNames.includes(operationInfo.tag)) {
+          // Only add operation tag if not already in the list
+          allTagNames.unshift(operationInfo.tag);
+        }
+
         // Log the creation (with redacted secrets)
         await eventLogger.logDataEvent('api_ingest_log', req.apiKey.createdBy, {
           logId: newLog.id,
@@ -232,20 +277,24 @@ router.post('/logs', async (req, res) => {
           apiKeyName: req.apiKey.name, // Add API key name to event log for reference
           timestamp: new Date().toISOString(),  // Current UTC time for the event log
           entryTimestamp: logWithAnalyst.timestamp, // Log the entry's UTC timestamp too
+          operation: operationInfo ? operationInfo.name : null, // Include operation if API key is scoped
+          tagsCount: allTagNames.length, // Include total tags count in event log
           clientInfo: {
             ip: req.ip,
             userAgent: req.get('User-Agent')
           }
         });
-        
+
         results.push({
           id: newLog.id,
           success: true,
-          timestamp: newLog.timestamp // Return the stored timestamp
+          timestamp: newLog.timestamp, // Return the stored timestamp
+          operation: operationInfo ? operationInfo.name : undefined, // Return operation if API key is scoped
+          tags: allTagNames // Return all applied tag names
         });
       } catch (error) {
         console.error('Error ingesting log:', error);
-        
+
         errors.push({
           error: error.message,
           log: LogsModel.getRedactedLog(log) // Redact sensitive data for error logs

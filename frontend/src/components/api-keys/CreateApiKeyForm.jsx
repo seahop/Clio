@@ -1,5 +1,5 @@
 // frontend/src/components/api-keys/CreateApiKeyForm.jsx
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Key, RefreshCw } from 'lucide-react';
 
 // Available permissions
@@ -12,13 +12,46 @@ const PERMISSION_OPTIONS = [
 /**
  * Form for creating new API keys
  */
-const CreateApiKeyForm = ({ onSubmit, onCancel, loading }) => {
+const CreateApiKeyForm = ({ onSubmit, onCancel, loading, csrfToken }) => {
   const [keyData, setKeyData] = useState({
     name: '',
     description: '',
     permissions: ['logs:write'],
-    expiresAt: ''
+    expiresAt: '',
+    operation_id: null
   });
+
+  const [operations, setOperations] = useState([]);
+  const [loadingOperations, setLoadingOperations] = useState(true);
+
+  // Fetch operations on mount
+  useEffect(() => {
+    const fetchOperations = async () => {
+      try {
+        const response = await fetch('/api/operations', {
+          credentials: 'include',
+          headers: {
+            'CSRF-Token': csrfToken
+          }
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          setOperations(data || []);
+        } else {
+          console.error('Error fetching operations:', response.statusText);
+        }
+      } catch (error) {
+        console.error('Error fetching operations:', error);
+      } finally {
+        setLoadingOperations(false);
+      }
+    };
+
+    if (csrfToken) {
+      fetchOperations();
+    }
+  }, [csrfToken]);
 
   // Handle permission checkbox change
   const handlePermissionChange = (permission) => {
@@ -59,7 +92,8 @@ const CreateApiKeyForm = ({ onSubmit, onCancel, loading }) => {
       name: keyData.name,
       description: keyData.description,
       permissions: keyData.permissions,
-      expires_at: adjustedExpiresAt || null
+      expires_at: adjustedExpiresAt || null,
+      operation_id: keyData.operation_id ? parseInt(keyData.operation_id) : null
     });
     
     if (success) {
@@ -68,7 +102,8 @@ const CreateApiKeyForm = ({ onSubmit, onCancel, loading }) => {
         name: '',
         description: '',
         permissions: ['logs:write'],
-        expiresAt: ''
+        expiresAt: '',
+        operation_id: null
       });
     }
   };
@@ -91,6 +126,26 @@ const CreateApiKeyForm = ({ onSubmit, onCancel, loading }) => {
             />
           </div>
           
+          <div>
+            <label className="block text-sm text-gray-400 mb-1">Operation (Optional)</label>
+            <select
+              value={keyData.operation_id || ''}
+              onChange={(e) => setKeyData({...keyData, operation_id: e.target.value || null})}
+              className="w-full p-2 bg-gray-700 border border-gray-600 rounded text-white"
+              disabled={loadingOperations}
+            >
+              <option value="">No operation (unrestricted)</option>
+              {operations.map(op => (
+                <option key={op.id} value={op.id}>
+                  {op.name}
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-gray-500 mt-1">
+              Scope API key to a specific operation
+            </p>
+          </div>
+
           <div>
             <label className="block text-sm text-gray-400 mb-1">Expiration Date (Optional)</label>
             <input
