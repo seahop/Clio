@@ -89,65 +89,6 @@ services:
       timeout: 10s
       retries: 3
 
-  relation-service:
-    build: ./relation-service
-    expose:
-      - "3002"
-    volumes:
-      - type: bind
-        source: ./relation-service/data
-        target: /app/src/data
-      - type: bind
-        source: ./certs/server.crt
-        target: /app/certs/server.crt
-        read_only: true
-      - type: bind
-        source: ./certs/server.key
-        target: /app/certs/server.key
-        read_only: true
-      - type: bind
-        source: ./certs/backend.crt
-        target: /app/certs/backend.crt
-        read_only: true
-      - type: bind
-        source: ./certs/backend.key
-        target: /app/certs/backend.key
-        read_only: true
-      - type: bind
-        source: ./relation-service/logs
-        target: /app/src/logs
-    env_file:
-      - ./relation-service/.env
-    environment:
-      - NODE_ENV=production
-      - PORT=3002
-      - FRONTEND_URL=https://frontend:3000
-      - POSTGRES_HOST=db
-      - POSTGRES_DB=redteamlogger 
-      - NODE_TLS_REJECT_UNAUTHORIZED=0
-      - SSL_CRT_FILE=certs/server.crt
-      - SSL_KEY_FILE=certs/server.key
-      - TZ=UTC
-    depends_on:
-      db:
-        condition: service_healthy
-      backend:
-        condition: service_healthy
-    networks:
-    - frontend-network
-    - backend-network
-    restart: unless-stopped
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-    healthcheck:
-      test: ["CMD", "wget", "--no-check-certificate", "-q", "-O", "-", "https://localhost:3002/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-
   redis:
     image: redis:7.4.2-alpine
     expose:

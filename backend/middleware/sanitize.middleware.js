@@ -3,29 +3,36 @@
 const { sanitizeObject, sanitizeLogData } = require('../utils/sanitize');
 
 // Add input validation with length checks
-const validateInputLengths = (data) => {
-  const constraints = {
-    internal_ip: 45,
-    external_ip: 45,
-    mac_address: 17,
-    hostname: 75,
-    domain: 75,
-    username: 75,
-    command: 254,
-    notes: 254,
-    filename: 254,
-    status: 75,
-    secrets: 254,
-    analyst: 100,
-    locked_by: 100,
-    pid: 20
-  };
+const constraints = {
+  internal_ip: 45,
+  external_ip: 45,
+  mac_address: 17,
+  hostname: 75,
+  domain: 75,
+  username: 75,
+  command: 254,
+  notes: 254,
+  filename: 254,
+  status: 75,
+  secrets: 254,
+  analyst: 100,
+  locked_by: 100,
+  pid: 20
+};
+
+const validateInputLengths = (data, prefix = '') => {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return [];
 
   const errors = [];
-  
+
   Object.entries(data).forEach(([key, value]) => {
-    if (value && constraints[key] && value.length > constraints[key]) {
-      errors.push(`${key} must not exceed ${constraints[key]} characters`);
+    const qualifiedKey = prefix ? `${prefix}.${key}` : key;
+    if (typeof value === 'string') {
+      if (constraints[key] && value.length > constraints[key]) {
+        errors.push(`${qualifiedKey} must not exceed ${constraints[key]} characters`);
+      }
+    } else if (value && typeof value === 'object' && !Array.isArray(value)) {
+      errors.push(...validateInputLengths(value, qualifiedKey));
     }
   });
 
@@ -132,5 +139,6 @@ const validateContentType = (req, res, next) => {
 module.exports = {
   sanitizeRequestMiddleware,
   sanitizeLogMiddleware,
-  validateContentType
+  validateContentType,
+  validateInputLengths
 };

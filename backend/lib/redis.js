@@ -7,7 +7,10 @@ const RedisEncryption = require('./redisEncryption');
 
 const encryptionKey = process.env.REDIS_ENCRYPTION_KEY;
 const redisPassword = process.env.REDIS_PASSWORD;
-const REDIS_SSL = process.env.REDIS_SSL === 'true';
+// Default true so existing deployments keep TLS; set REDIS_SSL=false for omnibus loopback mode
+const REDIS_SSL = process.env.REDIS_SSL !== 'false';
+const REDIS_HOST = process.env.REDIS_HOST || 'redis';
+const REDIS_PORT = process.env.REDIS_PORT || 6379;
 const DEBUG = process.env.REDIS_DEBUG === 'true';
 
 if (!encryptionKey || !redisPassword) {
@@ -23,10 +26,13 @@ process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 const createClient = () => {
   console.log('Creating Redis client with secure configuration');
   
+  const protocol = REDIS_SSL ? 'rediss' : 'redis';
+  console.log(`Creating Redis client — ${protocol}://${REDIS_HOST}:${REDIS_PORT} (tls=${REDIS_SSL})`);
+
   return Redis.createClient({
-    url: 'rediss://redis:6379', // Use rediss:// for TLS
+    url: `${protocol}://${REDIS_HOST}:${REDIS_PORT}`,
     socket: {
-      tls: true,
+      tls: REDIS_SSL,
       rejectUnauthorized: false,
       reconnectStrategy: (retries) => {
         const maxRetries = parseInt(process.env.REDIS_RETRY_ATTEMPTS) || 20;

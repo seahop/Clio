@@ -1,0 +1,256 @@
+#!/bin/sh
+# Clio omnibus entrypoint
+# Runs on every container start; handles first-boot init then launches supervisord.
+set -e
+
+DATA_DIR="${DATA_DIR:-/data}"
+SECRETS_FILE="$DATA_DIR/.secrets.env"
+CERTS_DIR="$DATA_DIR/certs"
+PGDATA="$DATA_DIR/pgdata"
+
+# Ensure persistent data directories exist with correct ownership
+mkdir -p "$CERTS_DIR" "$DATA_DIR/redis" "$DATA_DIR/logs" \
+         "$DATA_DIR/exports" "$DATA_DIR/evidence" "$DATA_DIR/backend-data"
+# Make logs world-writable so postgres/redis/nginx can all write there
+chmod 777 "$DATA_DIR/logs"
+
+# ── First-boot: generate secrets ──────────────────────────────────────────────
+FIRST_BOOT=false
+if [ ! -f "$SECRETS_FILE" ]; then
+  FIRST_BOOT=true
+  echo "[clio] First boot — generating secrets..."
+
+  _ADMIN="${ADMIN_PASSWORD:-$(openssl rand -hex 12)}"
+  _USER="${USER_PASSWORD:-$(openssl rand -hex 12)}"
+  _REDIS="$(openssl rand -hex 24)"
+  _JWT="$(openssl rand -hex 32)"
+  _FIELD="$(openssl rand -hex 32)"
+  _RENC="$(openssl rand -hex 16)"
+  _PG="$(openssl rand -hex 24)"
+
+  cat > "$SECRETS_FILE" <<EOF
+ADMIN_PASSWORD=$_ADMIN
+USER_PASSWORD=$_USER
+REDIS_PASSWORD=$_REDIS
+JWT_SECRET=$_JWT
+FIELD_ENCRYPTION_KEY=$_FIELD
+REDIS_ENCRYPTION_KEY=$_RENC
+POSTGRES_PASSWORD=$_PG
+EOF
+  chmod 600 "$SECRETS_FILE"
+fi
+
+# Load persisted secrets into environment
+# shellcheck disable=SC1090
+. "$SECRETS_FILE"
+
+# ── TLS certificates ─────────────────────────────────────────────────────────
+# Generate a self-signed cert per internal service so every hop is encrypted
+# (defense in depth), consistent with the multi-container HA deployment which
+# uses server/backend/redis/db certs. The backend connects to Redis and Postgres
+# with rejectUnauthorized=false, so independent self-signed certs are sufficient.
+_HOST="${EXTERNAL_HOSTNAME:-localhost}"
+gen_cert() {
+  # $1 = cert basename (server|redis|db); skips if it already exists
+  _name="$1"
+  if [ ! -f "$CERTS_DIR/$_name.crt" ]; then
+    echo "[clio] Generating self-signed certificate: $_name"
+    openssl req -x509 -newkey rsa:2048 -nodes \
+      -keyout "$CERTS_DIR/$_name.key" \
+      -out    "$CERTS_DIR/$_name.crt" \
+      -days   3650 \
+      -subj   "/CN=$_HOST" \
+      -addext "subjectAltName=DNS:localhost,DNS:$_HOST,IP:127.0.0.1" \
+      2>/dev/null
+    chmod 600 "$CERTS_DIR/$_name.key"
+  fi
+}
+gen_cert server
+gen_cert redis
+gen_cert db
+
+# Symlink certs into the locations the backend hardcodes (path.join(__dirname, 'certs', ...)).
+# backend.crt reuses the server cert (the backend's own HTTPS listener); redis/db
+# are exposed so the Certificate Management page reflects every service's cert.
+mkdir -p /app/backend/certs
+ln -sf "$CERTS_DIR/server.crt" /app/backend/certs/backend.crt
+ln -sf "$CERTS_DIR/server.key" /app/backend/certs/backend.key
+ln -sf "$CERTS_DIR/server.crt" /app/backend/certs/server.crt
+ln -sf "$CERTS_DIR/server.key" /app/backend/certs/server.key
+ln -sf "$CERTS_DIR/redis.crt"  /app/backend/certs/redis.crt
+ln -sf "$CERTS_DIR/redis.key"  /app/backend/certs/redis.key
+ln -sf "$CERTS_DIR/db.crt"     /app/backend/certs/db.crt
+ln -sf "$CERTS_DIR/db.key"     /app/backend/certs/db.key
+
+# ── PostgreSQL init ────────────────────────────────────────────────────────────
+if [ ! -d "$PGDATA/global" ]; then
+  echo "[clio] Initialising PostgreSQL database..."
+
+  # Create and own the data directory before initdb
+  mkdir -p "$PGDATA"
+  chown -R postgres:postgres "$PGDATA"
+  su-exec postgres initdb -D "$PGDATA" \
+    --auth-local=trust \
+    --auth-host=md5 \
+    --username=postgres \
+    2>&1 | grep -v "^$" | sed 's/^/[pg-init] /'
+
+  # Accept local trust + loopback md5
+  cat > "$PGDATA/pg_hba.conf" <<'HBAEOF'
+local all all trust
+host  all all 127.0.0.1/32 md5
+HBAEOF
+
+  # Temp start on loopback for init. Logs go under $DATA_DIR/logs (chmod 777
+  # above) so they are writable regardless of which user owns them. We use a
+  # separate file per writer: pg_ctl writes pg-bootstrap.log as the postgres
+  # user, while the init.sql loop below appends to pg-init.log as root. Sharing
+  # one file fails under podman+SELinux (container root lacks DAC_OVERRIDE), and
+  # a failed redirection in POSIX sh silently skips the command it guards.
+  su-exec postgres pg_ctl -D "$PGDATA" \
+    -o "-c listen_addresses=127.0.0.1" \
+    -l "$DATA_DIR/logs/pg-bootstrap.log" \
+    start
+
+  # Poll until postgres is ready to accept connections
+  echo "[pg-init] Waiting for postgres to be ready..."
+  for i in $(seq 1 30); do
+    su-exec postgres pg_isready -U postgres -h 127.0.0.1 -q && break
+    sleep 1
+  done
+
+  # Use the Unix socket (local trust auth) to bootstrap the password and DB.
+  # Then all subsequent connections from the backend use TCP + md5.
+  su-exec postgres psql -U postgres <<SQLEOF
+ALTER ROLE postgres PASSWORD '$POSTGRES_PASSWORD';
+CREATE DATABASE redteamlogger OWNER postgres;
+SQLEOF
+
+  # Run SQL init scripts via TCP now that the password is set. Redirect to a
+  # root-owned file in the world-writable logs dir (see note above) and fail
+  # loudly if any script errors — a missing schema must not boot silently.
+  for f in /app/backend/db/init/*.sql; do
+    echo "[clio] Running init script: $(basename "$f")..."
+    if ! PGPASSWORD="$POSTGRES_PASSWORD" su-exec postgres psql \
+        -U postgres -h 127.0.0.1 -d redteamlogger -v ON_ERROR_STOP=1 -f "$f" \
+        >> "$DATA_DIR/logs/pg-init.log" 2>&1; then
+      echo "[clio] ERROR: init script $(basename "$f") failed — see $DATA_DIR/logs/pg-init.log" >&2
+      su-exec postgres pg_ctl -D "$PGDATA" stop -m fast || true
+      exit 1
+    fi
+  done
+
+  su-exec postgres pg_ctl -D "$PGDATA" stop -m fast
+
+  echo "[clio] PostgreSQL initialised."
+fi
+
+# Ensure postgres owns its data directory (e.g. after volume remount)
+chown -R postgres:postgres "$PGDATA"
+
+# ── PostgreSQL SSL ──────────────────────────────────────────────────────────────
+# Serve TLS using the db cert. The private key must be owned by the postgres user
+# with 0600 perms or postgres refuses to start. Enable ssl in postgresql.conf if
+# not already present (idempotent — also upgrades volumes created before TLS).
+chown postgres:postgres "$CERTS_DIR/db.crt" "$CERTS_DIR/db.key"
+chmod 600 "$CERTS_DIR/db.key"
+chmod 644 "$CERTS_DIR/db.crt"
+if [ -f "$PGDATA/postgresql.conf" ] && ! grep -q '^ssl = on' "$PGDATA/postgresql.conf"; then
+  echo "[clio] Enabling PostgreSQL SSL..."
+  cat >> "$PGDATA/postgresql.conf" <<EOF
+
+# TLS enabled by Clio omnibus entrypoint (defense in depth on loopback)
+ssl = on
+ssl_cert_file = '$CERTS_DIR/db.crt'
+ssl_key_file = '$CERTS_DIR/db.key'
+EOF
+fi
+
+# ── Redis config ───────────────────────────────────────────────────────────────
+# TLS-only (port 0 disables the plaintext listener), matching the HA deployment.
+# tls-auth-clients no — the backend authenticates with a password over TLS and
+# does not present a client cert.
+cat > /run/clio/redis.conf <<EOF
+requirepass $REDIS_PASSWORD
+appendonly yes
+save 60 1
+maxmemory 512mb
+maxmemory-policy noeviction
+dir $DATA_DIR/redis
+bind 127.0.0.1
+loglevel notice
+port 0
+tls-port 6379
+tls-cert-file $CERTS_DIR/redis.crt
+tls-key-file $CERTS_DIR/redis.key
+tls-ca-cert-file $CERTS_DIR/server.crt
+tls-auth-clients no
+EOF
+
+# ── Backend .env ───────────────────────────────────────────────────────────────
+# The backend reads env vars from its working directory's .env via dotenv.
+# If dotenv isn't called in server.js, export these so supervisord inherits them.
+_EXT_HOST="${EXTERNAL_HOSTNAME:-localhost}"
+cat > /app/backend/.env <<EOF
+REDIS_ENCRYPTION_KEY=$REDIS_ENCRYPTION_KEY
+JWT_SECRET=$JWT_SECRET
+ADMIN_PASSWORD=$ADMIN_PASSWORD
+USER_PASSWORD=$USER_PASSWORD
+REDIS_PASSWORD=$REDIS_PASSWORD
+REDIS_SSL=true
+REDIS_HOST=127.0.0.1
+REDIS_PORT=6379
+FIELD_ENCRYPTION_KEY=$FIELD_ENCRYPTION_KEY
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=$POSTGRES_PASSWORD
+POSTGRES_DB=redteamlogger
+POSTGRES_HOST=127.0.0.1
+POSTGRES_PORT=5432
+POSTGRES_SSL=true
+PORT=3001
+NODE_ENV=production
+FRONTEND_URL=https://$_EXT_HOST
+HOSTNAME=$_EXT_HOST
+HTTPS=true
+SSL_CRT_FILE=$CERTS_DIR/server.crt
+SSL_KEY_FILE=$CERTS_DIR/server.key
+NODE_TLS_REJECT_UNAUTHORIZED=0
+TZ=UTC
+PGTZ=UTC
+EOF
+chmod 600 /app/backend/.env
+
+# Also export them so that supervisord child processes inherit them directly
+# (belt-and-suspenders: dotenv + env inheritance)
+export REDIS_ENCRYPTION_KEY REDIS_ENCRYPTION_KEY JWT_SECRET ADMIN_PASSWORD \
+       USER_PASSWORD REDIS_PASSWORD FIELD_ENCRYPTION_KEY POSTGRES_PASSWORD
+export REDIS_SSL=true REDIS_HOST=127.0.0.1 REDIS_PORT=6379
+export POSTGRES_USER=postgres POSTGRES_DB=redteamlogger \
+       POSTGRES_HOST=127.0.0.1 POSTGRES_PORT=5432 POSTGRES_SSL=true
+export PORT=3001 NODE_ENV=production
+export FRONTEND_URL="https://$_EXT_HOST" HOSTNAME="$_EXT_HOST"
+export HTTPS=true
+export SSL_CRT_FILE="$CERTS_DIR/server.crt" SSL_KEY_FILE="$CERTS_DIR/server.key"
+export NODE_TLS_REJECT_UNAUTHORIZED=0 TZ=UTC PGTZ=UTC
+
+# Symlink backend data directory so log rotation and exports persist
+ln -sf "$DATA_DIR/exports"     /app/backend/exports  2>/dev/null || true
+ln -sf "$DATA_DIR/evidence"    /app/backend/evidence 2>/dev/null || true
+ln -sf "$DATA_DIR/backend-data" /app/backend/data    2>/dev/null || true
+
+# ── First-boot message ─────────────────────────────────────────────────────────
+if [ "$FIRST_BOOT" = "true" ]; then
+  echo ""
+  echo "┌──────────────────────────────────────────────────┐"
+  echo "│             Clio — First Boot                    │"
+  echo "│                                                   │"
+  printf "│  Admin password : %-33s│\n" "$ADMIN_PASSWORD"
+  printf "│  Access         : https://%-27s│\n" "$_EXT_HOST"
+  echo "│                                                   │"
+  echo "│  These credentials are saved to:                 │"
+  printf "│    %-47s│\n" "$SECRETS_FILE"
+  echo "└──────────────────────────────────────────────────┘"
+fi
+
+echo "[clio] Starting services via supervisord..."
+exec supervisord -c /etc/supervisord.conf

@@ -1,0 +1,49 @@
+# Clio omnibus — single-container deployment
+#
+# Everything (Nginx, backend, Redis, PostgreSQL) runs inside one image.
+# All state persists in the 'clio-data' volume.
+#
+# Quick start:
+#   docker compose -f docker-compose.omnibus.yml up -d
+#
+# To build the image locally instead of pulling:
+#   docker compose -f docker-compose.omnibus.yml build
+#   docker compose -f docker-compose.omnibus.yml up -d
+#
+# First boot prints admin credentials to the container logs:
+#   docker compose -f docker-compose.omnibus.yml logs clio
+
+services:
+  clio:
+    # Pull from registry (change tag as needed):
+    image: ghcr.io/seahop/clio:latest
+    # Or build locally:
+    # build:
+    #   context: .
+    #   target: omnibus
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - clio-data:/data
+    environment:
+      # Override the admin password (auto-generated on first boot if not set)
+      ADMIN_PASSWORD: ""
+      # Hostname used for the self-signed TLS cert SAN and CORS.
+      # Set to your server's IP or domain name.
+      EXTERNAL_HOSTNAME: "localhost"
+      # Optional: mount your own TLS certificate instead of the auto-generated one.
+      # TLS_CERT_FILE: /run/secrets/tls.crt
+      # TLS_KEY_FILE:  /run/secrets/tls.key
+    restart: unless-stopped
+    # Healthcheck hits the backend health endpoint via nginx
+    healthcheck:
+      test: ["CMD", "curl", "-k", "-f", "https://localhost/api/csrf-token"]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 3
+
+volumes:
+  clio-data:
+    driver: local

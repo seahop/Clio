@@ -43,7 +43,8 @@ const ExportControls = ({
   loading,
   onExport,
   expandInstructions,
-  toggleInstructions
+  toggleInstructions,
+  isAdmin = false
 }) => {
   return (
     <div className="bg-gray-700/50 p-4 rounded-md">
@@ -67,36 +68,39 @@ const ExportControls = ({
       
       {/* Export mode selection and options */}
       <div className="mb-4 bg-gray-800/50 p-3 rounded-md">
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-sm text-gray-300">Export Type:</span>
-          <div className="flex gap-2">
-            <button
-              onClick={() => setExportMode('csv')}
-              className={`px-3 py-1 rounded text-xs flex items-center gap-1 ${
-                exportMode === 'csv' 
-                  ? 'bg-blue-600 text-white' 
-                  : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-              }`}
-            >
-              <Database size={14} />
-              CSV Only
-            </button>
-            <button
-              onClick={() => setExportMode('evidence')}
-              className={`px-3 py-1 rounded text-xs flex items-center gap-1 ${
-                exportMode === 'evidence' 
-                  ? 'bg-blue-600 text-white' 
-                  : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-              }`}
-            >
-              <Archive size={14} />
-              With Evidence
-            </button>
+        {/* Evidence export mode only shown to admins */}
+        {isAdmin && (
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-sm text-gray-300">Export Type:</span>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setExportMode('csv')}
+                className={`px-3 py-1 rounded text-xs flex items-center gap-1 ${
+                  exportMode === 'csv'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                }`}
+              >
+                <Database size={14} />
+                CSV Only
+              </button>
+              <button
+                onClick={() => setExportMode('evidence')}
+                className={`px-3 py-1 rounded text-xs flex items-center gap-1 ${
+                  exportMode === 'evidence'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                }`}
+              >
+                <Archive size={14} />
+                With Evidence
+              </button>
+            </div>
           </div>
-        </div>
-        
-        {/* S3 Export Option */}
-        {!loadingS3Config && (
+        )}
+
+        {/* S3 Export Option (admin only) */}
+        {isAdmin && !loadingS3Config && (
           <div className="mb-2 pt-2 border-t border-gray-700">
             <label className={`flex items-center gap-2 text-sm ${isS3Configured ? 'cursor-pointer text-gray-300' : 'text-gray-500 cursor-not-allowed'}`}>
               <input
@@ -111,7 +115,6 @@ const ExportControls = ({
                 Upload to S3 after export
               </div>
             </label>
-            
             {!isS3Configured && (
               <p className="text-xs text-gray-500 mt-1 ml-6">
                 S3 is not configured. Please configure S3 in Log Management to use this feature.

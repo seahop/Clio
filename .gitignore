@@ -17,3 +17,5 @@ server.key
 *__pycache__*
 .env
 server.crt
+.claude
+CLAUDE.md

@@ -36,9 +36,6 @@ const CardContent = ({
           <h3 className="text-sm font-medium text-white mb-3">Network Information</h3>
           <div className="space-y-3">
             {columnGroups.primary.map(field => {
-              // Skip timestamp as it's already in the header
-              if (field === 'timestamp') return null;
-              
               const column = COLUMNS.find(col => col.field === field);
               const isEditing = editingCell?.rowId === row.id && editingCell?.field === field;
               

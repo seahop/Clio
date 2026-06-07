@@ -62,8 +62,40 @@ const FieldEditor = ({
     }
   };
 
+  // Convert ISO timestamp to the YYYY-MM-DDTHH:MM format expected by datetime-local,
+  // keeping everything in UTC so it matches the display in the card header.
+  const toDatetimeLocalUTC = (iso) => {
+    if (!iso) return '';
+    try {
+      return new Date(iso).toISOString().slice(0, 16);
+    } catch {
+      return '';
+    }
+  };
+
   // Render different inputs based on field type
   switch (field) {
+    case 'timestamp':
+      return (
+        <input
+          type="datetime-local"
+          value={toDatetimeLocalUTC(value)}
+          onChange={(e) => {
+            // Keep the value as a UTC ISO string internally so the header display stays in sync
+            const utcIso = e.target.value ? e.target.value + ':00Z' : '';
+            onChange({ ...e, target: { ...e.target, value: utcIso } });
+          }}
+          onBlur={(e) => {
+            const utcIso = e.target.value ? e.target.value + ':00Z' : '';
+            onBlur({ ...e, target: { ...e.target, value: utcIso } });
+          }}
+          onKeyDown={onKeyDown}
+          onClick={(e) => e.stopPropagation()}
+          className="w-full p-1 border rounded bg-gray-700 text-white border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          autoFocus
+        />
+      );
+
     case 'status':
       const statusOptions = [
         'ON_DISK', 'IN_MEMORY', 'ENCRYPTED', 'REMOVED', 

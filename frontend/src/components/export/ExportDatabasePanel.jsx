@@ -7,7 +7,7 @@ import ExportList from './ExportList';
 import S3UploadModal from '../S3UploadModal';
 import s3UploadService from '../../services/s3UploadService';
 
-const ExportDatabasePanel = ({ csrfToken }) => {
+const ExportDatabasePanel = ({ csrfToken, isAdmin = false }) => {
   // Main component state
   const [loading, setLoading] = useState(false);
   const [loadingColumns, setLoadingColumns] = useState(true);
@@ -39,9 +39,11 @@ const ExportDatabasePanel = ({ csrfToken }) => {
   // Fetch initial data on component mount
   useEffect(() => {
     fetchColumns();
-    fetchExports();
-    fetchS3Config();
-  }, []);
+    if (isAdmin) {
+      fetchExports();
+      fetchS3Config();
+    }
+  }, [isAdmin]);
 
   // Fetch S3 configuration to determine if S3 uploads are available
   const fetchS3Config = async () => {
@@ -514,7 +516,7 @@ const ExportDatabasePanel = ({ csrfToken }) => {
         error={error} 
       />
 
-      <div className="grid md:grid-cols-2 gap-6">
+      <div className={`grid gap-6 ${isAdmin ? 'md:grid-cols-2' : ''}`}>
         {/* Left panel - Export Controls */}
         <ExportControls
           columns={columns}
@@ -535,28 +537,31 @@ const ExportDatabasePanel = ({ csrfToken }) => {
           setDecryptSensitiveData={setDecryptSensitiveData}
           uploadToS3={uploadToS3}
           setUploadToS3={setUploadToS3}
-          isS3Configured={isS3Configured}
+          isS3Configured={isAdmin ? isS3Configured : false}
           loadingS3Config={loadingS3Config}
           hasSensitiveData={hasSensitiveData}
           loading={loading}
           onExport={handleExport}
           expandInstructions={expandInstructions}
           toggleInstructions={toggleInstructions}
+          isAdmin={isAdmin}
         />
-        
-        {/* Right panel - Export List */}
-        <ExportList
-          exports={exports}
-          loadingExports={loadingExports}
-          onDeleteExport={handleDeleteExport}
-          onUploadToS3={handleUploadToS3}
-          isS3Configured={isS3Configured}
-          onRefresh={fetchExports}
-        />
+
+        {/* Right panel - Export List (admin only) */}
+        {isAdmin && (
+          <ExportList
+            exports={exports}
+            loadingExports={loadingExports}
+            onDeleteExport={handleDeleteExport}
+            onUploadToS3={handleUploadToS3}
+            isS3Configured={isS3Configured}
+            onRefresh={fetchExports}
+          />
+        )}
       </div>
 
-      {/* S3 Upload Modal */}
-      {showS3Modal && (
+      {/* S3 Upload Modal (admin only) */}
+      {isAdmin && showS3Modal && (
         <S3UploadModal
           show={showS3Modal}
           onClose={() => setShowS3Modal(false)}

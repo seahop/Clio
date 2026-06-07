@@ -8,21 +8,20 @@ const csvRoutes = require('./export/csv.routes');
 const evidenceRoutes = require('./export/evidence.routes');
 const commonRoutes = require('./export/common.routes');
 
-// Apply middleware to all routes
+// All export routes require authentication
 router.use(authenticateJwt);
-router.use(verifyAdmin);
 
-// Mount sub-routers
+// CSV export and column list — available to any authenticated user.
+// The CSV controller applies operation scoping for non-admins.
 router.use('/csv', csvRoutes);
-router.use('/evidence', evidenceRoutes);
 router.use('/', commonRoutes);
+
+// Everything below is admin-only
+router.use('/evidence', verifyAdmin, evidenceRoutes);
 router.use('/s3-status', require('./export/s3-status.routes'));
 
-// Directly import controller for encryption routes
 const encryptionController = require('../controllers/encryption.controller');
-
-// Add encryption routes directly to this router
-router.post('/encrypt-for-s3', encryptionController.encryptForS3);
-router.post('/decrypt-from-s3', encryptionController.decryptFromS3);
+router.post('/encrypt-for-s3', verifyAdmin, encryptionController.encryptForS3);
+router.post('/decrypt-from-s3', verifyAdmin, encryptionController.decryptFromS3);
 
 module.exports = router;

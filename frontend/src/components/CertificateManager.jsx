@@ -135,9 +135,9 @@ const CertificateManager = ({ csrfToken }) => {
                       <div className="flex items-center">
                         {getStatusIndicator(cert.status)}
                         <span className="ml-2 text-sm text-gray-300">
-                          {cert.status === 'valid' ? 'Valid' : 
-                           cert.status === 'expiring-soon' ? 'Expiring Soon' : 
-                           cert.status === 'expired' ? 'Expired' : 
+                          {cert.status === 'valid' ? 'Valid' :
+                           cert.status === 'expiring-soon' ? 'Expiring Soon' :
+                           cert.status === 'expired' ? 'Expired' :
                            cert.status === 'missing' ? 'Missing' :
                            cert.status === 'error' ? 'Error' : cert.status}
                         </span>

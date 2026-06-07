@@ -6,66 +6,12 @@ const OperationsModel = require('../models/operations');
 const eventLogger = require('../lib/eventLogger');
 const { authenticateJwt, verifyAdmin } = require('../middleware/jwt.middleware');
 const { redactSensitiveData } = require('../utils/sanitize');
-const fetch = require('node-fetch');
-const https = require('https');
 const fs = require('fs').promises;
 const path = require('path');
-
-// Create HTTPS agent that allows self-signed certificates
-const httpsAgent = new https.Agent({
-  rejectUnauthorized: false
-});
-
-// Function to notify relation service
-const notifyRelationService = async () => {
-  try {
-    const response = await fetch('https://relation-service:3002/api/notify/log-update', {
-      method: 'POST',
-      agent: httpsAgent,
-      headers: {
-        'Content-Type': 'application/json'
-      }
-    });
-
-    if (!response.ok) {
-      throw new Error(`Failed to notify relation service: ${response.status}`);
-    }
-
-    console.log('Relation service notified successfully');
-  } catch (error) {
-    console.error('Error notifying relation service:', error);
-    // Don't throw - we don't want to fail the main operation if notification fails
-  }
-};
-
-// Function to notify relation service of log deletion (cascade delete)
-const notifyRelationServiceDelete = async (logIds) => {
-  try {
-    // Support both single ID and array of IDs
-    const idsArray = Array.isArray(logIds) ? logIds : [logIds];
-
-    const response = await fetch('https://relation-service:3002/api/relations/notify/log-delete', {
-      method: 'POST',
-      agent: httpsAgent,
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ logIds: idsArray })
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Failed to notify relation service of deletion: ${response.status} - ${errorText}`);
-    }
-
-    const result = await response.json();
-    console.log(`Relation service cascade delete completed: ${result.relationsRemoved} relations, ${result.fileStatusesRemoved} file statuses removed`);
-    return result;
-  } catch (error) {
-    console.error('Error notifying relation service of deletion:', error);
-    // Don't throw - log deletion should succeed even if relation cleanup fails
-  }
-};
+const { scheduleRelationAnalysis } = require('../services/relations/analysisScheduler');
+const cascadeDeleteRelations = require('../services/relations/cascadeDeleteRelations');
+const batchService = require('../services/relations/batchService');
+const { batchUpdateProcessor } = require('./updates.routes');
 
 // Get all logs (with operation filtering)
 router.get('/', authenticateJwt, async (req, res, next) => {
@@ -116,8 +62,8 @@ router.post('/', authenticateJwt, async (req, res, next) => {
       analyst: req.user.username
     }, req.user.username); // Pass username for operation auto-tagging
 
-    // Notify relation service
-    await notifyRelationService();
+    // Schedule relation analysis (non-blocking)
+    scheduleRelationAnalysis();
 
     // Log the creation with redacted secrets
     const logDataForEvents = redactSensitiveData({
@@ -238,8 +184,8 @@ router.put('/:id', authenticateJwt, async (req, res, next) => {
       return res.status(400).json({ error: 'No valid updates provided' });
     }
 
-    // Notify relation service after successful update
-    await notifyRelationService();
+    // Schedule relation analysis after successful update (non-blocking)
+    scheduleRelationAnalysis();
 
     // Define a more comprehensive map of fields to their relation types
     const relationFieldMap = {
@@ -266,10 +212,7 @@ router.put('/:id', authenticateJwt, async (req, res, next) => {
     // If relation fields were updated, send specific field update notifications
     if (updatedRelationFields.length > 0) {
       try {
-        // Get auth token for relation service requests
-        const token = req.cookies?.auth_token;
-        
-        // For each updated relation field, send a specific field update
+        // For each updated relation field, queue a batch update
         for (const field of updatedRelationFields) {
           // Get old and new values
           const oldValue = existingLog[field];
@@ -287,49 +230,20 @@ router.put('/:id', authenticateJwt, async (req, res, next) => {
             timestamp: new Date().toISOString()
           });
           
-          // Only notify if the value actually changed - simplified condition
+          // Only notify if the value actually changed
           if (oldValue !== newValue) {
-            // Make sure to explicitly handle empty values properly
             const safeOldValue = oldValue === null || oldValue === undefined ? '' : oldValue;
             const safeNewValue = newValue === null || newValue === undefined ? '' : newValue;
-            
-            // Do specific notifications for relation service
+
             if (['internal_ip', 'external_ip', 'hostname', 'domain', 'username', 'command', 'filename', 'mac_address'].includes(field)) {
-              console.log('Sending update to relation service:', {
+              batchService.addToBatch('fieldUpdates', {
                 fieldType: field,
                 oldValue: safeOldValue,
                 newValue: safeNewValue,
-                username: req.user.username
-              });
-              
-              const fieldUpdateResponse = await fetch('https://relation-service:3002/api/updates/field-update', {
-                method: 'POST',
-                agent: httpsAgent,
-                headers: {
-                  'Content-Type': 'application/json',
-                  'Cookie': `auth_token=${token}`
-                },
-                body: JSON.stringify({
-                  fieldType: field,
-                  oldValue: safeOldValue,
-                  newValue: safeNewValue,
-                  username: req.user.username
-                })
-              });
-              
-              if (!fieldUpdateResponse.ok) {
-                console.error(`Failed to notify relation service about ${field} update: ${fieldUpdateResponse.status}`);
-                
-                // Add more error details
-                try {
-                  const errorText = await fieldUpdateResponse.text();
-                  console.error(`Error details: ${errorText}`);
-                } catch (e) {
-                  console.error('Could not read error response');
-                }
-              } else {
-                console.log(`Notified relation service of ${field} update from "${safeOldValue}" to "${safeNewValue}"`);
-              }
+                username: req.user.username,
+                timestamp: new Date().toISOString(),
+                operation: 'field_update'
+              }, batchUpdateProcessor);
             }
           }
         }
@@ -381,8 +295,8 @@ router.delete('/:id', authenticateJwt, verifyAdmin, async (req, res, next) => {
       return res.status(404).json({ error: 'Log not found' });
     }
 
-    // Notify relation service of deletion with cascade delete
-    await notifyRelationServiceDelete(id);
+    // Cascade delete relations referencing this log
+    await cascadeDeleteRelations(id);
 
     // For logging purposes, create a redacted version that doesn't include secrets
     const safeDeletedLog = redactSensitiveData(deletedLog, ['secrets']);
@@ -521,8 +435,8 @@ router.post('/bulk-delete', authenticateJwt, verifyAdmin, async (req, res, next)
     
     const deletedIds = await LogsModel.bulkDelete(ids);
 
-    // Notify relation service of bulk deletion with cascade delete
-    await notifyRelationServiceDelete(deletedIds);
+    // Cascade delete relations referencing deleted logs
+    await cascadeDeleteRelations(deletedIds);
     
     // Log bulk deletion
     await eventLogger.logDataEvent('bulk_delete', req.user.username, {

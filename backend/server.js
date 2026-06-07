@@ -29,6 +29,13 @@ const passport = require('passport');
 const { initializeGoogleSSO } = require('./lib/passport-google');
 const templatesRoutes = require('./routes/templates.routes');
 const operationsRoutes = require('./routes/operations.routes');
+const cron = require('node-cron');
+const RelationAnalyzer = require('./services/relations/relationAnalyzer');
+const batchService = require('./services/relations/batchService');
+const initRelationTables = require('./services/relations/initRelationTables');
+const relationsRoutes = require('./routes/relations.routes');
+const fileStatusRoutes = require('./routes/fileStatus.routes');
+const updatesRoutes = require('./routes/updates.routes');
 
 const app = express();
 
@@ -229,6 +236,9 @@ app.use('/api/logs/s3-config', require('./routes/s3-config.routes'));
 app.use('/api/health/logs', require('./routes/logs-health.routes'));
 app.use('/api/templates', templatesRoutes);
 app.use('/api/certificates', require('./routes/certificates.routes'));
+app.use('/api/relations', relationsRoutes);
+app.use('/api/file-status', fileStatusRoutes);
+app.use('/api/updates', updatesRoutes);
 
 // Important change: Serve exports WITHOUT authentication
 app.use('/exports', express.static(path.join(__dirname, 'exports')));
@@ -485,7 +495,10 @@ async function initialize() {
     
     await waitForDatabase();
     console.log('Database connection established');
-    
+
+    await initRelationTables();
+    console.log('Relation tables initialised');
+
     // Create HTTPS server
     const server = https.createServer(httpsOptions, app);
     
@@ -536,11 +549,41 @@ async function initialize() {
       }
     });
 
+    // Relation analysis cron jobs
+    // Every 10 min: user↔command, user↔hostname, user↔IP, user↔domain, user↔MAC
+    cron.schedule('*/10 * * * *', async () => {
+      try {
+        const logs = await db.query(`SELECT * FROM logs WHERE timestamp > NOW() - INTERVAL '1 hour' ORDER BY timestamp DESC LIMIT 1000`);
+        await RelationAnalyzer.analyzeSpecificLogs(logs.rows, { types: ['user', 'user_hostname', 'user_ip', 'user_domain', 'user_mac'] });
+      } catch (error) { console.error('Error in scheduled user analysis:', error); }
+    });
+
+    // 5/25/45 past each hour: IP, hostname, hostname↔IP, MAC
+    cron.schedule('5,25,45 * * * *', async () => {
+      try {
+        const logs = await db.query(`SELECT * FROM logs WHERE timestamp > NOW() - INTERVAL '1 hour' ORDER BY timestamp DESC LIMIT 1000`);
+        await RelationAnalyzer.analyzeSpecificLogs(logs.rows, { types: ['ip', 'hostname', 'hostname_ip', 'mac_address'] });
+      } catch (error) { console.error('Error in scheduled IP/hostname/MAC analysis:', error); }
+    });
+
+    // 10/40 past each hour: domain, file
+    cron.schedule('10,40 * * * *', async () => {
+      try {
+        const logs = await db.query(`SELECT * FROM logs WHERE timestamp > NOW() - INTERVAL '1 hour' ORDER BY timestamp DESC LIMIT 1000`);
+        await RelationAnalyzer.analyzeSpecificLogs(logs.rows, { types: ['domain', 'file'] });
+      } catch (error) { console.error('Error in scheduled domain/files analysis:', error); }
+    });
+
+    cron.schedule('*/2 * * * *', async () => {
+      try { await batchService.flushAllBatches(); }
+      catch (error) { console.error('Error flushing batch service:', error); }
+    });
+
     // Handle server shutdown
     process.on('SIGTERM', async () => {
-      // Stop log rotation
       logRotationManager.stop();
-      
+      batchService.shutdown();
+
       await eventLogger.logSystemEvent('server_shutdown', {
         reason: 'SIGTERM',
         serverInstanceId: security.SERVER_INSTANCE_ID

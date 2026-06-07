@@ -88,31 +88,32 @@ const RedTeamLogger = ({ currentUser, csrfToken }) => {
               <span className="inline">Settings</span>
             </button>
             
+            {/* Export — available to all authenticated users */}
+            <button
+              onClick={() => setActiveView('export')}
+              className={`px-4 py-2 rounded-md flex items-center gap-2 transition-colors duration-200 ${
+                activeView === 'export'
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-gray-700 text-white hover:bg-gray-600'
+              }`}
+            >
+              <Database className="w-5 h-5" />
+              <span className="inline">Export</span>
+            </button>
+
             {/* Admin-only buttons */}
             {isAdmin && (
               <>
                 <button
                   onClick={() => setActiveView('operations')}
                   className={`px-4 py-2 rounded-md flex items-center gap-2 transition-colors duration-200 ${
-                    activeView === 'operations' 
-                      ? 'bg-blue-600 text-white' 
+                    activeView === 'operations'
+                      ? 'bg-blue-600 text-white'
                       : 'bg-gray-700 text-white hover:bg-gray-600'
                   }`}
                 >
                   <Briefcase className="w-5 h-5" />
                   <span className="inline">Operations</span>
-                </button>
-                
-                <button
-                  onClick={() => setActiveView('export')}
-                  className={`px-4 py-2 rounded-md flex items-center gap-2 transition-colors duration-200 ${
-                    activeView === 'export' 
-                      ? 'bg-blue-600 text-white' 
-                      : 'bg-gray-700 text-white hover:bg-gray-600'
-                  }`}
-                >
-                  <Database className="w-5 h-5" />
-                  <span className="inline">Export</span>
                 </button>
                 
                 <button
@@ -220,10 +221,10 @@ const RedTeamLogger = ({ currentUser, csrfToken }) => {
           </div>
         )}
         
-        {activeView === 'export' && isAdmin && (
+        {activeView === 'export' && (
           <div className="w-full">
             <div className="bg-gray-800 rounded-lg shadow-lg p-4">
-              <ExportDatabasePanel csrfToken={csrfToken} />
+              <ExportDatabasePanel csrfToken={csrfToken} isAdmin={isAdmin} />
             </div>
           </div>
         )}

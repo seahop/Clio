@@ -107,7 +107,7 @@ module.exports = function(app) {
   app.use(
     '/relation-service',
     createProxyMiddleware({
-      target: 'https://relation-service:3002',
+      target: 'https://backend:3001',
       secure: false,
       changeOrigin: true,
       logProvider,

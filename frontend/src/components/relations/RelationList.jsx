@@ -14,12 +14,15 @@ const getRelationIcon = (type) => {
     case 'ip':
       return <Wifi className="w-5 h-5 text-blue-400" />;
     case 'hostname':
+    case 'hostname_ip':
       return <Server className="w-5 h-5 text-green-400" />;
     case 'domain':
       return <Globe className="w-5 h-5 text-purple-400" />;
     case 'mac_address':
       return <Cpu className="w-5 h-5 text-yellow-400" />;
     case 'username':
+    case 'user_domain':
+    case 'user_mac':
       return <User className="w-5 h-5 text-blue-400" />;
     default:
       return <Network className="w-5 h-5 text-gray-400" />;
@@ -155,11 +158,34 @@ const getEnrichedDetails = (relation) => {
       }
       break;
       
+    case 'hostname_ip': {
+      const internalIPs = relation.related.filter(r => r.metadata?.ipType === 'internal');
+      const externalIPs = relation.related.filter(r => r.metadata?.ipType === 'external');
+      if (internalIPs.length > 0) details.push({ label: 'Internal IPs', value: internalIPs.length, icon: <Wifi className="w-4 h-4 text-green-400" /> });
+      if (externalIPs.length > 0) details.push({ label: 'External IPs', value: externalIPs.length, icon: <Wifi className="w-4 h-4 text-orange-400" /> });
+      break;
+    }
+
+    case 'user_domain': {
+      const domains = new Set(relation.related.map(r => r.target).filter(Boolean));
+      if (domains.size > 0) details.push({ label: 'Domains accessed', value: domains.size, icon: <Globe className="w-4 h-4 text-purple-400" /> });
+      const hostsForDomain = new Set(relation.related.map(r => r.metadata?.hostname).filter(Boolean));
+      if (hostsForDomain.size > 0) details.push({ label: 'Via hosts', value: hostsForDomain.size, icon: <Server className="w-4 h-4 text-green-400" /> });
+      break;
+    }
+
+    case 'user_mac': {
+      const macs = new Set(relation.related.map(r => r.target).filter(Boolean));
+      if (macs.size > 0) details.push({ label: 'Devices used', value: macs.size, icon: <Cpu className="w-4 h-4 text-yellow-400" /> });
+      const hostsForMac = new Set(relation.related.map(r => r.metadata?.hostname).filter(Boolean));
+      if (hostsForMac.size > 0) details.push({ label: 'Hostnames seen', value: hostsForMac.size, icon: <Server className="w-4 h-4 text-green-400" /> });
+      break;
+    }
+
     default:
-      // Basic details for other types
       break;
   }
-  
+
   return details;
 };
 

@@ -1,10 +1,49 @@
 // frontend/src/components/RelationViewer.jsx
-import React, { useState, useEffect } from 'react';
-import { Network, AlertCircle, User, RefreshCw, Cpu } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Network, User, RefreshCw, Cpu, Globe, Server, Wifi } from 'lucide-react';
 import UserCommandsViewer from './UserCommandsViewer';
 import MacAddressViewer from './MacAddressViewer';
 import RelationFilters from './relations/RelationFilters';
 import RelationList from './relations/RelationList';
+
+// Filters backed by dedicated sub-viewers (they fetch their own data)
+const DELEGATED_FILTERS = new Set(['user', 'mac_address']);
+
+const FILTER_TYPES = [
+  { id: 'all',         label: 'All Relations' },
+  { id: 'ip',          label: 'IP' },
+  { id: 'hostname',    label: 'Hostname' },
+  { id: 'hostname_ip', label: 'Host↔IP' },
+  { id: 'domain',      label: 'Domain' },
+  { id: 'user_domain', label: 'User↔Domain' },
+  { id: 'user_mac',    label: 'User↔MAC' },
+  { id: 'mac_address', label: 'MAC Address' },
+  { id: 'user',        label: 'User Commands' },
+];
+
+const FILTER_TITLES = {
+  user:        'User Command Analysis',
+  mac_address: 'MAC Address Relations',
+  hostname_ip: 'Hostname ↔ IP Mapping',
+  user_domain: 'User ↔ Domain Relations',
+  user_mac:    'User ↔ MAC Address Relations',
+};
+
+const FILTER_ICONS = {
+  user:        <User className="w-5 h-5" />,
+  mac_address: <Cpu className="w-5 h-5" />,
+  hostname_ip: <Server className="w-5 h-5" />,
+  user_domain: <Globe className="w-5 h-5" />,
+  user_mac:    <Cpu className="w-5 h-5" />,
+  ip:          <Wifi className="w-5 h-5" />,
+  hostname:    <Server className="w-5 h-5" />,
+  domain:      <Globe className="w-5 h-5" />,
+};
+
+const TYPE_SORT_ORDER = {
+  domain: 1, ip: 2, hostname: 3, hostname_ip: 4,
+  username: 5, user_domain: 6, user_mac: 7, mac_address: 8
+};
 
 const RelationViewer = () => {
   const [relations, setRelations] = useState([]);
@@ -12,84 +51,52 @@ const RelationViewer = () => {
   const [error, setError] = useState(null);
   const [selectedFilter, setSelectedFilter] = useState('all');
   const [expandedItems, setExpandedItems] = useState(new Set());
+  // Bump this to force-remount delegated sub-viewers on Refresh
+  const [refreshKey, setRefreshKey] = useState(0);
 
-  const filterTypes = [
-    { id: 'all', label: 'All Relations' },
-    { id: 'ip', label: 'IP Relations' },
-    { id: 'hostname', label: 'Hostname Relations' },
-    { id: 'domain', label: 'Domain Relations' },
-    { id: 'mac_address', label: 'MAC Address Relations' },
-    { id: 'user', label: 'User Commands' }
-  ];
-
-  const fetchRelations = async () => {
-    if (selectedFilter === 'user' || 
-        selectedFilter === 'mac_address') {
-      setLoading(false);
+  const fetchRelations = useCallback(async () => {
+    if (DELEGATED_FILTERS.has(selectedFilter)) {
+      setRefreshKey(k => k + 1);
       return;
     }
 
     try {
       setLoading(true);
-      // Use proxy instead of direct service URL - proxied to relation-service
+      setError(null);
       const apiUrl = `/relation-service/api/relations${
         selectedFilter !== 'all' ? `/${selectedFilter}` : ''
       }`;
-      
+
       const response = await fetch(apiUrl, {
         credentials: 'include',
-        headers: {
-          'Accept': 'application/json'
-        }
+        headers: { 'Accept': 'application/json' }
       });
 
-      if (!response.ok) {
-        throw new Error(`API Error: ${response.status}`);
-      }
+      if (!response.ok) throw new Error(`API Error: ${response.status}`);
 
       const data = await response.json();
-      
-      // Deduplicate relations by source
+
+      // Deduplicate relations by source+type key
       const deduplicatedData = data.reduce((acc, relation) => {
         const key = `${relation.source}_${relation.type}`;
-        
         if (!acc.has(key)) {
-          // Initialize new relation
-          acc.set(key, {
-            ...relation,
-            related: [...(relation.related || [])]
-          });
+          acc.set(key, { ...relation, related: [...(relation.related || [])] });
         } else {
-          // Merge related items if they don't already exist
           const existing = acc.get(key);
           const existingTargets = new Set(existing.related.map(r => r.target));
-          
           relation.related?.forEach(item => {
-            if (!existingTargets.has(item.target)) {
-              existing.related.push(item);
-            }
+            if (!existingTargets.has(item.target)) existing.related.push(item);
           });
         }
-        
         return acc;
       }, new Map());
 
-      // Convert back to array and update the connections count
-      const processedData = Array.from(deduplicatedData.values()).map(relation => ({
-        ...relation,
-        connections: relation.related?.length || 0
-      }));
-
-      // Sort by type and then by source name
-      const sortedData = processedData.sort((a, b) => {
-        // Sort by type first
-        const typeOrder = { domain: 1, ip: 2, hostname: 3, username: 4, mac_address: 5 };
-        const typeCompare = (typeOrder[a.type] || 99) - (typeOrder[b.type] || 99);
-        if (typeCompare !== 0) return typeCompare;
-        
-        // Then by source name
-        return a.source.localeCompare(b.source);
-      });
+      const sortedData = Array.from(deduplicatedData.values())
+        .map(r => ({ ...r, connections: r.related?.length || 0 }))
+        .sort((a, b) => {
+          const typeCompare = (TYPE_SORT_ORDER[a.type] || 99) - (TYPE_SORT_ORDER[b.type] || 99);
+          return typeCompare !== 0 ? typeCompare : a.source.localeCompare(b.source);
+        });
 
       setRelations(sortedData);
     } catch (err) {
@@ -98,25 +105,23 @@ const RelationViewer = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [selectedFilter]);
 
   useEffect(() => {
     fetchRelations();
-  }, [selectedFilter]);
+  }, [fetchRelations]);
 
   const toggleExpand = (id) => {
-    const newExpanded = new Set(expandedItems);
-    if (newExpanded.has(id)) {
-      newExpanded.delete(id);
-    } else {
-      newExpanded.add(id);
-    }
-    setExpandedItems(newExpanded);
+    setExpandedItems(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
   };
 
   const handleFilterChange = (filterId) => {
     setSelectedFilter(filterId);
-    setExpandedItems(new Set()); // Reset expanded state on filter change
+    setExpandedItems(new Set());
   };
 
   const renderContent = () => {
@@ -129,24 +134,15 @@ const RelationViewer = () => {
       );
     }
 
-    if (selectedFilter === 'user') {
-      return <UserCommandsViewer />;
-    }
-    
-    if (selectedFilter === 'mac_address') {
-      return <MacAddressViewer />;
-    }
+    if (selectedFilter === 'user')        return <UserCommandsViewer key={refreshKey} />;
+    if (selectedFilter === 'mac_address') return <MacAddressViewer   key={refreshKey} />;
 
     if (loading) {
-      return (
-        <div className="text-center text-gray-400 py-8">
-          <p>Loading relationships...</p>
-        </div>
-      );
+      return <div className="text-center text-gray-400 py-8"><p>Loading relationships...</p></div>;
     }
 
     return (
-      <RelationList 
+      <RelationList
         relations={relations}
         expandedItems={expandedItems}
         toggleExpand={toggleExpand}
@@ -154,38 +150,33 @@ const RelationViewer = () => {
     );
   };
 
+  const titleIcon  = FILTER_ICONS[selectedFilter]  || <Network className="w-5 h-5" />;
+  const titleLabel = FILTER_TITLES[selectedFilter] || 'Log Relations';
+
   return (
     <div className="bg-gray-800 rounded-lg shadow-lg w-full">
-      <div className="p-4 border-b border-gray-700 flex flex-row items-center justify-between">
+      <div className="p-4 border-b border-gray-700 flex flex-row items-center justify-between flex-wrap gap-2">
         <h2 className="text-lg font-medium text-white flex items-center gap-2">
-          {selectedFilter === 'user' ? (
-            <User className="w-5 h-5" />
-          ) : selectedFilter === 'mac_address' ? (
-            <Cpu className="w-5 h-5" />
-          ) : (
-            <Network className="w-5 h-5" />
-          )}
-          {selectedFilter === 'user' ? 'User Command Analysis' : 
-           selectedFilter === 'mac_address' ? 'MAC Address Relations' : 
-           'Log Relations'}
+          {titleIcon}
+          {titleLabel}
         </h2>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2 items-center">
           <button
             onClick={fetchRelations}
             disabled={loading}
             className="px-3 py-1 bg-gray-700 text-gray-300 rounded-md text-sm flex items-center gap-1 hover:bg-gray-600 disabled:opacity-50"
           >
-            <RefreshCw size={16} className={loading ? "animate-spin" : ""} />
+            <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
             {loading ? 'Loading...' : 'Refresh'}
           </button>
-          <RelationFilters 
-            filterTypes={filterTypes}
+          <RelationFilters
+            filterTypes={FILTER_TYPES}
             selectedFilter={selectedFilter}
             onFilterChange={handleFilterChange}
           />
         </div>
       </div>
-      
+
       <div className="p-4">
         {renderContent()}
       </div>
