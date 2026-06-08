@@ -3,77 +3,113 @@
 <img src="./images/Clio_Logging_Platform_Logo.png" alt="Clio Logo" width="400"/>
 </p>
 
-A secure, collaborative logging system designed for red team operations and security assessments. This application provides real-time logging capabilities with features like row locking, user authentication, audit trails, and comprehensive tagging and operations management.
+A secure, collaborative logging system designed for red team operations and security assessments. Provides real-time logging with role-based access control, automatic operation tagging, relational analysis, evidence management, and C2 ingest integration.
 
 ## Key Features
 
-- **Real-time Collaborative Logging**: Multiple users can view and edit logs simultaneously
-- **Row-Level Locking**: Prevent conflicts with row-level locking mechanism
-- **Role-Based Access Control**: Admin and user roles with different permissions
-- **Secure Authentication**: CSRF protection, secure session management, and password policies
-- **Operations Management**: Organize work by engagement with automatic operation tagging
-- **Comprehensive Tagging System**: Categorize logs with MITRE ATT&CK techniques, tools, and custom tags
-- **Auto-tagging**: Logs automatically tagged with user's active operation for consistent tracking
-- **Relationship Analysis**: Visualize connections between hosts, IPs, domains, and user commands
-- **File Status Tracking**: Monitor file status across systems (ON_DISK, IN_MEMORY, ENCRYPTED, etc.)
-- **API Integration**: Programmatic access for automated log submission and integration with external tools
-- **Evidence Management**: Upload and track evidence files associated with logs
+- **Operations scoping** — users are assigned to operations and only see logs for their own engagement
+- **Relational analysis** — automatic correlation of IPs, hostnames, domains, users, MAC addresses, and commands
+- **Real-time collaborative logging** — multiple operators view and edit simultaneously with row-level locking
+- **Role-based access control** — admin and user roles with per-operation data isolation
+- **Secure authentication** — JWT in httpOnly cookies, CSRF protection, per-user passwords
+- **Evidence attachments** — upload and track evidence files tied to individual log entries
+- **Log templates** — reusable field presets for common activity types
+- **API key ingest** — push logs from C2 frameworks via `/api/ingest`
+- **Export** — CSV and database export with filtering
+- **File status tracking** — monitor file state across systems (ON_DISK, IN_MEMORY, ENCRYPTED, etc.)
 
-## Quick Start
+---
 
-### Prerequisites
+## Deployment
 
-- Docker and Docker Compose
-- Node.js 18 or higher (for setup scripts)
-- npm (Node Package Manager)
+### Option A — Single container (recommended, simplest)
 
-### Setup
+Pull and run the all-in-one image. Nginx, backend, Redis, and PostgreSQL are all bundled. Everything persists in a single Docker volume.
 
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/seahop/Clio.git
-   cd Clio
-   ./setup.sh
-   ```
+```bash
+docker run -d --name clio \
+  -p 443:443 -p 80:80 \
+  -e EXTERNAL_HOSTNAME=your-server-ip \
+  -v clio-data:/data \
+  ghcr.io/seahop/clio:latest
+```
 
-2. Generate environment variables and security keys:
-   ```bash
-   # Create and activate a virtual environment
-   python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
-   
-   # Install required packages
-   pip install -r requirements.txt
+Or with docker compose:
 
-   # Generate certs and env
-   sudo python generate-env.py https://yourIPorHost
-   ```
-   or for production style
-   ```bash
-   sudo python3 generate-env.py https://yourdomain.com --letsencrypt --domain=yourdomain.com --email=your@email.com --google-client-id=123456.your.client.id --google-client-secret=YOUR-SECRET --google-callback-url=https://yourdomain.com/api/auth/google/callback
-   ```
+```bash
+# Edit EXTERNAL_HOSTNAME in docker-compose.omnibus.yml first, then:
+docker compose -f docker-compose.omnibus.yml up -d
+```
 
-3. Build and start the containers:
-   ```bash
-   docker compose build
-   docker compose up
-   ```
+#### Getting your credentials
 
-4. Access the application at:
-   - https://localhost (or your custom domain/IP)
+On first boot Clio generates random passwords for every service and prints them to the container logs:
 
-The default admin and user passwords will be displayed in the console output and saved in a credentials backup file.
+```bash
+docker logs clio
+```
+
+Look for the first-boot banner:
+
+```
+┌──────────────────────────────────────────────────┐
+│             Clio — First Boot                    │
+│                                                   │
+│  Admin password : <generated>                    │
+│  Access         : https://your-server-ip         │
+└──────────────────────────────────────────────────┘
+```
+
+To retrieve credentials at any time after first boot:
+
+```bash
+# Admin and shared user bootstrap password
+docker exec clio sh -c '. /data/.secrets.env; echo "admin / $ADMIN_PASSWORD"; echo "user  / $USER_PASSWORD"'
+```
+
+> **Note on the user password:** Clio does not have a user registry. Any username combined with the shared `USER_PASSWORD` creates an account on first login — the user is then prompted to set their own password. The admin password works the same way.
+
+#### EXTERNAL_HOSTNAME
+
+Set this to your server's IP address or domain name. It is written into the self-signed TLS certificate SAN and the CORS allowed-origins list. Defaults to `localhost` if not set (fine for local testing, wrong for remote access).
+
+---
+
+### Option B — Multi-container HA (docker compose)
+
+Separate containers for Nginx, frontend, backend, Redis, and PostgreSQL. Suitable for production or when you need to scale components independently.
+
+```bash
+# First-time setup — generates .env files, TLS certs, and initial passwords
+python -m venv venv && source venv/bin/activate
+pip install -r requirements.txt
+sudo python generate-env.py https://<your-ip-or-host>
+
+# For Let's Encrypt + Google SSO:
+sudo python3 generate-env.py https://yourdomain.com \
+  --letsencrypt --domain=yourdomain.com \
+  --email=your@email.com \
+  --google-client-id=YOUR_CLIENT_ID \
+  --google-client-secret=YOUR_SECRET \
+  --google-callback-url=https://yourdomain.com/api/auth/google/callback
+
+# Build and run
+docker compose build
+docker compose up -d
+```
+
+Generated passwords are printed to stdout on first run and saved to `credentials-backup-*.txt`.
+
+---
 
 ## Documentation
 
-For detailed information about Clio, please refer to our documentation:
-
-- [Architecture Overview](./docs/architecture.md) - System architecture and technology stack
-- [Security Features](./docs/security.md) - In-depth security information
-- [User Guide](./docs/user-guide.md) - How to use the application including tags and operations
-- [API Documentation](./docs/api-guide.md) - Working with the Clio API
-- [Using Log Forwarders](./log_exporter/README.md) - Forwarding of logs for C2s
-- [Google OAuth Integration](./docs/sso-integration.md) - How to set up and use Google SSO
+- [Architecture Overview](./docs/architecture.md)
+- [Security Features](./docs/security.md)
+- [User Guide](./docs/user-guide.md)
+- [API Documentation](./docs/api-guide.md)
+- [Using Log Forwarders](./log_exporter/README.md)
+- [Google OAuth Integration](./docs/sso-integration.md)
 
 ## License
 
