@@ -51,18 +51,31 @@ fi
 # with rejectUnauthorized=false, so independent self-signed certs are sufficient.
 _HOST="${EXTERNAL_HOSTNAME:-localhost}"
 gen_cert() {
-  # $1 = cert basename (server|redis|db); skips if it already exists
+  # $1 = cert basename (server|redis|db)
+  # Regenerates the cert if it doesn't exist OR if EXTERNAL_HOSTNAME changed
+  # since the cert was issued (stored in a sidecar .hostname file).
+  # Uses IP: SAN when the hostname is an IPv4 address so browsers accept it.
   _name="$1"
-  if [ ! -f "$CERTS_DIR/$_name.crt" ]; then
-    echo "[clio] Generating self-signed certificate: $_name"
+  _host_file="$CERTS_DIR/$_name.hostname"
+  _prev_host=""
+  [ -f "$_host_file" ] && _prev_host="$(cat "$_host_file")"
+
+  if [ ! -f "$CERTS_DIR/$_name.crt" ] || [ "$_prev_host" != "$_HOST" ]; then
+    echo "[clio] Generating self-signed certificate: $_name (host: $_HOST)"
+    if echo "$_HOST" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
+      _SAN="DNS:localhost,IP:127.0.0.1,IP:$_HOST"
+    else
+      _SAN="DNS:localhost,DNS:$_HOST,IP:127.0.0.1"
+    fi
     openssl req -x509 -newkey rsa:2048 -nodes \
       -keyout "$CERTS_DIR/$_name.key" \
       -out    "$CERTS_DIR/$_name.crt" \
       -days   3650 \
       -subj   "/CN=$_HOST" \
-      -addext "subjectAltName=DNS:localhost,DNS:$_HOST,IP:127.0.0.1" \
+      -addext "subjectAltName=$_SAN" \
       2>/dev/null
     chmod 600 "$CERTS_DIR/$_name.key"
+    echo "$_HOST" > "$_host_file"
   fi
 }
 gen_cert server
@@ -191,6 +204,14 @@ EOF
 # The backend reads env vars from its working directory's .env via dotenv.
 # If dotenv isn't called in server.js, export these so supervisord inherits them.
 _EXT_HOST="${EXTERNAL_HOSTNAME:-localhost}"
+# EXTERNAL_PORT lets users running on non-standard ports (e.g. -p 8443:443) set
+# FRONTEND_URL correctly so CORS allows the actual browser origin.
+_EXT_PORT="${EXTERNAL_PORT:-443}"
+if [ "$_EXT_PORT" = "443" ]; then
+  _FRONTEND_URL="https://$_EXT_HOST"
+else
+  _FRONTEND_URL="https://$_EXT_HOST:$_EXT_PORT"
+fi
 cat > /app/backend/.env <<EOF
 REDIS_ENCRYPTION_KEY=$REDIS_ENCRYPTION_KEY
 JWT_SECRET=$JWT_SECRET
@@ -209,7 +230,7 @@ POSTGRES_PORT=5432
 POSTGRES_SSL=true
 PORT=3001
 NODE_ENV=production
-FRONTEND_URL=https://$_EXT_HOST
+FRONTEND_URL=$_FRONTEND_URL
 HOSTNAME=$_EXT_HOST
 HTTPS=true
 SSL_CRT_FILE=$CERTS_DIR/server.crt
@@ -245,7 +266,7 @@ export REDIS_SSL=true REDIS_HOST=127.0.0.1 REDIS_PORT=6379
 export POSTGRES_USER=postgres POSTGRES_DB=redteamlogger \
        POSTGRES_HOST=127.0.0.1 POSTGRES_PORT=5432 POSTGRES_SSL=true
 export PORT=3001 NODE_ENV=production
-export FRONTEND_URL="https://$_EXT_HOST" HOSTNAME="$_EXT_HOST"
+export FRONTEND_URL="$_FRONTEND_URL" HOSTNAME="$_EXT_HOST"
 export HTTPS=true
 export SSL_CRT_FILE="$CERTS_DIR/server.crt" SSL_KEY_FILE="$CERTS_DIR/server.key"
 export NODE_TLS_REJECT_UNAUTHORIZED=0 TZ=UTC PGTZ=UTC

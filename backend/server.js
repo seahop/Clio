@@ -66,10 +66,21 @@ app.use(cors({
     const frontendUrl = process.env.FRONTEND_URL || 'https://localhost:3000';
     const frontendHostname = process.env.HOSTNAME || 'localhost';
     
+    // Derive a localhost equivalent with the same port as FRONTEND_URL so that
+    // accessing via localhost (e.g. when running omnibus on the same machine)
+    // works regardless of what external port was mapped.
+    let localhostEquiv = 'https://localhost:3000';
+    try {
+      const parsed = new URL(frontendUrl);
+      const portPart = parsed.port ? `:${parsed.port}` : '';
+      localhostEquiv = `https://localhost${portPart}`;
+    } catch (_) {}
+
     // Create an array of allowed origins
     const allowedOrigins = [
       frontendUrl,                         // The configured frontend URL
-      `https://localhost:3000`,            // Standard localhost
+      localhostEquiv,                      // localhost with same port as FRONTEND_URL
+      `https://localhost:3000`,            // HA dev server
       `https://${frontendHostname}:3000`,  // The hostname-based URL
       'https://frontend:3000',             // Docker service name
       'https://backend:3001',              // Allow backend self-requests

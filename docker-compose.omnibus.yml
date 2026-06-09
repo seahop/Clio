@@ -32,6 +32,10 @@ services:
       # Hostname used for the self-signed TLS cert SAN and CORS.
       # Set to your server's IP or domain name.
       EXTERNAL_HOSTNAME: "localhost"
+      # Set EXTERNAL_PORT if you map to a non-standard port (e.g. -p 8443:443).
+      # This is included in FRONTEND_URL so CORS allows the correct browser origin.
+      # Leave unset (or 443) when running on the default HTTPS port.
+      # EXTERNAL_PORT: "8443"
       # Optional: mount your own TLS certificate instead of the auto-generated one.
       # TLS_CERT_FILE: /run/secrets/tls.crt
       # TLS_KEY_FILE:  /run/secrets/tls.key
