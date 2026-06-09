@@ -24,7 +24,7 @@ A secure, collaborative logging system designed for red team operations and secu
 
 ### Option A — Single container (recommended, simplest)
 
-Pull and run the all-in-one image. Nginx, backend, Redis, and PostgreSQL are all bundled. Everything persists in a single Docker volume.
+Pull and run the all-in-one image. Nginx, backend, Redis, and PostgreSQL are all bundled. All persistent data (database, exports, logs, evidence) lives in a single Docker volume.
 
 ```bash
 docker run -d --name clio \
@@ -73,6 +73,64 @@ docker exec clio sh -c '. /data/.secrets.env; echo "admin / $ADMIN_PASSWORD"; ec
 
 Set this to your server's IP address or domain name. It is written into the self-signed TLS certificate SAN and the CORS allowed-origins list. Defaults to `localhost` if not set (fine for local testing, wrong for remote access).
 
+#### What persists in the volume
+
+Everything in the `clio-data` volume survives container restarts and upgrades:
+
+| Path in volume | Contents |
+|---|---|
+| `/data/.secrets.env` | Generated passwords and secrets |
+| `/data/certs/` | TLS certificates |
+| `/data/pgdata/` | PostgreSQL database |
+| `/data/redis/` | Redis AOF data |
+| `/data/exports/` | CSV / evidence exports created via the admin panel |
+| `/data/evidence/` | Uploaded evidence files |
+| `/data/backend-data/` | Event logs (security, audit, system) |
+
+#### SSO — Single Sign-On (optional)
+
+Clio supports **Google OAuth** and any **generic OIDC provider** (Keycloak, Okta, Auth0, Azure AD, etc.). Both are optional — password login always works regardless.
+
+**Google SSO:**
+
+```bash
+docker run -d --name clio \
+  -p 443:443 -p 80:80 \
+  -e EXTERNAL_HOSTNAME=your-server-ip \
+  -e GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com \
+  -e GOOGLE_CLIENT_SECRET=your-client-secret \
+  -v clio-data:/data \
+  ghcr.io/seahop/clio:latest
+```
+
+Register `https://your-server-ip/api/auth/google/callback` as an authorized redirect URI in the Google Cloud Console.
+
+**Generic OIDC (Keycloak, Okta, Auth0, Azure AD, etc.):**
+
+```bash
+docker run -d --name clio \
+  -p 443:443 -p 80:80 \
+  -e EXTERNAL_HOSTNAME=your-server-ip \
+  -e OIDC_ISSUER_URL=https://your-provider/realms/your-realm \
+  -e OIDC_CLIENT_ID=clio \
+  -e OIDC_CLIENT_SECRET=your-client-secret \
+  -e OIDC_PROVIDER_NAME=Keycloak \
+  -v clio-data:/data \
+  ghcr.io/seahop/clio:latest
+```
+
+`OIDC_CALLBACK_URL` defaults to `https://<EXTERNAL_HOSTNAME>/api/auth/oidc/callback` — register that URL in your provider's allowed redirect URIs.
+
+Optional OIDC variables:
+
+| Variable | Default | Description |
+|---|---|---|
+| `OIDC_CALLBACK_URL` | `https://<EXTERNAL_HOSTNAME>/api/auth/oidc/callback` | Override if your provider needs a different URL |
+| `OIDC_PROVIDER_NAME` | `SSO` | Label shown on the login button |
+| `OIDC_SCOPE` | `openid email profile` | Scopes to request |
+
+See [SSO Integration Guide](./docs/sso-integration.md) for full setup instructions.
+
 ---
 
 ### Option B — Multi-container HA (docker compose)
@@ -100,6 +158,16 @@ docker compose up -d
 
 Generated passwords are printed to stdout on first run and saved to `credentials-backup-*.txt`.
 
+**Generic OIDC with the HA deployment:** Add these variables to `backend/.env` after running `generate-env.py`:
+
+```env
+OIDC_ISSUER_URL=https://your-provider/realms/your-realm
+OIDC_CLIENT_ID=clio
+OIDC_CLIENT_SECRET=your-client-secret
+OIDC_CALLBACK_URL=https://yourdomain.com/api/auth/oidc/callback
+OIDC_PROVIDER_NAME=Keycloak
+```
+
 ---
 
 ## Documentation
@@ -109,7 +177,7 @@ Generated passwords are printed to stdout on first run and saved to `credentials
 - [User Guide](./docs/user-guide.md)
 - [API Documentation](./docs/api-guide.md)
 - [Using Log Forwarders](./log_exporter/README.md)
-- [Google OAuth Integration](./docs/sso-integration.md)
+- [SSO Integration (Google + Generic OIDC)](./docs/sso-integration.md)
 
 ## License
 

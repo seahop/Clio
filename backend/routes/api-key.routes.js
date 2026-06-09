@@ -3,7 +3,6 @@ const express = require('express');
 const router = express.Router();
 const apiKeyController = require('../controllers/api-key.controller');
 const { authenticateJwt, verifyAdmin } = require('../middleware/jwt.middleware');
-const { csrfProtection } = require('../middleware/csrf.middleware');
 const rateLimit = require('express-rate-limit');
 
 // Rate limiting for API key management
@@ -14,10 +13,10 @@ const apiKeyLimiter = rateLimit({
 });
 
 // All API key management routes require admin authentication
+// CSRF is handled by the global middleware in server.js; no second pass needed here.
 router.use(authenticateJwt);
 router.use(verifyAdmin);
 router.use(apiKeyLimiter);
-router.use(csrfProtection());
 
 // Create a new API key
 router.post('/', apiKeyController.createApiKey);

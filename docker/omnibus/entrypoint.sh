@@ -220,6 +220,23 @@ PGTZ=UTC
 EOF
 chmod 600 /app/backend/.env
 
+# ── Optional SSO config ─────────────────────────────────────────────────────
+# Google SSO: pass through if provided as container env vars
+[ -n "$GOOGLE_CLIENT_ID"     ] && echo "GOOGLE_CLIENT_ID=$GOOGLE_CLIENT_ID"         >> /app/backend/.env
+[ -n "$GOOGLE_CLIENT_SECRET" ] && echo "GOOGLE_CLIENT_SECRET=$GOOGLE_CLIENT_SECRET" >> /app/backend/.env
+[ -n "$GOOGLE_CALLBACK_URL"  ] && echo "GOOGLE_CALLBACK_URL=$GOOGLE_CALLBACK_URL"   >> /app/backend/.env
+
+# Generic OIDC: pass through if provided; auto-generate callback URL from EXTERNAL_HOSTNAME
+if [ -n "$OIDC_ISSUER_URL" ]; then
+  echo "OIDC_ISSUER_URL=$OIDC_ISSUER_URL"                                            >> /app/backend/.env
+  echo "OIDC_CLIENT_ID=$OIDC_CLIENT_ID"                                              >> /app/backend/.env
+  echo "OIDC_CLIENT_SECRET=$OIDC_CLIENT_SECRET"                                      >> /app/backend/.env
+  _OIDC_CB="${OIDC_CALLBACK_URL:-https://$_EXT_HOST/api/auth/oidc/callback}"
+  echo "OIDC_CALLBACK_URL=$_OIDC_CB"                                                 >> /app/backend/.env
+  [ -n "$OIDC_PROVIDER_NAME" ] && echo "OIDC_PROVIDER_NAME=$OIDC_PROVIDER_NAME"     >> /app/backend/.env
+  [ -n "$OIDC_SCOPE"         ] && echo "OIDC_SCOPE=$OIDC_SCOPE"                     >> /app/backend/.env
+fi
+
 # Also export them so that supervisord child processes inherit them directly
 # (belt-and-suspenders: dotenv + env inheritance)
 export REDIS_ENCRYPTION_KEY REDIS_ENCRYPTION_KEY JWT_SECRET ADMIN_PASSWORD \
@@ -233,10 +250,30 @@ export HTTPS=true
 export SSL_CRT_FILE="$CERTS_DIR/server.crt" SSL_KEY_FILE="$CERTS_DIR/server.key"
 export NODE_TLS_REJECT_UNAUTHORIZED=0 TZ=UTC PGTZ=UTC
 
-# Symlink backend data directory so log rotation and exports persist
-ln -sf "$DATA_DIR/exports"     /app/backend/exports  2>/dev/null || true
-ln -sf "$DATA_DIR/evidence"    /app/backend/evidence 2>/dev/null || true
-ln -sf "$DATA_DIR/backend-data" /app/backend/data    2>/dev/null || true
+# Symlink backend data directories so exports and event logs persist to the volume.
+# backend/exports and backend/data ship as real directories in the Docker image
+# (they contain .gitkeep / seed JSON files). ln -sf on an existing directory puts
+# the symlink *inside* it rather than replacing it, so we must remove the real
+# directory first. Any image-seeded files that are NOT already on the volume are
+# moved over (idempotent migration for users upgrading from a pre-fix container).
+_replace_dir_with_symlink() {
+  _app_dir="$1"   # e.g. /app/backend/exports
+  _vol_dir="$2"   # e.g. /data/exports
+  mkdir -p "$_vol_dir"
+  if [ -d "$_app_dir" ] && [ ! -L "$_app_dir" ]; then
+    # Migrate files that don't already exist on the volume
+    find "$_app_dir" -maxdepth 1 -mindepth 1 | while read _f; do
+      _base="$(basename "$_f")"
+      [ -e "$_vol_dir/$_base" ] || mv "$_f" "$_vol_dir/$_base" 2>/dev/null || true
+    done
+    rm -rf "$_app_dir"
+  fi
+  # Create or repair the symlink on every boot
+  [ -L "$_app_dir" ] || ln -sf "$_vol_dir" "$_app_dir"
+}
+_replace_dir_with_symlink /app/backend/exports  "$DATA_DIR/exports"
+_replace_dir_with_symlink /app/backend/data     "$DATA_DIR/backend-data"
+_replace_dir_with_symlink /app/backend/evidence "$DATA_DIR/evidence"
 
 # ── First-boot message ─────────────────────────────────────────────────────────
 if [ "$FIRST_BOOT" = "true" ]; then

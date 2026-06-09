@@ -189,48 +189,46 @@ function App() {
         const userData = await response.json();
         console.log('Auth check successful:', userData);
         
-        // IMPORTANT: Preserve Google SSO status across sessions
-        // If the user was previously authenticated via Google, keep that status
+        // Preserve SSO status across page reloads — read what was stored last time
         const previousUserData = localStorage.getItem('user');
         let wasGoogleSSO = false;
-        
+        let wasOIDCSSO   = false;
+
         if (previousUserData) {
           try {
             const parsedPreviousData = JSON.parse(previousUserData);
             wasGoogleSSO = parsedPreviousData.isGoogleSSO === true;
+            wasOIDCSSO   = parsedPreviousData.isOIDCSSO   === true;
           } catch (e) {
             console.error('Error parsing previous user data:', e);
           }
         }
-        
-        // Three ways to detect Google SSO:
-        // 1. Current request has isGoogleSSO flag
-        // 2. This was a Google SSO attempt redirect
-        // 3. Previous session was Google SSO
+
+        // Detect SSO type from server response, localStorage flag, or prior session
         const isGoogleSSO = userData.isGoogleSSO === true || isGoogleSSOAttempt || wasGoogleSSO;
-        
-        // Always set the Google SSO flag if applicable
-        if (isGoogleSSO) {
-          userData.isGoogleSSO = true;
-          userData.requiresPasswordChange = false; // Google users NEVER need password change
-        }
-        
-        // Clear the Google SSO attempt flag
+        const isOIDCSSO   = userData.isOIDCSSO   === true || wasOIDCSSO;
+        const isSSOUser   = isGoogleSSO || isOIDCSSO;
+
+        // Stamp the flags back onto userData so they persist in localStorage
+        if (isGoogleSSO) userData.isGoogleSSO = true;
+        if (isOIDCSSO)   userData.isOIDCSSO   = true;
+        // SSO users never need a password change — defend against a stale server value
+        if (isSSOUser)   userData.requiresPasswordChange = false;
+
+        // Clear the Google SSO attempt flag set by GoogleLoginButton
         localStorage.removeItem('googleSSOAttempt');
-        
-        if (userData.requiresPasswordChange && !isGoogleSSO) {
-          // Only apply password change requirement for non-Google users
+
+        if (userData.requiresPasswordChange && !isSSOUser) {
+          // Only non-SSO users can be directed to the password-change screen
           localStorage.setItem('passwordChangeRequired', JSON.stringify({
             username: userData.username,
             role: userData.role,
-            isGoogleSSO: false
+            isGoogleSSO: false,
+            isOIDCSSO:   false,
           }));
-          // Clear user data to force login screen
           setUser(null);
         } else {
-          // Normal authenticated user or Google SSO user
           localStorage.removeItem('passwordChangeRequired');
-          // Store updated user data with correct flags
           setUser(userData);
           localStorage.setItem('user', JSON.stringify(userData));
         }

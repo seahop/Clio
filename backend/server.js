@@ -27,6 +27,7 @@ const db = require('./db');
 const url = require('url');
 const passport = require('passport');
 const { initializeGoogleSSO } = require('./lib/passport-google');
+const { initializeOIDCClient } = require('./lib/oidc-client');
 const templatesRoutes = require('./routes/templates.routes');
 const operationsRoutes = require('./routes/operations.routes');
 const cron = require('node-cron');
@@ -55,6 +56,8 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
 } else {
   console.log('Google SSO not configured - skipping initialization');
 }
+// Generic OIDC is initialised inside the async initialize() function below
+// because Issuer.discover() is async (network I/O to fetch /.well-known/openid-configuration).
 
 // Enhanced CORS configuration
 app.use(cors({
@@ -498,6 +501,18 @@ async function initialize() {
 
     await initRelationTables();
     console.log('Relation tables initialised');
+
+    // Generic OIDC — async because it does discovery (network I/O)
+    if (process.env.OIDC_ISSUER_URL && process.env.OIDC_CLIENT_ID && process.env.OIDC_CLIENT_SECRET) {
+      try {
+        const ok = await initializeOIDCClient();
+        console.log(ok ? 'Generic OIDC initialized' : 'Generic OIDC initialization failed (non-fatal)');
+      } catch (oidcErr) {
+        console.error('Generic OIDC initialization error (non-fatal):', oidcErr.message);
+      }
+    } else {
+      console.log('Generic OIDC not configured - skipping initialization');
+    }
 
     // Create HTTPS server
     const server = https.createServer(httpsOptions, app);

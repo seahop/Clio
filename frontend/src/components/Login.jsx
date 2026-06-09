@@ -8,7 +8,7 @@ const Login = ({ onLoginSuccess, csrfToken }) => {
   const [username, setUsername] = useState('');
   const [userRole, setUserRole] = useState('');
   const [error, setError] = useState('');
-  const [isGoogleAuth, setIsGoogleAuth] = useState(false);
+  const [isSSOAuth, setIsSSOAuth] = useState(false);
 
   // Check for stored password change requirement on mount
   useEffect(() => {
@@ -16,78 +16,68 @@ const Login = ({ onLoginSuccess, csrfToken }) => {
     if (passwordChangeData) {
       try {
         const parsedData = JSON.parse(passwordChangeData);
-        const { username, role, isGoogleSSO } = parsedData;
-        
-        // Skip password change if the user authenticated via Google SSO
-        if (isGoogleSSO === true) {
-          console.log('Google SSO user detected - skipping password change');
+        const { username, role, isGoogleSSO, isOIDCSSO } = parsedData;
+
+        // Skip password change for any SSO user
+        const isSSOUser = isGoogleSSO === true || isOIDCSSO === true;
+        if (isSSOUser) {
           localStorage.removeItem('passwordChangeRequired');
-          // Try to get the full user data from localStorage
-          const userData = localStorage.getItem('user');
-          if (userData) {
-            const parsedUserData = JSON.parse(userData);
-            // Ensure the Google SSO flag is set
-            parsedUserData.isGoogleSSO = true;
-            parsedUserData.requiresPasswordChange = false;
-            onLoginSuccess(parsedUserData);
+          const stored = localStorage.getItem('user');
+          if (stored) {
+            const parsed = JSON.parse(stored);
+            parsed.requiresPasswordChange = false;
+            onLoginSuccess(parsed);
           } else {
-            // Fallback with minimal data if full user data isn't available
-            onLoginSuccess({ 
-              username, 
-              role, 
-              requiresPasswordChange: false,
-              isGoogleSSO: true 
-            });
+            onLoginSuccess({ username, role, requiresPasswordChange: false, isGoogleSSO, isOIDCSSO });
           }
           return;
         }
-        
+
         setUsername(username);
         setUserRole(role);
         setShowPasswordChange(true);
-        setIsGoogleAuth(!!isGoogleSSO);
+        setIsSSOAuth(!!(isGoogleSSO || isOIDCSSO));
       } catch (error) {
         console.error('Error parsing password change data:', error);
         localStorage.removeItem('passwordChangeRequired');
       }
     }
 
-    // Check for error parameters in URL on mount
+    // Show errors returned via URL query params (Google / OIDC failure redirects)
     const urlParams = new URLSearchParams(window.location.search);
     const errorParam = urlParams.get('error');
-    
+
     if (errorParam === 'google_auth_failed') {
       setError('Google authentication failed. Please try again or use username/password login.');
+    } else if (errorParam === 'oidc_auth_failed') {
+      setError('SSO authentication failed. Please try again or use username/password login.');
     }
   }, [onLoginSuccess]);
 
   const handleLoginSuccess = (userData) => {
-    // Check if this is a Google SSO user (might be set in the userData)
     const isGoogleSSO = userData.isGoogleSSO === true;
-    
-    if (userData.requiresPasswordChange && !isGoogleSSO) {
+    const isOIDCSSO   = userData.isOIDCSSO === true;
+    const isSSOUser   = isGoogleSSO || isOIDCSSO;
+
+    if (userData.requiresPasswordChange && !isSSOUser) {
       setShowPasswordChange(true);
       setUsername(userData.username);
       setUserRole(userData.role);
-      setIsGoogleAuth(isGoogleSSO);
-      
-      // Store minimal user data for password change
+      setIsSSOAuth(isSSOUser);
+
       localStorage.setItem('passwordChangeRequired', JSON.stringify({
         username: userData.username,
         role: userData.role,
-        isGoogleSSO
+        isGoogleSSO,
+        isOIDCSSO,
       }));
     } else {
-      // Remove any password change requirement data
       localStorage.removeItem('passwordChangeRequired');
-      
-      // Always ensure Google SSO flag persists in localStorage
-      if (isGoogleSSO) {
-        userData.isGoogleSSO = true;
+
+      if (isSSOUser) {
         userData.requiresPasswordChange = false;
       }
-      
-      // Store updated user data
+
       localStorage.setItem('user', JSON.stringify(userData));
       onLoginSuccess(userData);
     }
@@ -99,7 +89,7 @@ const Login = ({ onLoginSuccess, csrfToken }) => {
     onLoginSuccess(userData);
   };
 
-  if (showPasswordChange && !isGoogleAuth) {
+  if (showPasswordChange && !isSSOAuth) {
     return (
       <PasswordChangeForm 
         username={username}

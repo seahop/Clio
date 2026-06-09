@@ -1,8 +1,8 @@
 // backend/controllers/certificates.controller.js
 const path = require('path');
 const fs = require('fs').promises;
+const crypto = require('crypto');
 const eventLogger = require('../lib/eventLogger');
-const forge = require('node-forge');
 
 /**
  * Get certificate information
@@ -72,20 +72,20 @@ const getCertificateStatus = async (req, res) => {
         
         // Read certificate file
         const certData = await fs.readFile(certPath, 'utf8');
-        
-        // Parse certificate using node-forge
-        const certObj = forge.pki.certificateFromPem(certData);
-        
-        // Extract certificate information
-        const subject = formatDN(certObj.subject.attributes);
-        const issuer = formatDN(certObj.issuer.attributes);
-        const validFrom = certObj.validity.notBefore;
-        const validTo = certObj.validity.notAfter;
-        
+
+        // Parse using Node's built-in X509Certificate — handles RSA, ECDSA, chain
+        // files (full chains in one PEM), and certs from custom CAs without needing
+        // the third-party node-forge library.
+        const certObj = new crypto.X509Certificate(certData);
+
+        const subject = parseDNString(certObj.subject);
+        const issuer  = parseDNString(certObj.issuer);
+        const validFrom = new Date(certObj.validFrom);
+        const validTo   = new Date(certObj.validTo);
+
         // Calculate days until expiry
-        const expiryDate = validTo;
         const today = new Date();
-        const daysUntilExpiry = Math.ceil((expiryDate - today) / (1000 * 60 * 60 * 24));
+        const daysUntilExpiry = Math.ceil((validTo - today) / (1000 * 60 * 60 * 24));
 
         return {
           name: cert.name,
@@ -126,25 +126,29 @@ const getCertificateStatus = async (req, res) => {
 };
 
 /**
- * Helper function to format Distinguished Name (DN) from certificate attributes
+ * Parse the DN string returned by crypto.X509Certificate (e.g. "CN=example.com\nO=Org\n")
+ * into the same {commonName, organizationName, ...} shape the UI expects.
  */
-function formatDN(attributes) {
-  return attributes.reduce((result, attr) => {
-    // Map attribute types to human-readable names
-    const typeMap = {
-      'CN': 'commonName',
-      'O': 'organizationName',
-      'OU': 'organizationalUnitName',
-      'C': 'countryName',
-      'ST': 'stateOrProvinceName',
-      'L': 'localityName',
-      'E': 'emailAddress'
-    };
-    
-    const type = typeMap[attr.type] || attr.type;
-    result[type] = attr.value;
-    return result;
-  }, {});
+function parseDNString(dn) {
+  const typeMap = {
+    CN: 'commonName',
+    O:  'organizationName',
+    OU: 'organizationalUnitName',
+    C:  'countryName',
+    ST: 'stateOrProvinceName',
+    L:  'localityName',
+    E:  'emailAddress',
+  };
+  const result = {};
+  // DN lines are separated by '\n'; each looks like "CN=example.com"
+  for (const line of dn.split('\n')) {
+    const eqIdx = line.indexOf('=');
+    if (eqIdx < 0) continue;
+    const key   = line.slice(0, eqIdx).trim();
+    const value = line.slice(eqIdx + 1).trim();
+    result[typeMap[key] || key] = value;
+  }
+  return result;
 }
 
 module.exports = {

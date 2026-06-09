@@ -2,8 +2,11 @@
 const crypto = require('crypto');
 const eventLogger = require('../lib/eventLogger');
 
-// CSRF token expiration in seconds (15 minutes)
-const CSRF_TOKEN_EXPIRY = 15 * 60;
+// CSRF token expiration in seconds — 4 hours.
+// The frontend refreshes every 10 minutes (csrfTokenEndpoint re-sets the cookie
+// to slide the window), so active sessions never expire. 4 hours covers the gap
+// where the browser is idle but the tab is still open.
+const CSRF_TOKEN_EXPIRY = 4 * 60 * 60;
 
 // Generate a secure random token
 const generateToken = () => {
@@ -122,16 +125,18 @@ const csrfProtection = (options = {}) => {
 const csrfTokenEndpoint = (req, res) => {
   // Check if there's already a CSRF cookie
   const existingToken = req.cookies._csrf;
-  
+
   if (existingToken) {
-    // Use the existing token to maintain consistency
+    // Re-set the cookie to slide the expiry window forward.
+    // Without this, the cookie expires 15 minutes after first issue even if
+    // the frontend refreshes every 10 minutes, creating a ~5-minute window
+    // where POST requests fail with "CSRF token validation failed".
+    createCsrfCookie(res, existingToken);
     res.json({ csrfToken: existingToken });
   } else {
     // Generate a fresh token only if none exists
     const token = generateToken();
     createCsrfCookie(res, token);
-    
-    // Return the token to the client
     res.json({ csrfToken: token });
   }
 };

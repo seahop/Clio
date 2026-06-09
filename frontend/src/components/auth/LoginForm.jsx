@@ -1,14 +1,29 @@
 // frontend/src/components/auth/LoginForm.jsx
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { LogIn } from 'lucide-react';
 import { validateLoginInput } from '../../utils/passwordValidation';
 import GoogleLoginButton from './GoogleLoginButton';
+import OIDCLoginButton from './OIDCLoginButton';
 
-const LoginForm = ({ onLoginSuccess, csrfToken }) => {
+const LoginForm = ({ onLoginSuccess, csrfToken, initialError = '' }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
+  const [error, setError] = useState(initialError);
   const [loading, setIsLoading] = useState(false);
+  const [providers, setProviders] = useState({ google: false, oidc: false, oidcProviderName: 'SSO' });
+
+  // Fetch which SSO providers are configured so we show only relevant buttons
+  useEffect(() => {
+    fetch('/api/auth/providers', { credentials: 'include' })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (data) setProviders(data); })
+      .catch(() => {}); // non-fatal — buttons just stay hidden
+  }, []);
+
+  // Keep the error in sync if the parent updates initialError after mount
+  useEffect(() => {
+    if (initialError) setError(initialError);
+  }, [initialError]);
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -18,7 +33,6 @@ const LoginForm = ({ onLoginSuccess, csrfToken }) => {
       return;
     }
 
-    // Validate inputs before sending to server
     const validationErrors = validateLoginInput(username, password);
     if (validationErrors.length > 0) {
       setError(validationErrors.join('\n'));
@@ -29,17 +43,16 @@ const LoginForm = ({ onLoginSuccess, csrfToken }) => {
     setIsLoading(true);
 
     try {
-      // Use relative URL with proxy
       const response = await fetch(`/api/auth/login`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'CSRF-Token': csrfToken
+          'CSRF-Token': csrfToken,
         },
         credentials: 'include',
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           username: username.trim(),
-          password: password
+          password,
         }),
       });
 
@@ -51,15 +64,12 @@ const LoginForm = ({ onLoginSuccess, csrfToken }) => {
         throw new Error('Invalid response from server. Please try again.');
       }
 
-      if (!response.ok) {
-        throw new Error(data.error || 'Login failed');
-      }
+      if (!response.ok) throw new Error(data.error || 'Login failed');
 
       if (data.user.requiresPasswordChange) {
-        // Store minimal user data for password change
         localStorage.setItem('passwordChangeRequired', JSON.stringify({
           username: data.user.username,
-          role: data.user.role
+          role: data.user.role,
         }));
         onLoginSuccess(data.user);
       } else {
@@ -70,21 +80,20 @@ const LoginForm = ({ onLoginSuccess, csrfToken }) => {
     } catch (err) {
       console.error('Login error:', err);
       setError(err.message || 'Failed to connect to server. Please check your network connection.');
-      // Add delay on failed login to prevent brute force
       await new Promise(resolve => setTimeout(resolve, 1000));
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Handle input validation while typing
   const handleUsernameChange = (e) => {
     const value = e.target.value;
-    // Only allow letters, numbers, underscores, and hyphens
     if (value === '' || /^[a-zA-Z0-9_-]*$/.test(value)) {
       setUsername(value);
     }
   };
+
+  const hasSSOProviders = providers.google || providers.oidc;
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-900 py-12 px-4 sm:px-6 lg:px-8">
@@ -146,8 +155,8 @@ const LoginForm = ({ onLoginSuccess, csrfToken }) => {
               <span className="absolute left-0 inset-y-0 flex items-center pl-3">
                 <LogIn className="h-5 w-5 text-blue-500 group-hover:text-blue-400" />
               </span>
-              {loading ? 'Signing in...' : 
-               !csrfToken ? 'Initializing security...' : 
+              {loading ? 'Signing in...' :
+               !csrfToken ? 'Initializing security...' :
                'Sign in'}
             </button>
             {!csrfToken && (
@@ -156,20 +165,24 @@ const LoginForm = ({ onLoginSuccess, csrfToken }) => {
               </p>
             )}
           </div>
-          
-          {/* Google SSO option */}
-          <div className="mt-5 relative">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-gray-600"></div>
-            </div>
-            <div className="relative flex justify-center text-sm">
-              <span className="px-3 bg-gray-900 text-gray-400">Or continue with</span>
-            </div>
-          </div>
 
-          <div className="mt-4">
-            <GoogleLoginButton />
-          </div>
+          {hasSSOProviders && (
+            <>
+              <div className="mt-5 relative">
+                <div className="absolute inset-0 flex items-center">
+                  <div className="w-full border-t border-gray-600"></div>
+                </div>
+                <div className="relative flex justify-center text-sm">
+                  <span className="px-3 bg-gray-900 text-gray-400">Or continue with</span>
+                </div>
+              </div>
+
+              <div className="mt-4 space-y-3">
+                {providers.google && <GoogleLoginButton />}
+                {providers.oidc   && <OIDCLoginButton providerName={providers.oidcProviderName} />}
+              </div>
+            </>
+          )}
         </form>
       </div>
     </div>

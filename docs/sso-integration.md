@@ -1,223 +1,229 @@
-# Google SSO Integration for Clio
+# SSO Integration Guide
 
-This document outlines how to set up and use Google SSO (Single Sign-On) with the Clio Logging Platform.
+Clio supports two SSO methods. Both are optional and can coexist — password login always works regardless.
+
+| Method | Use when |
+|---|---|
+| **Google OAuth** | Your team uses Google Workspace / Gmail |
+| **Generic OIDC** | You have an identity provider: Keycloak, Okta, Auth0, Azure AD, Ping, etc. |
 
 ## Table of Contents
-- [Overview](#overview)
-- [Google Cloud Console Setup](#google-cloud-console-setup)
-- [Generating Environment Configuration](#generating-environment-configuration)
-- [Using with Ngrok for Development](#using-with-ngrok-for-development)
-- [How It Works](#how-it-works)
+
+- [How SSO works in Clio](#how-sso-works-in-clio)
+- [Google OAuth Setup](#google-oauth-setup)
+  - [Omnibus (single container)](#google--omnibus)
+  - [HA docker compose](#google--ha-docker-compose)
+- [Generic OIDC Setup](#generic-oidc-setup)
+  - [Omnibus (single container)](#oidc--omnibus)
+  - [HA docker compose](#oidc--ha-docker-compose)
+  - [Provider-specific notes](#provider-specific-notes)
 - [Troubleshooting](#troubleshooting)
 
-## Overview
+---
 
-Clio now supports Google Single Sign-On (SSO) as an authentication method. This allows users to sign in using their Google accounts, eliminating the need to create and remember separate credentials for Clio.
+## How SSO works in Clio
 
-**Key Benefits:**
-- Simplified login experience
-- Reduced password management burden
-- Enhanced security through Google's authentication infrastructure
-- Automatic user creation based on Google profiles
+1. User clicks the SSO button on the login page (only shown when the provider is configured).
+2. Browser is redirected to the provider's login page.
+3. After successful authentication, the provider redirects back to Clio's callback URL.
+4. Clio validates the response, creates the user account on first login (regular permissions — never admin), and issues a session cookie.
+5. SSO users are never prompted to change their password.
 
-## Google Cloud Console Setup
+User accounts are keyed to the provider's unique subject identifier (`sub` for OIDC, Google ID for Google). A username is derived from the email address. If that username already exists, a numeric suffix is added (`johndoe`, `johndoe1`, etc.).
 
-Before configuring Google SSO in Clio, you need to set up OAuth 2.0 credentials in the Google Cloud Console:
+---
 
-1. **Create a Google Cloud Project**:
-   - Go to [Google Cloud Console](https://console.cloud.google.com/)
-   - Create a new project or select an existing one
+## Google OAuth Setup
 
-2. **Configure OAuth Consent Screen**:
-   - Navigate to "APIs & Services" > "OAuth consent screen"
-   - Select "External" (for testing) or "Internal" (for organization use)
-   - Fill in the required app information (name, contact email, etc.)
-   - Add scopes for `email` and `profile`
-   - Add test users if using External user type
-   - Save and continue
+### Register your app with Google
 
-3. **Create OAuth Credentials**:
-   - Navigate to "APIs & Services" > "Credentials"
-   - Click "Create Credentials" > "OAuth client ID"
-   - Select "Web application" as the application type
-   - Name your OAuth client
-   - Add Authorized JavaScript origins:
-     - Standard setup: `https://your-hostname`
-     - Ngrok setup: `https://your-subdomain.ngrok-free.app` (no port)
-   - Add Authorized redirect URIs:
-     - Standard setup: `https://your-hostname/api/auth/google/callback`
-     - Ngrok setup: `https://your-subdomain.ngrok-free.app/api/auth/google/callback` (no port)
-   - Click "Create"
+1. Open [Google Cloud Console](https://console.cloud.google.com/) → **APIs & Services** → **OAuth consent screen**.
+2. Choose **External** (anyone with a Google account) or **Internal** (Google Workspace org only).
+3. Fill in app name and contact email; add `email` and `profile` scopes.
+4. Go to **Credentials** → **Create Credentials** → **OAuth client ID** → **Web application**.
+5. Under **Authorized redirect URIs**, add:
+   ```
+   https://<your-hostname>/api/auth/google/callback
+   ```
+6. Copy the **Client ID** and **Client Secret**.
 
-4. **Note Your Credentials**:
-   - Once created, note your **Client ID** and **Client Secret**
-   - These values will be needed when running the environment setup script
+### Google — Omnibus
 
-## Generating Environment Configuration
+Pass the credentials as environment variables:
 
-The `generate-env.py` script now supports Google SSO configuration with the following options:
-
+**`docker run`:**
 ```bash
-python3 generate-env.py [frontend_url] --google-client-id=CLIENT_ID --google-client-secret=CLIENT_SECRET [--google-callback-url=CALLBACK_URL]
+docker run -d --name clio \
+  -p 443:443 -p 80:80 \
+  -e EXTERNAL_HOSTNAME=your-server-ip \
+  -e GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com \
+  -e GOOGLE_CLIENT_SECRET=your-client-secret \
+  -v clio-data:/data \
+  ghcr.io/seahop/clio:latest
 ```
 
-**Parameters**:
-
-- `frontend_url`: The URL where your application will be accessible. This determines the domain/IP used for certificate generation and application configuration.
-- `--google-client-id`: Your Google OAuth Client ID from Google Cloud Console
-- `--google-client-secret`: Your Google OAuth Client Secret from Google Cloud Console
-- `--google-callback-url`: (Optional) The full URL where Google should redirect after authentication. This is often your ngrok URL for development.
-
-**Important**: The `frontend_url` and `google-callback-url` serve different purposes:
-- `frontend_url` is for certificate generation and core application configuration
-- `google-callback-url` is specifically for Google OAuth redirects
-
-**Examples**:
-
-1. **Local development setup**:
-   ```bash
-   python3 generate-env.py https://localhost --google-client-id=123456789.apps.googleusercontent.com --google-client-secret=abcdef123456
-   ```
-
-2. **Setup with IP address (for local network access)**:
-   ```bash
-   python3 generate-env.py https://192.168.1.113 --google-client-id=123456789.apps.googleusercontent.com --google-client-secret=abcdef123456
-   ```
-
-3. **Setup with IP and ngrok for Google Auth**:
-   ```bash
-   python3 generate-env.py https://192.168.1.113 --google-client-id=123456789.apps.googleusercontent.com --google-client-secret=abcdef123456 --google-callback-url=https://your-subdomain.ngrok-free.app/api/auth/google/callback
-   ```
-
-4. **Production setup with custom domain**:
-   ```bash
-   python3 generate-env.py https://clio.example.com --google-client-id=123456789.apps.googleusercontent.com --google-client-secret=abcdef123456
-   ```
-
-If you don't specify a callback URL, the script will automatically generate one based on your frontend URL's hostname, which works for local development but not with ngrok tunnels.
-
-## Using with Ngrok for Development
-
-Ngrok is useful for exposing your local development environment to the internet, which allows Google OAuth to work with your local setup. For Google authentication to work properly, Google needs to be able to redirect to your application after authentication, which requires a publicly accessible URL.
-
-### Step-by-Step Ngrok Setup
-
-1. **Start ngrok pointing to port 443**:
-   ```bash
-   ngrok http https://yourIPorHostname
-   ```
-   
-   For a more consistent experience, use a fixed subdomain (requires ngrok account):
-   ```bash
-   ngrok http https://yourIPorHostname --subdomain=your-subdomain
-   ```
-
-2. **Note your ngrok URL** (e.g., `https://abcd-123-45-67-89.ngrok-free.app`)
-
-3. **Update Google Cloud Console with your ngrok URL**:
-   - Set JavaScript origin to: `https://your-subdomain.ngrok-free.app` (no port)
-   - Set redirect URI to: `https://your-subdomain.ngrok-free.app/api/auth/google/callback` (no port)
-
-4. **Generate your environment with your local IP/hostname and ngrok callback URL**:
-   ```bash
-   python3 generate-env.py https://192.168.1.1 --google-client-id=YOUR_CLIENT_ID --google-client-secret=YOUR_CLIENT_SECRET --google-callback-url=https://your-subdomain.ngrok-free.app/api/auth/google/callback
-   ```
-
-   Note: The first URL is your local IP/hostname, while the callback URL is your ngrok URL.
-
-5. **Start your Clio application**:
-   ```bash
-   docker-compose up --build
-   ```
-
-6. **Access your application** through the ngrok URL in your browser
-
-### Ngrok Command Specifics
-
-When starting ngrok, you can use either:
-
-```bash
-# Basic usage - just specify the port
-ngrok http 443
+**`docker-compose.omnibus.yml`** — uncomment and fill in:
+```yaml
+environment:
+  EXTERNAL_HOSTNAME: "your-server-ip"
+  GOOGLE_CLIENT_ID: "your-client-id.apps.googleusercontent.com"
+  GOOGLE_CLIENT_SECRET: "your-client-secret"
 ```
 
-Or, for a system where your Clio is configured with a specific local IP:
-
-```bash
-# Point to specific IP and port
-ngrok http https://192.168.1.1
+The callback URL defaults to `https://<EXTERNAL_HOSTNAME>/api/auth/google/callback`. If you need a different URL (e.g., for ngrok):
+```yaml
+GOOGLE_CALLBACK_URL: "https://your-ngrok-subdomain.ngrok-free.app/api/auth/google/callback"
 ```
 
-Both approaches will work, but the first one is simpler and usually sufficient.
-
-### Working Example
-
-Here's a complete working example with the correct order of operations:
+### Google — HA docker compose
 
 ```bash
-# 1. Start ngrok
-ngrok http https://192.168.1.1
+# Run the setup script with Google credentials
+sudo python3 generate-env.py https://yourdomain.com \
+  --google-client-id=YOUR_CLIENT_ID \
+  --google-client-secret=YOUR_CLIENT_SECRET
 
-# 2. Get your ngrok URL (e.g., https://abcd-123-45-67-89.ngrok-free.app)
-# 3. Set this URL in Google Cloud Console for JavaScript origin and redirect URI
-The Javascript origin might look like this:https://abcd-123-45-67-89.ngrok-free.app
-The Redirect URL might look like this: https://abcd-123-45-67-89.ngrok-free.app/api/auth/google/callback
+# Or with Let's Encrypt
+sudo python3 generate-env.py https://yourdomain.com \
+  --letsencrypt --domain=yourdomain.com \
+  --email=your@email.com \
+  --google-client-id=YOUR_CLIENT_ID \
+  --google-client-secret=YOUR_CLIENT_SECRET
 
-# 4. Generate environment with local IP and ngrok callback
-python3 generate-env.py https://192.168.1.1 --google-client-id=123456789.apps.googleusercontent.com --google-client-secret=GOCSPX-abcdefghijklmno --google-callback-url=https://abcd-123-45-67-89.ngrok-free.app/api/auth/google/callback
-
-# 5. Start the application
-docker-compose up --build
-
-# 6. Access via your ngrok URL in the browser
+docker compose build && docker compose up -d
 ```
 
-### Important Notes for Ngrok Usage
+---
 
-- **Do not include the port** in your ngrok URL configurations in Google Cloud Console
-- Ngrok URLs expire unless you have a paid plan with fixed subdomains
-- Every time your ngrok URL changes, you need to:
-  1. Update the redirect URI in Google Cloud Console
-  2. Re-run `generate-env.py` with the new ngrok URL as the callback URL
-  3. Restart your application
-- The ngrok tunnel must be running whenever you want to use Google SSO
-- Remember: Your local setup URL (first parameter) and Google callback URL (optional parameter) serve different purposes:
-  - The local URL (e.g., `https://192.168.1.1`) is for certificate generation and where your application runs
-  - The callback URL (e.g., `https://abcd-123-45-67-89.ngrok-free.app/api/auth/google/callback`) is where Google redirects after authentication
+## Generic OIDC Setup
 
-## How It Works
+Works with any provider that implements [OpenID Connect Core](https://openid.net/specs/openid-connect-core-1_0.html). Clio uses auto-discovery (`/.well-known/openid-configuration`) — you only need the issuer URL, client ID, and client secret.
 
-1. **User clicks "Sign in with Google"** on the Clio login page
-2. User is redirected to Google's authentication page
-3. After successful Google authentication, user is redirected back to Clio
-4. If it's the user's first time, a new account is automatically created
-5. User is logged in and a session is created
+### Register Clio as a client in your provider
 
-**User Creation Logic**:
-- A username is generated from the user's Google email (e.g., johndoe@gmail.com → johndoe)
-- If the username already exists, a number is appended (e.g., johndoe1, johndoe2)
-- Google SSO users are always created with regular user permissions, never admin
-- The Google account ID is linked to the Clio username for future logins
+The exact steps vary by provider, but you will always need to:
+
+1. Create a new **confidential** client (client secret required) with the **Authorization Code** grant type.
+2. Add the following as an allowed redirect / callback URI:
+   ```
+   https://<your-hostname>/api/auth/oidc/callback
+   ```
+3. Note the **Client ID**, **Client Secret**, and **Issuer URL**.
+
+The issuer URL is the base URL of your provider's OIDC metadata endpoint. Examples:
+
+| Provider | Issuer URL format |
+|---|---|
+| Keycloak | `https://keycloak.example.com/realms/<realm>` |
+| Okta | `https://<tenant>.okta.com` or `https://<tenant>.okta.com/oauth2/<authServerId>` |
+| Auth0 | `https://<tenant>.auth0.com/` |
+| Azure AD | `https://login.microsoftonline.com/<tenantId>/v2.0` |
+| Google (via OIDC) | `https://accounts.google.com` |
+
+### OIDC — Omnibus
+
+**`docker run`:**
+```bash
+docker run -d --name clio \
+  -p 443:443 -p 80:80 \
+  -e EXTERNAL_HOSTNAME=your-server-ip \
+  -e OIDC_ISSUER_URL=https://keycloak.example.com/realms/myrealm \
+  -e OIDC_CLIENT_ID=clio \
+  -e OIDC_CLIENT_SECRET=your-client-secret \
+  -e OIDC_PROVIDER_NAME=Keycloak \
+  -v clio-data:/data \
+  ghcr.io/seahop/clio:latest
+```
+
+**`docker-compose.omnibus.yml`** — uncomment and fill in:
+```yaml
+environment:
+  EXTERNAL_HOSTNAME: "your-server-ip"
+  OIDC_ISSUER_URL: "https://keycloak.example.com/realms/myrealm"
+  OIDC_CLIENT_ID: "clio"
+  OIDC_CLIENT_SECRET: "your-client-secret"
+  OIDC_PROVIDER_NAME: "Keycloak"
+```
+
+`OIDC_CALLBACK_URL` defaults to `https://<EXTERNAL_HOSTNAME>/api/auth/oidc/callback`. Override it if your deployment URL differs from `EXTERNAL_HOSTNAME`.
+
+#### All OIDC environment variables
+
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `OIDC_ISSUER_URL` | Yes | — | Provider's issuer URL (used for auto-discovery) |
+| `OIDC_CLIENT_ID` | Yes | — | Client ID registered with your provider |
+| `OIDC_CLIENT_SECRET` | Yes | — | Client secret from your provider |
+| `OIDC_CALLBACK_URL` | No | `https://<EXTERNAL_HOSTNAME>/api/auth/oidc/callback` | Must match exactly what you registered in the provider |
+| `OIDC_PROVIDER_NAME` | No | `SSO` | Label shown on the login button |
+| `OIDC_SCOPE` | No | `openid email profile` | Scopes to request; adjust if your provider uses non-standard scope names |
+
+### OIDC — HA docker compose
+
+After running `generate-env.py`, add the OIDC variables to `backend/.env`:
+
+```env
+OIDC_ISSUER_URL=https://keycloak.example.com/realms/myrealm
+OIDC_CLIENT_ID=clio
+OIDC_CLIENT_SECRET=your-client-secret
+OIDC_CALLBACK_URL=https://yourdomain.com/api/auth/oidc/callback
+OIDC_PROVIDER_NAME=Keycloak
+```
+
+Then rebuild and restart:
+```bash
+docker compose build backend && docker compose up -d backend
+```
+
+### Provider-specific notes
+
+**Keycloak:**
+- Create a client with **Client authentication** enabled (confidential).
+- Set **Valid redirect URIs** to `https://<your-hostname>/api/auth/oidc/callback`.
+- Issuer URL: `https://<keycloak-host>/realms/<realm-name>`.
+- Make sure the `email` mapper is enabled in the client scope.
+
+**Okta:**
+- Create an **OIDC Web Application** in the Okta developer console.
+- Add `https://<your-hostname>/api/auth/oidc/callback` to **Sign-in redirect URIs**.
+- If using a custom auth server, use `https://<tenant>.okta.com/oauth2/<authServerId>` as the issuer.
+
+**Azure AD (Entra ID):**
+- Register an application, add a **Web** redirect URI.
+- Issuer: `https://login.microsoftonline.com/<tenantId>/v2.0`.
+- Grant `openid`, `email`, `profile` delegated permissions.
+- Azure does not include `email` in the ID token by default for personal accounts — add the **email** optional claim in the token configuration.
+
+**Auth0:**
+- Create a **Regular Web Application**.
+- Add `https://<your-hostname>/api/auth/oidc/callback` to **Allowed Callback URLs**.
+- Issuer: `https://<your-tenant>.auth0.com/`.
+
+---
 
 ## Troubleshooting
 
-**Common Issues**:
+**"SSO authentication failed" on the login page**
+- Check container logs: `docker logs clio`
+- Verify the callback URL registered in your provider exactly matches what Clio uses.
+- Ensure your server's clock is synchronized — OIDC token validation is time-sensitive.
 
-1. **"Error: redirect_uri_mismatch"**
-   - Ensure the callback URL in Google Cloud Console exactly matches what's configured in Clio
-   - For ngrok, make sure you're not including the port in Google Cloud Console
+**Login button does not appear**
+- The button only shows when the provider is fully configured. Check that all three required variables are set (`ISSUER_URL`, `CLIENT_ID`, `CLIENT_SECRET` for OIDC or `CLIENT_ID` + `CLIENT_SECRET` for Google).
+- For the omnibus build, verify the env vars were passed correctly: `docker inspect clio | grep -A20 Env`.
 
-2. **"Error: invalid_client"**
-   - Double-check that your Client ID and Client Secret are correct
-   - Make sure the OAuth consent screen is properly configured
+**"OIDC client initialisation failed" in logs**
+- Clio fetches `<OIDC_ISSUER_URL>/.well-known/openid-configuration` at startup. The container must be able to reach your provider over the network.
+- Check that the issuer URL is correct (no trailing slash issues) by curling it from the container:
+  ```bash
+  docker exec clio curl -k <OIDC_ISSUER_URL>/.well-known/openid-configuration
+  ```
 
-3. **"Failed to initialize Google SSO"**
-   - Check if your environment variables are correctly set in the .env file
-   - Verify that Google Client ID and Secret values are not empty
+**"redirect_uri_mismatch" from the provider**
+- The `OIDC_CALLBACK_URL` (or `GOOGLE_CALLBACK_URL`) must exactly match the redirect URI registered in the provider — including scheme, hostname, port, and path.
 
-4. **"Google authentication failed" message on login page**
-   - Check the backend logs for detailed error information
-   - Verify network connectivity between your server and Google's authentication servers
-   - Ensure your server's time is correctly synchronized (OAuth requires accurate time)
+**Google: "Error: invalid_client"**
+- Verify Client ID and Secret are correct and the OAuth consent screen is fully configured.
 
-If you encounter persistent issues, check the server logs for more detailed error messages.
+**Users created with wrong username**
+- Usernames are derived from the `preferred_username` claim (OIDC) or the email prefix (Google/OIDC fallback). The claim must be present in the ID token. Add the relevant mapper/claim in your provider's client configuration.

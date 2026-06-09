@@ -1,36 +1,83 @@
 # Architecture Overview
 
-Clio uses a microservices architecture with four primary components designed for security, scalability, and clear separation of concerns.
+Clio is designed for security, simplicity, and clear separation of concerns. Two deployment modes are supported: a single omnibus container and a multi-container HA stack.
 
 ## System Architecture
 
-The application consists of the following services:
+### HA multi-container stack
 
-1. **Nginx Proxy**: HTTPS termination and traffic routing to the frontend
-2. **Frontend**: React-based UI with real-time data visualization and API routing
-3. **Backend**: Core API service for authentication and logging operations
-4. **Relation Service**: Analysis service that builds relationships between log entries
-5. **Redis**: Session management and caching
-6. **PostgreSQL**: Relational database for persistent storage
+Five containers communicate over isolated Docker networks:
 
-![Service Connections](../images/service_connections.png)
+1. **Nginx Proxy** — HTTPS termination and traffic routing to the frontend
+2. **Frontend** — React UI; proxies `/api/*` to the backend
+3. **Backend** — Core API: authentication, logging, relational analysis, evidence, exports
+4. **Redis** — Session management, JWT tracking, and caching
+5. **PostgreSQL** — Persistent relational database
 
-The Nginx proxy serves as the initial secure gateway, terminating HTTPS connections with proper certificates (either Let's Encrypt or self-signed). It forwards all traffic to the frontend service, which then acts as an intelligent router to both backend services via a proxy configuration. This ensures that only the frontend server communicates with backend services, while the backend and relation-service remain protected internally.
+> **Note:** The relation analysis service (previously a separate `relation-service` container on port 3002) has been consolidated into the backend. All relational analysis endpoints are served by the backend at `/api/relations/*`. The frontend proxy path `/relation-service/api/*` is rewritten to `/api/*` at the Nginx/proxy layer for backward compatibility.
+
+```mermaid
+graph TD
+    Internet((Internet\n:80 / :443))
+
+    Internet -->|HTTPS| Nginx["Nginx Proxy\n(nginx-proxy)"]
+
+    subgraph frontend-net ["frontend-network (internal)"]
+        Nginx -->|HTTPS :3000| Frontend["Frontend\nReact :3000"]
+        Frontend -->|/api/*\nHTTPS :3001| Backend["Backend\nNode.js :3001\n\n• Auth & sessions\n• Logs & evidence\n• Exports\n• Relation analysis\n• API key ingest"]
+    end
+
+    subgraph backend-net ["backend-network (no external access)"]
+        Backend -->|TLS :6379| Redis[("Redis\n:6379\n\nJWT store\nCSRF tokens\nSSO state")]
+        Backend -->|TLS :5432| PG[("PostgreSQL\n:5432\n\nlogs, tags, relations\nevidence, operations\napi_keys, templates")]
+    end
+
+    style Internet fill:#1a1a2e,color:#fff,stroke:#4a9eff
+    style Nginx fill:#2d4a2d,color:#fff,stroke:#5a9a5a
+    style Frontend fill:#2d3a4a,color:#fff,stroke:#5a7a9a
+    style Backend fill:#3a2d4a,color:#fff,stroke:#7a5a9a
+    style Redis fill:#4a2d2d,color:#fff,stroke:#9a5a5a
+    style PG fill:#4a3a2d,color:#fff,stroke:#9a7a5a
+```
+
+### Omnibus single-container
+
+All five components (Nginx, backend, Redis, PostgreSQL, and supervisord as the process manager) run inside one image. All state is stored in a mounted Docker volume (`/data`).
+
+```mermaid
+graph TD
+    Internet((Internet\n:80 / :443))
+    Internet -->|HTTPS| NginxO["Nginx\n:80 / :443"]
+
+    subgraph Container ["Docker Container (omnibus)"]
+        NginxO -->|:3001| BackendO["Backend\nNode.js :3001"]
+        BackendO -->|TLS :6379| RedisO[("Redis :6379")]
+        BackendO -->|TLS :5432| PGO[("PostgreSQL :5432")]
+    end
+
+    Container <-->|bind-mount| Volume[("clio-data volume\n/data\n\n• /data/pgdata\n• /data/redis\n• /data/certs\n• /data/exports\n• /data/evidence\n• /data/backend-data\n• /data/.secrets.env")]
+
+    style Internet fill:#1a1a2e,color:#fff,stroke:#4a9eff
+    style NginxO fill:#2d4a2d,color:#fff,stroke:#5a9a5a
+    style BackendO fill:#3a2d4a,color:#fff,stroke:#7a5a9a
+    style RedisO fill:#4a2d2d,color:#fff,stroke:#9a5a5a
+    style PGO fill:#4a3a2d,color:#fff,stroke:#9a7a5a
+    style Volume fill:#1a2d3a,color:#fff,stroke:#4a7a9a
+```
 
 ## Network Security
 
 - Only the Nginx proxy ports (80, 443) are exposed to external connections
-- Frontend, backend and relation-service ports are only accessible within the Docker network
+- Frontend and backend ports are only accessible within the Docker network
 - All external requests are proxied through Nginx to the frontend
-- The frontend then proxies API requests to the appropriate backend services
+- The frontend then proxies API requests to the backend
 - TLS certificates are used for all inter-service communication
 
-After deployment, the following services will be running:
+After deployment, the following services will be running (HA stack):
 
 - **Nginx Proxy**: http://localhost:80 and https://localhost:443 (exposed to users)
 - **Frontend**: https://frontend:3000 (internal only)
 - **Backend**: https://backend:3001 (internal only)
-- **Relation Service**: https://relation-service:3002 (internal only)
 - **Redis**: rediss://redis:6379 (internal only)
 - **PostgreSQL**: postgres://db:5432 (internal only)
 
@@ -56,46 +103,64 @@ After deployment, the following services will be running:
 - **JWT 9.0.2**: For secure authentication
 - **Docker & Docker Compose**: For containerization and orchestration
 
-### Relation Service
-- **Node.js 23**: Server runtime environment
-- **Express.js 4.18.2**: Web framework
-- **Shared PostgreSQL database**: For data consistency across services
-- **Specialized analysis algorithms**: For relationship mapping
+### Relation Analysis (built into Backend)
+- Analyzers run as in-process services within the backend (no separate container)
+- Debounced scheduling via `analysisScheduler.js` — batches updates after log writes
+- Scheduled cron jobs for periodic full-sweep analysis
+- Five analysis tables in the shared PostgreSQL database: `relations`, `log_relationships`, `file_status`, `file_status_history`, `tag_relationships`
 
 ## Data Flow
 
-1. **Initial Connection**:
-   - User connects to Nginx proxy via HTTPS
-   - Nginx terminates SSL and forwards the request to the frontend service
-   - Frontend serves the React application to the user
+### Browser request flow
 
-2. **User Authentication**:
-   - User credentials are submitted to the frontend
-   - Frontend proxies the request to the backend via the `/api/auth` path
-   - Backend validates credentials and issues a JWT token
-   - Token is stored as an HTTP-only cookie
+```mermaid
+sequenceDiagram
+    participant B as Browser
+    participant N as Nginx
+    participant F as Frontend
+    participant K as Backend
+    participant R as Redis
+    participant D as PostgreSQL
 
-3. **Log Operations**:
-   - Log entries are submitted through the frontend
-   - Frontend proxies the request to the backend via the `/api/logs` path
-   - Backend handles CRUD operations and persistence
-   - Changes are logged to audit trails
-   - Frontend proxies requests to relation service as needed via the `/relation-service/api` path
-   - Relation service analyzes logs to build relationship graphs
+    B->>N: HTTPS GET /
+    N->>F: proxy → :3000
+    F-->>B: React app (HTML/JS)
 
-4. **API Integration**:
-   - External tools authenticate using API keys
-   - Log data is submitted through the Nginx proxy to the `/ingest` endpoint
-   - Frontend proxies these requests to the backend service 
-   - Backend validates, sanitizes, and stores the data
-   - Audit events track all API operations
+    Note over B,K: Login
+    B->>F: POST /api/auth/login
+    F->>K: proxy → :3001 /api/auth/login
+    K->>R: verify + store JWT (jti)
+    K-->>B: Set-Cookie: token (httpOnly)
 
-5. **S3 Integration**:
-   - Log archives are automatically exported to S3 during rotation
-   - AWS SDK handles secure uploads with proper credentials
-   - S3 exports can be triggered manually or automatically
-   - Configuration is stored in the data directory
-   - Pre-signed URLs are used for reliable uploads
+    Note over B,K: Log write
+    B->>F: POST /api/logs  + CSRF-Token header
+    F->>K: proxy → :3001 /api/logs
+    K->>R: validate JWT + CSRF
+    K->>D: INSERT log + tag
+    K->>K: scheduleRelationAnalysis()
+    K-->>B: 201 Created
+
+    Note over K,D: Background — relation analysis
+    K->>D: SELECT recent logs
+    K->>D: UPSERT relations / log_relationships
+```
+
+### C2 / API ingest flow
+
+```mermaid
+sequenceDiagram
+    participant C2 as C2 Framework
+    participant N as Nginx
+    participant K as Backend
+    participant D as PostgreSQL
+
+    C2->>N: POST /api/ingest  x-api-key: <key>
+    N->>K: proxy → :3001 /api/ingest
+    K->>D: SELECT api_keys WHERE prefix = ...
+    K->>K: verify key hash + operation scope
+    K->>D: INSERT log + operation tag
+    K-->>C2: 201 Created
+```
 
 ## Containerization
 

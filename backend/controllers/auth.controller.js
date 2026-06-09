@@ -281,28 +281,34 @@ const getCurrentUser = async (req, res) => {
     const isAdmin = req.user.role === 'admin';
     
     // Check for Google SSO flag either in the JWT token or in Redis
-    let isGoogleSSO = req.user.isGoogleSSO === true || req.user.googleId;
-    
-    // If not already identified as Google SSO, check Redis for Google ID mapping
+    let isGoogleSSO = req.user.isGoogleSSO === true || !!req.user.googleId;
+    let isOIDCSSO   = req.user.isOIDCSSO === true;
+
     if (!isGoogleSSO) {
       try {
-        // Check if this user has a Google ID mapping
         const hasGoogleId = await redisClient.exists(`user:${username}:googleId`);
-        if (hasGoogleId) {
-          console.log(`User ${username} identified as Google SSO user via Redis lookup`);
-          isGoogleSSO = true;
-        }
+        if (hasGoogleId) isGoogleSSO = true;
       } catch (redisError) {
         console.warn('Error checking Redis for Google ID:', redisError);
-        // Continue without Redis check - don't block the authentication
       }
     }
 
-    // Only check for password reset requirements if not a Google SSO user
+    if (!isOIDCSSO) {
+      try {
+        const hasOIDC = await redisClient.exists(`user:${username}:isOIDCSSO`);
+        if (hasOIDC) isOIDCSSO = true;
+      } catch (redisError) {
+        console.warn('Error checking Redis for OIDC SSO:', redisError);
+      }
+    }
+
+    const isSSOUser = isGoogleSSO || isOIDCSSO;
+
+    // Only check for password reset requirements if not an SSO user
     let passwordResetRequired = false;
     let isFirstTime = false;
-    
-    if (!isGoogleSSO) {
+
+    if (!isSSOUser) {
       // Check if there's a password reset flag for this user
       const passwordResetKey = `user:password_reset:${username}`;
       try {
@@ -330,14 +336,13 @@ const getCurrentUser = async (req, res) => {
       userAgent: req.get('User-Agent')
     });
 
-    // Return user data with the requiresPasswordChange flag if needed
-    // CRITICAL: Google SSO users should NEVER require password change
+    // SSO users (Google or OIDC) never require a password change
     res.json({
       username: req.user.username,
       role: req.user.role,
-      isGoogleSSO: isGoogleSSO,
-      // Google SSO users never need to change password
-      requiresPasswordChange: isGoogleSSO ? false : (isFirstTime || passwordResetRequired)
+      isGoogleSSO,
+      isOIDCSSO,
+      requiresPasswordChange: isSSOUser ? false : (isFirstTime || passwordResetRequired),
     });
   } catch (error) {
     console.error('Error checking password status:', error);
@@ -619,6 +624,18 @@ const googleLoginCallback = async (req, res) => {
   }
 };
 
+// Returns which SSO providers are currently configured so the login page
+// can show only the relevant buttons without exposing credentials.
+const getAuthProviders = (req, res) => {
+  const { isOIDCConfigured } = require('../lib/oidc-client');
+  const oidcConfig = require('../config/oidc');
+  res.json({
+    google: !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET),
+    oidc:   isOIDCConfigured(),
+    oidcProviderName: oidcConfig.providerName,
+  });
+};
+
 module.exports = {
   loginUser,
   logoutUser,
@@ -627,5 +644,6 @@ module.exports = {
   changePassword,
   forcePasswordReset,
   changeOwnPassword,
-  googleLoginCallback
+  googleLoginCallback,
+  getAuthProviders,
 };

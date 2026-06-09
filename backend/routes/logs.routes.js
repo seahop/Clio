@@ -295,8 +295,13 @@ router.delete('/:id', authenticateJwt, verifyAdmin, async (req, res, next) => {
       return res.status(404).json({ error: 'Log not found' });
     }
 
-    // Cascade delete relations referencing this log
-    await cascadeDeleteRelations(id);
+    // Cascade delete relations referencing this log (non-fatal: the log is already
+    // gone, so a cascade error must not roll back the 200 response to a 500).
+    try {
+      await cascadeDeleteRelations(id);
+    } catch (cascadeErr) {
+      console.error('Cascade delete failed (non-fatal):', cascadeErr.message);
+    }
 
     // For logging purposes, create a redacted version that doesn't include secrets
     const safeDeletedLog = redactSensitiveData(deletedLog, ['secrets']);

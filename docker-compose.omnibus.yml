@@ -35,6 +35,24 @@ services:
       # Optional: mount your own TLS certificate instead of the auto-generated one.
       # TLS_CERT_FILE: /run/secrets/tls.crt
       # TLS_KEY_FILE:  /run/secrets/tls.key
+
+      # ── Google SSO (optional) ─────────────────────────────────────────────
+      # Register https://<EXTERNAL_HOSTNAME>/api/auth/google/callback as an
+      # authorized redirect URI in the Google Cloud Console.
+      # GOOGLE_CLIENT_ID: "your-client-id.apps.googleusercontent.com"
+      # GOOGLE_CLIENT_SECRET: "your-client-secret"
+      # GOOGLE_CALLBACK_URL: ""   # defaults to https://<EXTERNAL_HOSTNAME>/api/auth/google/callback
+
+      # ── Generic OIDC (optional) ───────────────────────────────────────────
+      # Works with any OIDC-compliant provider: Keycloak, Okta, Auth0, Azure AD, etc.
+      # Register https://<EXTERNAL_HOSTNAME>/api/auth/oidc/callback as an
+      # allowed redirect URI in your provider.
+      # OIDC_ISSUER_URL: "https://your-provider/realms/your-realm"
+      # OIDC_CLIENT_ID: "clio"
+      # OIDC_CLIENT_SECRET: "your-client-secret"
+      # OIDC_PROVIDER_NAME: "Keycloak"   # label shown on the login button
+      # OIDC_CALLBACK_URL: ""            # defaults to https://<EXTERNAL_HOSTNAME>/api/auth/oidc/callback
+      # OIDC_SCOPE: "openid email profile"  # default; adjust if your provider requires different scopes
     restart: unless-stopped
     # Healthcheck hits the backend health endpoint via nginx
     healthcheck:
