@@ -45,7 +45,7 @@ services:
       # authorized redirect URI in the Google Cloud Console.
       # GOOGLE_CLIENT_ID: "your-client-id.apps.googleusercontent.com"
       # GOOGLE_CLIENT_SECRET: "your-client-secret"
-      # GOOGLE_CALLBACK_URL: ""   # defaults to https://<EXTERNAL_HOSTNAME>/api/auth/google/callback
+      # GOOGLE_CALLBACK_URL: ""   # defaults to https://<EXTERNAL_HOSTNAME>[:<EXTERNAL_PORT>]/api/auth/google/callback
 
       # ── Generic OIDC (optional) ───────────────────────────────────────────
       # Works with any OIDC-compliant provider: Keycloak, Okta, Auth0, Azure AD, etc.
@@ -55,8 +55,10 @@ services:
       # OIDC_CLIENT_ID: "clio"
       # OIDC_CLIENT_SECRET: "your-client-secret"
       # OIDC_PROVIDER_NAME: "Keycloak"   # label shown on the login button
-      # OIDC_CALLBACK_URL: ""            # defaults to https://<EXTERNAL_HOSTNAME>/api/auth/oidc/callback
+      # OIDC_CALLBACK_URL: ""            # defaults to https://<EXTERNAL_HOSTNAME>[:<EXTERNAL_PORT>]/api/auth/oidc/callback
       # OIDC_SCOPE: "openid email profile"  # default; adjust if your provider requires different scopes
+      # OIDC_ID_TOKEN_ALG: ""            # override the ID-token signing algorithm (e.g. ES256) if
+      #                                  # auto-detection from the provider's JWKS picks the wrong one
     restart: unless-stopped
     # Healthcheck hits the backend health endpoint via nginx
     healthcheck:

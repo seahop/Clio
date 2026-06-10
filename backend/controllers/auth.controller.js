@@ -7,7 +7,8 @@ const eventLogger = require('../lib/eventLogger');
 const security = require('../config/security');
 const { SESSION_OPTIONS } = require('../config/constants');
 const { createJwtToken, revokeJwtToken, revokeAllTokens } = require('../middleware/jwt.middleware');
-const { redisClient } = require('../lib/redis'); 
+const { redisClient } = require('../lib/redis');
+const { completeLoginRedirect } = require('../lib/ssoRedirect');
 
 const loginUser = async (req, res) => {
   const { username, password } = req.body;
@@ -573,11 +574,7 @@ const googleLoginCallback = async (req, res) => {
       // We'll set a flag that this user is a Google SSO user
       // This helps identify Google users even if the JWT token doesn't have the flag
       await redisClient.set(`user:${user.username}:isGoogleSSO`, 'true');
-      
-      // Also set a longer expiration time for Google user tokens
-      // This reduces login frequency for Google users
-      const extendedExpiryTime = '7d'; // 7 days instead of standard 8 hours
-      
+
       // Make sure any existing password reset flags are removed
       const passwordResetKey = `user:password_reset:${user.username}`;
       await redisClient.del(passwordResetKey);
@@ -586,8 +583,9 @@ const googleLoginCallback = async (req, res) => {
       // Continue with authentication even if Redis operations fail
     }
     
-    // Create JWT token with extended expiry for Google users
-    const tokenData = await createJwtToken(user, { expiresIn: '7d' });
+    // 9h matches SESSION_OPTIONS.maxAge — the cookie and the token expire
+    // together, after which the user simply signs in with Google again.
+    const tokenData = await createJwtToken(user, { expiresIn: '9h' });
     
     if (!tokenData) {
       throw new Error('Failed to create authentication token');
@@ -607,7 +605,7 @@ const googleLoginCallback = async (req, res) => {
     
     // Save login info to help frontend identify Google SSO after page refreshes
     // Make sure to add this info to the redirect URL so frontend can detect it
-    return res.redirect('/?auth=google');
+    return completeLoginRedirect(res, '/?auth=google');
   } catch (error) {
     console.error('Google auth callback error:', error);
     

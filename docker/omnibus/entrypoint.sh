@@ -242,20 +242,27 @@ EOF
 chmod 600 /app/backend/.env
 
 # ── Optional SSO config ─────────────────────────────────────────────────────
-# Google SSO: pass through if provided as container env vars
-[ -n "$GOOGLE_CLIENT_ID"     ] && echo "GOOGLE_CLIENT_ID=$GOOGLE_CLIENT_ID"         >> /app/backend/.env
-[ -n "$GOOGLE_CLIENT_SECRET" ] && echo "GOOGLE_CLIENT_SECRET=$GOOGLE_CLIENT_SECRET" >> /app/backend/.env
-[ -n "$GOOGLE_CALLBACK_URL"  ] && echo "GOOGLE_CALLBACK_URL=$GOOGLE_CALLBACK_URL"   >> /app/backend/.env
+# Callback URLs default to the external URL ($_FRONTEND_URL) so they honour
+# EXTERNAL_PORT on non-standard port mappings, matching what CORS allows.
 
-# Generic OIDC: pass through if provided; auto-generate callback URL from EXTERNAL_HOSTNAME
+# Google SSO: pass through if provided as container env vars
+if [ -n "$GOOGLE_CLIENT_ID" ]; then
+  echo "GOOGLE_CLIENT_ID=$GOOGLE_CLIENT_ID"                                          >> /app/backend/.env
+  echo "GOOGLE_CLIENT_SECRET=$GOOGLE_CLIENT_SECRET"                                  >> /app/backend/.env
+  _GOOGLE_CB="${GOOGLE_CALLBACK_URL:-$_FRONTEND_URL/api/auth/google/callback}"
+  echo "GOOGLE_CALLBACK_URL=$_GOOGLE_CB"                                             >> /app/backend/.env
+fi
+
+# Generic OIDC: pass through if provided; auto-generate callback URL
 if [ -n "$OIDC_ISSUER_URL" ]; then
   echo "OIDC_ISSUER_URL=$OIDC_ISSUER_URL"                                            >> /app/backend/.env
   echo "OIDC_CLIENT_ID=$OIDC_CLIENT_ID"                                              >> /app/backend/.env
   echo "OIDC_CLIENT_SECRET=$OIDC_CLIENT_SECRET"                                      >> /app/backend/.env
-  _OIDC_CB="${OIDC_CALLBACK_URL:-https://$_EXT_HOST/api/auth/oidc/callback}"
+  _OIDC_CB="${OIDC_CALLBACK_URL:-$_FRONTEND_URL/api/auth/oidc/callback}"
   echo "OIDC_CALLBACK_URL=$_OIDC_CB"                                                 >> /app/backend/.env
   [ -n "$OIDC_PROVIDER_NAME" ] && echo "OIDC_PROVIDER_NAME=$OIDC_PROVIDER_NAME"     >> /app/backend/.env
   [ -n "$OIDC_SCOPE"         ] && echo "OIDC_SCOPE=$OIDC_SCOPE"                     >> /app/backend/.env
+  [ -n "$OIDC_ID_TOKEN_ALG"  ] && echo "OIDC_ID_TOKEN_ALG=$OIDC_ID_TOKEN_ALG"       >> /app/backend/.env
 fi
 
 # Also export them so that supervisord child processes inherit them directly

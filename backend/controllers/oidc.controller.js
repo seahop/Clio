@@ -11,8 +11,12 @@ const eventLogger = require('../lib/eventLogger');
 const { redisClient }   = require('../lib/redis');
 const { createJwtToken } = require('../middleware/jwt.middleware');
 const { SESSION_OPTIONS } = require('../config/constants');
+const { completeLoginRedirect } = require('../lib/ssoRedirect');
 
 const OIDC_STATE_TTL = 600; // 10 minutes — enough for the user to log in at the provider
+// The oidc_state cookie holds up to this many pending states (joined with '|')
+// so logins started in parallel tabs don't invalidate each other.
+const MAX_PENDING_STATES = 5;
 
 // ── Initiate ────────────────────────────────────────────────────────────────
 const oidcInitiate = async (req, res) => {
@@ -30,7 +34,9 @@ const oidcInitiate = async (req, res) => {
     // SameSite=Lax is required: the browser must include this cookie when the
     // OIDC provider redirects back to our callback (a cross-site top-level GET).
     // SameSite=Strict would block the cookie on that redirect.
-    res.cookie('oidc_state', state, {
+    const pending = (req.cookies.oidc_state || '').split('|').filter(Boolean);
+    pending.push(state);
+    res.cookie('oidc_state', pending.slice(-MAX_PENDING_STATES).join('|'), {
       httpOnly: true,
       secure:   true,
       sameSite: 'lax',
@@ -85,10 +91,8 @@ const oidcCallback = async (req, res) => {
   }
   try {
     const client        = getOIDCClient();
-    const cookieState   = req.cookies.oidc_state;
+    const pendingStates = (req.cookies.oidc_state || '').split('|').filter(Boolean);
     const returnedState = req.query.state;
-
-    res.clearCookie('oidc_state');
 
     // Provider returned an error (e.g. user denied consent)
     if (req.query.error) {
@@ -96,31 +100,55 @@ const oidcCallback = async (req, res) => {
       return res.redirect('/login?error=oidc_auth_failed');
     }
 
-    // Verify state to guard against CSRF in the OAuth flow
-    if (!cookieState || cookieState !== returnedState) {
+    // Verify state to guard against CSRF in the OAuth flow. The cookie may
+    // hold several pending states (parallel tabs); consume only the one this
+    // callback returns so the other tabs' logins can still complete.
+    if (!returnedState || !pendingStates.includes(returnedState)) {
       console.error('OIDC state mismatch');
       return res.redirect('/login?error=oidc_auth_failed');
     }
+    const remainingStates = pendingStates.filter((s) => s !== returnedState);
+    if (remainingStates.length) {
+      res.cookie('oidc_state', remainingStates.join('|'), {
+        httpOnly: true,
+        secure:   true,
+        sameSite: 'lax',
+        maxAge:   OIDC_STATE_TTL * 1000,
+      });
+    } else {
+      res.clearCookie('oidc_state');
+    }
 
-    const nonce = await redisClient.get(`oidc:state:${cookieState}`);
+    const nonce = await redisClient.get(`oidc:state:${returnedState}`);
     if (!nonce) {
       console.error('OIDC state not found or expired');
       return res.redirect('/login?error=oidc_auth_failed');
     }
-    await redisClient.del(`oidc:state:${cookieState}`);
+    await redisClient.del(`oidc:state:${returnedState}`);
 
     // Exchange code for tokens and validate nonce
     const params   = client.callbackParams(req);
     const tokenSet = await client.callback(oidcConfig.callbackUrl, params, {
-      state: cookieState,
+      state: returnedState,
       nonce,
     });
 
-    const claims       = tokenSet.claims();
-    const sub          = claims.sub;
-    const email        = claims.email || `${sub}@oidc`;
-    const displayName  = claims.name || claims.preferred_username || email.split('@')[0];
-    const baseUsername = (claims.preferred_username || email.split('@')[0]);
+    // sub comes from the ID token — the correct token for authenticating the user.
+    // Profile claims (email, name) come from the UserInfo endpoint via the access
+    // token; the ID token is only authoritative for identity, not profile data.
+    const idClaims = tokenSet.claims();
+    const sub      = idClaims.sub;
+
+    let profile = idClaims;
+    try {
+      profile = await client.userinfo(tokenSet);
+    } catch (err) {
+      console.warn('OIDC UserInfo endpoint unavailable, falling back to ID token claims:', err.message);
+    }
+
+    const email        = profile.email || `${sub}@oidc`;
+    const displayName  = profile.name || profile.preferred_username || email.split('@')[0];
+    const baseUsername = (profile.preferred_username || email.split('@')[0]);
 
     if (!sub) {
       console.error('No sub claim in OIDC ID token');
@@ -152,7 +180,9 @@ const oidcCallback = async (req, res) => {
     user.isOIDCSSO   = true;
     user.requiresPasswordChange = false;
 
-    const tokenData = await createJwtToken(user, { expiresIn: '7d' });
+    // 9h matches SESSION_OPTIONS.maxAge — the cookie and the token expire
+    // together, after which the user simply signs in with OIDC again.
+    const tokenData = await createJwtToken(user, { expiresIn: '9h' });
     if (!tokenData) throw new Error('Failed to create JWT');
 
     res.cookie('token',      tokenData.token, SESSION_OPTIONS);
@@ -165,9 +195,16 @@ const oidcCallback = async (req, res) => {
       isOIDCSSO:   true,
     });
 
-    res.redirect('/?auth=oidc');
+    completeLoginRedirect(res, '/?auth=oidc');
   } catch (err) {
     console.error('OIDC callback error:', err);
+    const algMismatch = /unexpected JWT alg received.*?got:?\s*([A-Za-z0-9]+)/.exec(err.message || '');
+    if (algMismatch) {
+      console.error(
+        `Hint: the provider signs ID tokens with ${algMismatch[1]}. ` +
+        `Set OIDC_ID_TOKEN_ALG=${algMismatch[1]} and restart to fix this.`
+      );
+    }
     await eventLogger.logSecurityEvent('oidc_login_error', 'unknown', {
       error:     err.message,
       ip:        req.ip,
