@@ -78,7 +78,31 @@ gen_cert() {
     echo "$_HOST" > "$_host_file"
   fi
 }
-gen_cert server
+# Operator-provided TLS certificate (e.g. from an internal CA). When both
+# TLS_CERT_FILE and TLS_KEY_FILE are set and readable, they become the public
+# server certificate and self-signed generation for "server" is skipped, so
+# the provided cert can never be clobbered by an EXTERNAL_HOSTNAME change.
+# The cert file should contain the full chain (leaf + intermediates) and the
+# key must be an unencrypted PEM.
+if [ -n "$TLS_CERT_FILE" ] && [ -n "$TLS_KEY_FILE" ]; then
+  # -f (regular file) rather than -r: a botched single-file bind mount shows
+  # up as a directory, which must fall back to self-signed, not crash cp.
+  if [ -f "$TLS_CERT_FILE" ] && [ -f "$TLS_KEY_FILE" ]; then
+    echo "[clio] Using operator-provided TLS certificate: $TLS_CERT_FILE"
+    cp -f "$TLS_CERT_FILE" "$CERTS_DIR/server.crt"
+    cp -f "$TLS_KEY_FILE"  "$CERTS_DIR/server.key"
+    chmod 600 "$CERTS_DIR/server.key"
+    # Drop the sidecar so unsetting TLS_*_FILE later regenerates a fresh
+    # self-signed cert instead of silently keeping a stale copy.
+    rm -f "$CERTS_DIR/server.hostname"
+  else
+    echo "[clio] WARNING: TLS_CERT_FILE/TLS_KEY_FILE set but not readable" \
+         "($TLS_CERT_FILE / $TLS_KEY_FILE) — falling back to a self-signed certificate"
+    gen_cert server
+  fi
+else
+  gen_cert server
+fi
 gen_cert redis
 gen_cert db
 
@@ -212,6 +236,19 @@ if [ "$_EXT_PORT" = "443" ]; then
 else
   _FRONTEND_URL="https://$_EXT_HOST:$_EXT_PORT"
 fi
+
+# Outbound TLS trust. When the operator mounts an internal CA bundle and sets
+# NODE_EXTRA_CA_CERTS, keep certificate verification ON for outbound backend
+# calls (OIDC discovery/JWKS/token endpoints, webhooks) — the bundle extends
+# the system trust store. Without it, verification must stay off because
+# providers with self-signed certs would otherwise fail. Internal hops
+# (Redis/PostgreSQL) set rejectUnauthorized:false explicitly and are
+# unaffected either way.
+if [ -n "$NODE_EXTRA_CA_CERTS" ]; then
+  _TLS_REJECT_UNAUTH=1
+else
+  _TLS_REJECT_UNAUTH=0
+fi
 cat > /app/backend/.env <<EOF
 REDIS_ENCRYPTION_KEY=$REDIS_ENCRYPTION_KEY
 JWT_SECRET=$JWT_SECRET
@@ -235,11 +272,14 @@ HOSTNAME=$_EXT_HOST
 HTTPS=true
 SSL_CRT_FILE=$CERTS_DIR/server.crt
 SSL_KEY_FILE=$CERTS_DIR/server.key
-NODE_TLS_REJECT_UNAUTHORIZED=0
+NODE_TLS_REJECT_UNAUTHORIZED=$_TLS_REJECT_UNAUTH
 TZ=UTC
 PGTZ=UTC
 EOF
 chmod 600 /app/backend/.env
+if [ -n "$NODE_EXTRA_CA_CERTS" ]; then
+  echo "NODE_EXTRA_CA_CERTS=$NODE_EXTRA_CA_CERTS" >> /app/backend/.env
+fi
 
 # ── Optional SSO config ─────────────────────────────────────────────────────
 # Callback URLs default to the external URL ($_FRONTEND_URL) so they honour
@@ -281,7 +321,7 @@ export PORT=3001 NODE_ENV=production
 export FRONTEND_URL="$_FRONTEND_URL" HOSTNAME="$_EXT_HOST"
 export HTTPS=true
 export SSL_CRT_FILE="$CERTS_DIR/server.crt" SSL_KEY_FILE="$CERTS_DIR/server.key"
-export NODE_TLS_REJECT_UNAUTHORIZED=0 TZ=UTC PGTZ=UTC
+export NODE_TLS_REJECT_UNAUTHORIZED=$_TLS_REJECT_UNAUTH TZ=UTC PGTZ=UTC
 
 # Symlink backend data directories so exports and event logs persist to the volume.
 # backend/exports and backend/data ship as real directories in the Docker image

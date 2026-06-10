@@ -36,9 +36,18 @@ services:
       # This is included in FRONTEND_URL so CORS allows the correct browser origin.
       # Leave unset (or 443) when running on the default HTTPS port.
       # EXTERNAL_PORT: "8443"
-      # Optional: mount your own TLS certificate instead of the auto-generated one.
+      # Optional: mount your own TLS certificate instead of the auto-generated
+      # self-signed one (e.g. from an internal CA). Mount the files into the
+      # container (see volumes) and point these at them. The cert file must be
+      # the FULL CHAIN (leaf + intermediates); the key must be unencrypted PEM.
+      # When set, the cert is never overwritten by hostname changes.
       # TLS_CERT_FILE: /run/secrets/tls.crt
       # TLS_KEY_FILE:  /run/secrets/tls.key
+      # Optional: mount your internal CA bundle so outbound backend HTTPS calls
+      # (e.g. OIDC discovery/JWKS against an internal-CA identity provider) are
+      # verified against it. When set, outbound TLS verification is ENABLED
+      # (NODE_TLS_REJECT_UNAUTHORIZED=1); when unset, verification stays off.
+      # NODE_EXTRA_CA_CERTS: /run/secrets/internal-ca.pem
 
       # ── Google SSO (optional) ─────────────────────────────────────────────
       # Register https://<EXTERNAL_HOSTNAME>/api/auth/google/callback as an
