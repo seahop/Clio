@@ -274,7 +274,7 @@ export const useLoggerOperations = (currentUser, csrfToken) => {
       }
     } catch (err) {
       console.error('Error adding new row:', err);
-      setError('Failed to add new row');
+      setError(err.message || 'Failed to add new row');
     }
   };
 
@@ -325,7 +325,7 @@ export const useLoggerOperations = (currentUser, csrfToken) => {
       return newLog;
     } catch (err) {
       console.error('Error adding new row with template:', err);
-      setError('Failed to add new row with template');
+      setError(err.message || 'Failed to add new row with template');
       return null;
     }
   };

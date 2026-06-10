@@ -245,12 +245,15 @@ chmod 600 /app/backend/.env
 # Callback URLs default to the external URL ($_FRONTEND_URL) so they honour
 # EXTERNAL_PORT on non-standard port mappings, matching what CORS allows.
 
-# Google SSO: pass through if provided as container env vars
+# Google SSO: pass through if provided as container env vars.
+# The backend does not call dotenv, so the derived values must be exported —
+# the .env entries below only serve tools/tests that do load the file.
 if [ -n "$GOOGLE_CLIENT_ID" ]; then
   echo "GOOGLE_CLIENT_ID=$GOOGLE_CLIENT_ID"                                          >> /app/backend/.env
   echo "GOOGLE_CLIENT_SECRET=$GOOGLE_CLIENT_SECRET"                                  >> /app/backend/.env
   _GOOGLE_CB="${GOOGLE_CALLBACK_URL:-$_FRONTEND_URL/api/auth/google/callback}"
   echo "GOOGLE_CALLBACK_URL=$_GOOGLE_CB"                                             >> /app/backend/.env
+  export GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET GOOGLE_CALLBACK_URL="$_GOOGLE_CB"
 fi
 
 # Generic OIDC: pass through if provided; auto-generate callback URL
@@ -263,6 +266,8 @@ if [ -n "$OIDC_ISSUER_URL" ]; then
   [ -n "$OIDC_PROVIDER_NAME" ] && echo "OIDC_PROVIDER_NAME=$OIDC_PROVIDER_NAME"     >> /app/backend/.env
   [ -n "$OIDC_SCOPE"         ] && echo "OIDC_SCOPE=$OIDC_SCOPE"                     >> /app/backend/.env
   [ -n "$OIDC_ID_TOKEN_ALG"  ] && echo "OIDC_ID_TOKEN_ALG=$OIDC_ID_TOKEN_ALG"       >> /app/backend/.env
+  export OIDC_ISSUER_URL OIDC_CLIENT_ID OIDC_CLIENT_SECRET OIDC_CALLBACK_URL="$_OIDC_CB" \
+         OIDC_PROVIDER_NAME OIDC_SCOPE OIDC_ID_TOKEN_ALG
 fi
 
 # Also export them so that supervisord child processes inherit them directly

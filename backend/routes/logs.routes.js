@@ -56,6 +56,23 @@ router.get('/', authenticateJwt, async (req, res, next) => {
 // Create new log
 router.post('/', authenticateJwt, async (req, res, next) => {
   try {
+    // Non-admin logs are only visible when tagged with the user's active
+    // operation. Without one, the row would be created but immediately
+    // invisible to its creator — reject up front instead.
+    if (req.user.role !== 'admin') {
+      const activeOp = await OperationsModel.getUserActiveOperation(req.user.username);
+      if (!activeOp || !activeOp.tag_id) {
+        await eventLogger.logDataEvent('create_log_rejected', req.user.username, {
+          reason: 'no_active_operation',
+          timestamp: new Date().toISOString()
+        });
+        return res.status(403).json({
+          error: 'You are not assigned to an operation. Ask an admin to add you to one before creating logs.',
+          code: 'no_active_operation'
+        });
+      }
+    }
+
     // Create the log with secrets intact and username for auto-tagging
     const newLog = await LogsModel.createLog({
       ...req.body,
