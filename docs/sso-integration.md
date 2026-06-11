@@ -154,9 +154,10 @@ environment:
 | `OIDC_ISSUER_URL` | Yes | — | Provider's issuer URL (used for auto-discovery) |
 | `OIDC_CLIENT_ID` | Yes | — | Client ID registered with your provider |
 | `OIDC_CLIENT_SECRET` | Yes | — | Client secret from your provider |
-| `OIDC_CALLBACK_URL` | No | `https://<EXTERNAL_HOSTNAME>/api/auth/oidc/callback` | Must match exactly what you registered in the provider |
+| `OIDC_CALLBACK_URL` | No | `https://<EXTERNAL_HOSTNAME>[:<EXTERNAL_PORT>]/api/auth/oidc/callback` | Must match exactly what you registered in the provider |
 | `OIDC_PROVIDER_NAME` | No | `SSO` | Label shown on the login button |
 | `OIDC_SCOPE` | No | `openid email profile` | Scopes to request; adjust if your provider uses non-standard scope names |
+| `OIDC_ID_TOKEN_ALG` | No | auto-detected | ID-token signing algorithm (e.g. `ES256`, `RS256`). Auto-detection reads the provider's discovery document and JWKS; set this only when login fails with an algorithm mismatch (see Troubleshooting) |
 
 ### OIDC — HA docker compose
 
@@ -221,6 +222,27 @@ docker compose build backend && docker compose up -d backend
 
 **"redirect_uri_mismatch" from the provider**
 - The `OIDC_CALLBACK_URL` (or `GOOGLE_CALLBACK_URL`) must exactly match the redirect URI registered in the provider — including scheme, hostname, port, and path.
+- If you run the omnibus container on a non-standard port (e.g. `-p 8443:443`), set `EXTERNAL_PORT=8443` so the default callback URL includes the port.
+
+**"unexpected JWT alg received" in logs (login fails after the provider redirects back)**
+- Your provider signs ID tokens with a different algorithm than Clio expects. Clio auto-detects the algorithm from the provider's discovery document and JWKS, but some providers publish keys for several algorithms at once, making detection ambiguous.
+- The container log prints the exact fix, e.g.:
+  ```
+  OIDC callback error: RPError: unexpected JWT alg received, expected RS256, got: ES256
+  Hint: the provider signs ID tokens with ES256. Set OIDC_ID_TOKEN_ALG=ES256 and restart to fix this.
+  ```
+- Set `OIDC_ID_TOKEN_ALG` to the algorithm named in the hint and restart the container. The startup log confirms what is in effect: `OIDC client initialised (issuer: ..., alg: ES256 via OIDC_ID_TOKEN_ALG)`.
+
+**Provider uses a certificate from an internal CA**
+- Clio must be able to verify your provider's TLS certificate when fetching the discovery document, JWKS, and tokens. Mount your CA bundle and set `NODE_EXTRA_CA_CERTS` (omnibus):
+  ```bash
+  -v /path/to/internal-ca.pem:/run/secrets/internal-ca.pem:ro \
+  -e NODE_EXTRA_CA_CERTS=/run/secrets/internal-ca.pem
+  ```
+- Setting this also enables strict outbound TLS verification; without it, outbound verification is disabled and self-signed provider certificates are accepted as-is.
+
+**SSO user cannot create log rows ("You are not assigned to an operation")**
+- This is by design: SSO accounts are created with regular (non-admin) permissions and no operation membership. An admin must assign the user to an operation (Operations panel) before they can create logs. Note that SSO usernames may carry a numeric suffix (`johndoe1`) when the base name was already taken — assign the operation to the exact username shown in the user's session.
 
 **Google: "Error: invalid_client"**
 - Verify Client ID and Secret are correct and the OAuth consent screen is fully configured.

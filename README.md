@@ -73,6 +73,10 @@ docker exec clio sh -c '. /data/.secrets.env; echo "admin / $ADMIN_PASSWORD"; ec
 
 Set this to your server's IP address or domain name. It is written into the self-signed TLS certificate SAN and the CORS allowed-origins list. Defaults to `localhost` if not set (fine for local testing, wrong for remote access).
 
+#### EXTERNAL_PORT
+
+Set this when you map the container's HTTPS port to a non-standard host port (e.g. `-p 8443:443` → `EXTERNAL_PORT=8443`). It is included in the CORS allowed origin and in the default SSO callback URLs, so logins work without manually overriding `OIDC_CALLBACK_URL` / `GOOGLE_CALLBACK_URL`. Leave unset (or `443`) on the default port.
+
 #### What persists in the volume
 
 Everything in the `clio-data` volume survives container restarts and upgrades:
@@ -86,6 +90,40 @@ Everything in the `clio-data` volume survives container restarts and upgrades:
 | `/data/exports/` | CSV / evidence exports created via the admin panel |
 | `/data/evidence/` | Uploaded evidence files |
 | `/data/backend-data/` | Event logs (security, audit, system) |
+
+#### Custom TLS certificates (optional)
+
+By default Clio generates a self-signed certificate for `EXTERNAL_HOSTNAME`. To use your own certificate (e.g. from an internal CA or a public CA), mount the files into the container and point `TLS_CERT_FILE` / `TLS_KEY_FILE` at them:
+
+```bash
+docker run -d --name clio \
+  -p 443:443 -p 80:80 \
+  -e EXTERNAL_HOSTNAME=your-server-fqdn \
+  -v /path/to/fullchain.pem:/run/secrets/tls.crt:ro \
+  -v /path/to/server.key:/run/secrets/tls.key:ro \
+  -e TLS_CERT_FILE=/run/secrets/tls.crt \
+  -e TLS_KEY_FILE=/run/secrets/tls.key \
+  -v clio-data:/data \
+  ghcr.io/seahop/clio:latest
+```
+
+Requirements and behavior:
+
+- The cert file must contain the **full chain** (leaf certificate followed by intermediates). A leaf-only file will fail validation in clients that don't already have the intermediate cached.
+- The key must be an **unencrypted PEM** (no passphrase). RSA and ECDSA are both supported.
+- While `TLS_CERT_FILE`/`TLS_KEY_FILE` are set, the provided certificate is authoritative — it is never overwritten, including after `EXTERNAL_HOSTNAME` changes. Unset the variables to return to auto-generated self-signed certificates.
+- Heads-up: Clio sends HSTS headers. Browsers that do not trust your CA will show a **non-bypassable** certificate error once they have visited the site — distribute your internal CA to clients before switching.
+
+#### Trusting an internal CA for outbound calls (optional)
+
+If Clio needs to make HTTPS calls to services signed by your internal CA — most commonly an OIDC provider (Keycloak behind your CA) — mount the CA bundle and set `NODE_EXTRA_CA_CERTS`:
+
+```bash
+  -v /path/to/internal-ca.pem:/run/secrets/internal-ca.pem:ro \
+  -e NODE_EXTRA_CA_CERTS=/run/secrets/internal-ca.pem \
+```
+
+When this is set, outbound TLS verification is **enabled** (against system roots plus your bundle). When unset, outbound verification is disabled so that providers with self-signed certificates keep working.
 
 #### SSO — Single Sign-On (optional)
 
@@ -119,15 +157,16 @@ docker run -d --name clio \
   ghcr.io/seahop/clio:latest
 ```
 
-`OIDC_CALLBACK_URL` defaults to `https://<EXTERNAL_HOSTNAME>/api/auth/oidc/callback` — register that URL in your provider's allowed redirect URIs.
+`OIDC_CALLBACK_URL` defaults to `https://<EXTERNAL_HOSTNAME>[:<EXTERNAL_PORT>]/api/auth/oidc/callback` — register that URL in your provider's allowed redirect URIs.
 
 Optional OIDC variables:
 
 | Variable | Default | Description |
 |---|---|---|
-| `OIDC_CALLBACK_URL` | `https://<EXTERNAL_HOSTNAME>/api/auth/oidc/callback` | Override if your provider needs a different URL |
+| `OIDC_CALLBACK_URL` | `https://<EXTERNAL_HOSTNAME>[:<EXTERNAL_PORT>]/api/auth/oidc/callback` | Override if your provider needs a different URL |
 | `OIDC_PROVIDER_NAME` | `SSO` | Label shown on the login button |
 | `OIDC_SCOPE` | `openid email profile` | Scopes to request |
+| `OIDC_ID_TOKEN_ALG` | auto-detected | ID-token signing algorithm (e.g. `ES256`). Clio detects it from the provider's discovery document and JWKS; set this only if login fails with an algorithm mismatch — the exact value to use is printed in the container logs |
 
 See [SSO Integration Guide](./docs/sso-integration.md) for full setup instructions.
 

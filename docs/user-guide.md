@@ -112,6 +112,8 @@ Tags are organized into the following categories:
 
 When you're assigned to an operation, your logs are automatically tagged with that operation's tag. This ensures consistent tracking across team members working on the same engagement.
 
+Non-admin users **must** be assigned to an operation before they can create log entries — "Add Row" is rejected with *"You are not assigned to an operation"* otherwise, since the row would not be visible to its creator without an operation tag. Ask an admin to assign you to an operation. Admins can always create rows.
+
 ## Operations Management
 
 Operations allow teams to organize their work by engagement, project, or campaign. Each operation automatically creates an associated tag for tracking all related activities.
