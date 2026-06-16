@@ -12,4 +12,10 @@ module.exports = {
   // from the provider's discovery document (id_token_signing_alg_values_supported).
   // Set this if auto-detection picks the wrong algorithm.
   idTokenAlg:   process.env.OIDC_ID_TOKEN_ALG || null,
+  // Group-based role assignment via the 'groups' claim.
+  // When the provider includes a groups claim, users must belong to one of
+  // these groups. Admin takes precedence over user. Users in neither group are
+  // denied login. When no groups claim is present, users get the regular role.
+  adminGroup:   process.env.OIDC_ADMIN_GROUP || 'clio-admin',
+  userGroup:    process.env.OIDC_USER_GROUP  || 'clio-user',
 };

@@ -51,6 +51,19 @@ const Login = ({ onLoginSuccess, csrfToken }) => {
       setError('Google authentication failed. Please try again or use username/password login.');
     } else if (errorParam === 'oidc_auth_failed') {
       setError('SSO authentication failed. Please try again or use username/password login.');
+    } else if (errorParam === 'oidc_no_groups_claim') {
+      setError(
+        'Access denied: your SSO account did not provide a groups claim. ' +
+        'An administrator must ensure your account is assigned to a Clio group ' +
+        '(e.g. clio-admin or clio-user) in the identity provider and that the ' +
+        'groups claim is included in the token.'
+      );
+    } else if (errorParam === 'oidc_access_denied') {
+      setError(
+        'Access denied: your account is not a member of any authorized group. ' +
+        'Contact your administrator to be added to the appropriate Clio group ' +
+        'in the identity provider.'
+      );
     }
   }, [onLoginSuccess]);
 

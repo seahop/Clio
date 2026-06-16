@@ -57,6 +57,18 @@ const oidcInitiate = async (req, res) => {
 };
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
+
+// Returns true (admin), false (regular user), or null (denied).
+// null is returned for two cases: missing groups claim, or groups present but
+// user isn't in any allowed group. Callers distinguish them by checking whether
+// groups is null/non-array.
+const resolveOIDCRole = (groups) => {
+  if (!Array.isArray(groups)) return null;
+  if (groups.includes(oidcConfig.adminGroup)) return true;
+  if (groups.includes(oidcConfig.userGroup))  return false;
+  return null;
+};
+
 const findUserByOIDCSub = async (sub) => {
   const username = await redisClient.get(`oidc:${sub}`);
   return username ? { username } : null;
@@ -155,6 +167,27 @@ const oidcCallback = async (req, res) => {
       return res.redirect('/login?error=oidc_auth_failed');
     }
 
+    // Resolve role from the groups claim (present in both userinfo and ID token paths).
+    // Admin group takes precedence. null means the user is in neither allowed group.
+    const groups  = Array.isArray(profile.groups)  ? profile.groups
+                  : Array.isArray(idClaims.groups) ? idClaims.groups
+                  : null;
+    const isAdmin = resolveOIDCRole(groups);
+
+    if (isAdmin === null) {
+      const noGroupsClaim = !Array.isArray(groups);
+      await eventLogger.logSecurityEvent('oidc_login_denied', sub, {
+        reason:      noGroupsClaim ? 'no_groups_claim' : 'not_in_allowed_group',
+        groups,
+        ip:          req.ip,
+        userAgent:   req.get('User-Agent'),
+        providerName: oidcConfig.providerName,
+      });
+      return res.redirect(noGroupsClaim
+        ? '/login?error=oidc_no_groups_claim'
+        : '/login?error=oidc_access_denied');
+    }
+
     const existing = await findUserByOIDCSub(sub);
     let username;
 
@@ -166,14 +199,14 @@ const oidcCallback = async (req, res) => {
         sub,
         email,
         providerName: oidcConfig.providerName,
-        isAdmin: false,
+        isAdmin,
       });
     }
 
     // OIDC users never go through the password-change flow
     await redisClient.del(`user:password_reset:${username}`);
 
-    const user = AuthService.createUserObject(username, false);
+    const user = AuthService.createUserObject(username, isAdmin);
     user.email       = email;
     user.displayName = displayName;
     user.oidcSub     = sub;

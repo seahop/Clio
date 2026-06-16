@@ -68,6 +68,9 @@ services:
       # OIDC_SCOPE: "openid email profile"  # default; adjust if your provider requires different scopes
       # OIDC_ID_TOKEN_ALG: ""            # override the ID-token signing algorithm (e.g. ES256) if
       #                                  # auto-detection from the provider's JWKS picks the wrong one
+      # OIDC_ADMIN_GROUP: "clio-admin"  # group name in the 'groups' claim that grants admin role
+      # OIDC_USER_GROUP: "clio-user"    # group name in the 'groups' claim that grants user role
+      #                                  # users in neither group are denied login
     restart: unless-stopped
     # Healthcheck hits the backend health endpoint via nginx
     healthcheck:

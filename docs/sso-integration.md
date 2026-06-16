@@ -158,6 +158,8 @@ environment:
 | `OIDC_PROVIDER_NAME` | No | `SSO` | Label shown on the login button |
 | `OIDC_SCOPE` | No | `openid email profile` | Scopes to request; adjust if your provider uses non-standard scope names |
 | `OIDC_ID_TOKEN_ALG` | No | auto-detected | ID-token signing algorithm (e.g. `ES256`, `RS256`). Auto-detection reads the provider's discovery document and JWKS; set this only when login fails with an algorithm mismatch (see Troubleshooting) |
+| `OIDC_ADMIN_GROUP` | No | `clio-admin` | Group name in the `groups` claim that grants the admin role. Admin takes precedence if a user is in both groups |
+| `OIDC_USER_GROUP` | No | `clio-user` | Group name in the `groups` claim that grants the regular user role. Users in neither group, or with no `groups` claim at all, are denied login |
 
 ### OIDC — HA docker compose
 
