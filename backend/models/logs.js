@@ -67,30 +67,13 @@ const LogsModel = {
 
   async getAllLogs(username = null, isAdmin = false) {
     try {
-      // Admins see everything unless they have an active operation filter
+      // Admins always see all logs regardless of any active operation
       if (isAdmin) {
-        // Check if admin has chosen to filter by operation
-        const activeOp = username ? await OperationsModel.getUserActiveOperation(username) : null;
-        
-        if (activeOp && activeOp.tag_id) {
-          // Admin has chosen to filter by operation
-          const result = await db.query(`
-            SELECT DISTINCT l.* 
-            FROM logs l
-            JOIN log_tags lt ON l.id = lt.log_id
-            WHERE lt.tag_id = $1
-            ORDER BY l.timestamp DESC, l.id DESC
-          `, [activeOp.tag_id]);
-          
-          return result.rows.map(row => this._processFromStorage(row));
-        }
-        
-        // No filter - show all logs
         const result = await db.query(`
-          SELECT * FROM logs 
+          SELECT * FROM logs
           ORDER BY timestamp DESC, id DESC
         `);
-        
+
         return result.rows.map(row => this._processFromStorage(row));
       }
       
@@ -318,14 +301,14 @@ const LogsModel = {
       const values = [];
       let valueIndex = 1;
       
-      // Add operation filter for non-admins or if admin has active operation
-      if (!isAdmin || username) {
+      // Add operation filter for non-admins only — admins search across all logs
+      if (!isAdmin) {
         const activeOp = username ? await OperationsModel.getUserActiveOperation(username) : null;
-        
+
         if (activeOp && activeOp.tag_id) {
           conditions.push(`lt.tag_id = $${valueIndex++}`);
           values.push(activeOp.tag_id);
-        } else if (!isAdmin) {
+        } else {
           // Non-admin with no operation sees nothing
           return [];
         }
