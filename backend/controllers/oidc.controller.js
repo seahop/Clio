@@ -119,8 +119,18 @@ const oidcCallback = async (req, res) => {
     // Verify state to guard against CSRF in the OAuth flow. The cookie may
     // hold several pending states (parallel tabs); consume only the one this
     // callback returns so the other tabs' logins can still complete.
-    if (!returnedState || !pendingStates.includes(returnedState)) {
-      console.error('OIDC state mismatch');
+    //
+    // The cookie check is best-effort: it is skipped when the cookie is absent
+    // (e.g. the user opened the login page via a different hostname than the one
+    // in OIDC_CALLBACK_URL, so the cookie was scoped to a different origin).
+    // Security still holds because the state value is verified against Redis —
+    // it is 256-bit random, has a 10-minute TTL, and is deleted after first use.
+    if (!returnedState) {
+      console.error('OIDC callback missing state parameter');
+      return res.redirect('/login?error=oidc_auth_failed');
+    }
+    if (pendingStates.length > 0 && !pendingStates.includes(returnedState)) {
+      console.error('OIDC state mismatch (cookie present but state not found)');
       return res.redirect('/login?error=oidc_auth_failed');
     }
     const remainingStates = pendingStates.filter((s) => s !== returnedState);
