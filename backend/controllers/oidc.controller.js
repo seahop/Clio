@@ -251,4 +251,4 @@ const oidcCallback = async (req, res) => {
   }
 };
 
-module.exports = { oidcInitiate, oidcCallback };
+module.exports = { oidcInitiate, oidcCallback, resolveOIDCRole };

@@ -197,9 +197,14 @@ const secureRedis = {
     return this.withRetry(async () => redisClient.sRem(key, value));
   },
 
-  async exists(key) {
-    if (DEBUG) console.log(`Checking existence of key: ${key}`);
-    return this.withRetry(async () => redisClient.exists(key));
+  async exists(...keys) {
+    if (DEBUG) console.log(`Checking existence of key(s): ${keys.join(', ')}`);
+    return this.withRetry(async () => redisClient.sendCommand(['EXISTS', ...keys]));
+  },
+
+  async sMembers(key) {
+    if (DEBUG) console.log(`Getting set members: ${key}`);
+    return this.withRetry(async () => redisClient.sMembers(key));
   }
 };
 
