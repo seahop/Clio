@@ -404,17 +404,12 @@ const forcePasswordReset = async (req, res) => {
   }
 
   try {
-    // Only allow admin users to reset admin passwords
-    if (username.toLowerCase() === 'admin' && req.user.username.toLowerCase() !== 'admin') {
-      return res.status(403).json({ error: 'Only the admin user can reset the admin password' });
-    }
-
     // Set a password reset flag for this user in Redis
     const passwordResetKey = `user:password_reset:${username}`;
     await redisClient.set(passwordResetKey, 'true');
-    
-    // Get the user's role to determine which password to reset
-    const isUserAdmin = username.toLowerCase() === 'admin';
+
+    // Determine the target user's actual role from Redis
+    const isUserAdmin = !!(await security.getAdminPassword(username));
     
     // Log the password reset action
     await eventLogger.logSecurityEvent('force_password_reset', req.user.username, {
@@ -634,6 +629,164 @@ const getAuthProviders = (req, res) => {
   });
 };
 
+// ── User management (admin-only) ────────────────────────────────────────────
+
+const listLocalUsers = async (req, res) => {
+  try {
+    const [adminKeys, userKeys, existsKeys] = await Promise.all([
+      redisClient.keys('admin:password:*'),
+      redisClient.keys('user:password:*'),
+      redisClient.keys('user:*:exists'),
+    ]);
+
+    const userMap = new Map();
+
+    for (const key of adminKeys) {
+      const username = key.replace('admin:password:', '');
+      userMap.set(username, { username, role: 'admin' });
+    }
+    for (const key of userKeys) {
+      const username = key.replace('user:password:', '');
+      if (!userMap.has(username)) {
+        userMap.set(username, { username, role: 'user' });
+      }
+    }
+    for (const key of existsKeys) {
+      const m = key.match(/^user:([^:]+):exists$/);
+      if (!m) continue;
+      const username = m[1];
+      if (!userMap.has(username)) {
+        userMap.set(username, { username, role: 'user' });
+      }
+    }
+
+    const users = await Promise.all(
+      Array.from(userMap.values()).map(async (u) => {
+        const [isOIDC, isGoogle] = await Promise.all([
+          redisClient.exists(`user:${u.username}:isOIDCSSO`),
+          redisClient.exists(`user:${u.username}:isGoogleSSO`),
+        ]);
+        return { ...u, ssoType: isOIDC ? 'oidc' : isGoogle ? 'google' : null };
+      })
+    );
+
+    users.sort((a, b) => {
+      if (a.role !== b.role) return a.role === 'admin' ? -1 : 1;
+      return a.username.localeCompare(b.username);
+    });
+
+    res.json({ users });
+  } catch (error) {
+    console.error('List users error:', error);
+    res.status(500).json({ error: 'Failed to list users' });
+  }
+};
+
+const createAdminUser = async (req, res) => {
+  const { username, password } = req.body;
+
+  if (!username || !password) {
+    return res.status(400).json({ error: 'Username and password are required' });
+  }
+
+  const usernameValidation = PasswordService.validateUsername(username);
+  if (!usernameValidation.valid) {
+    return res.status(400).json({ error: usernameValidation.error });
+  }
+
+  const passwordErrors = PasswordService.validateNewPassword(password);
+  if (passwordErrors.length > 0) {
+    return res.status(400).json({ error: passwordErrors[0] });
+  }
+
+  const sanitized = username.trim();
+
+  try {
+    const taken = await redisClient.exists(
+      `admin:password:${sanitized}`,
+      `user:password:${sanitized}`,
+      `user:${sanitized}:exists`
+    );
+    if (taken) {
+      return res.status(409).json({ error: 'Username is already taken' });
+    }
+
+    await security.setAdminPassword(sanitized, password);
+    await redisClient.set(`user:${sanitized}:exists`, 'true');
+
+    await eventLogger.logSecurityEvent('admin_user_created', req.user.username, {
+      newAdminUser: sanitized,
+      ip: req.ip,
+      userAgent: req.get('User-Agent'),
+    });
+
+    res.status(201).json({ success: true, message: `Admin user '${sanitized}' created successfully` });
+  } catch (error) {
+    console.error('Create admin user error:', error);
+    res.status(500).json({ error: 'Failed to create admin user' });
+  }
+};
+
+const promoteToAdmin = async (req, res) => {
+  const { username } = req.params;
+
+  if (!username) {
+    return res.status(400).json({ error: 'Username is required' });
+  }
+
+  try {
+    // Block promotion of SSO users — role comes from their IdP group
+    const isSSO = await redisClient.exists(
+      `user:${username}:isOIDCSSO`,
+      `user:${username}:isGoogleSSO`
+    );
+    if (isSSO) {
+      return res.status(400).json({
+        error: 'SSO users cannot be promoted to local admin. Use OIDC group membership instead.',
+      });
+    }
+
+    // Already an admin?
+    const alreadyAdmin = await redisClient.exists(`admin:password:${username}`);
+    if (alreadyAdmin) {
+      return res.status(409).json({ error: `'${username}' is already an admin` });
+    }
+
+    // Move password from user store → admin store.
+    // If the user has a custom password, copy the hash directly.
+    // If they're still on the shared initial password (no key in Redis), bootstrap
+    // them with that password and force a reset so they set their own on next login.
+    const existingHash = await redisClient.get(`user:password:${username}`);
+    if (existingHash) {
+      await redisClient.set(`admin:password:${username}`, existingHash);
+      await redisClient.del(`user:password:${username}`);
+    } else {
+      await security.setAdminPassword(username, process.env.USER_PASSWORD);
+      await redisClient.set(`user:password_reset:${username}`, 'true');
+    }
+
+    const tokenIds = await redisClient.sMembers(`user:${username}:tokens`);
+    if (tokenIds.length > 0) {
+      await Promise.all(tokenIds.map((id) => redisClient.del(`jwt:${id}`)));
+      await redisClient.del(`user:${username}:tokens`);
+    }
+
+    await eventLogger.logSecurityEvent('user_promoted_to_admin', req.user.username, {
+      promotedUser: username,
+      ip: req.ip,
+      userAgent: req.get('User-Agent'),
+    });
+
+    res.json({
+      success: true,
+      message: `'${username}' has been promoted to admin. They must log in again to receive their new role.`,
+    });
+  } catch (error) {
+    console.error('Promote to admin error:', error);
+    res.status(500).json({ error: 'Failed to promote user' });
+  }
+};
+
 module.exports = {
   loginUser,
   logoutUser,
@@ -644,4 +797,7 @@ module.exports = {
   changeOwnPassword,
   googleLoginCallback,
   getAuthProviders,
+  listLocalUsers,
+  createAdminUser,
+  promoteToAdmin,
 };

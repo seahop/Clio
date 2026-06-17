@@ -12,6 +12,9 @@ const {
   changeOwnPassword,
   googleLoginCallback,
   getAuthProviders,
+  listLocalUsers,
+  createAdminUser,
+  promoteToAdmin,
 } = require('../controllers/auth.controller');
 const { oidcInitiate, oidcCallback } = require('../controllers/oidc.controller');
 const { authenticateJwt, verifyAdmin } = require('../middleware/jwt.middleware');
@@ -32,8 +35,13 @@ router.post('/logout',            authenticateJwt, logoutUser);
 router.get('/me',                 authenticateJwt, getCurrentUser);
 router.post('/change-password',   authenticateJwt, changePassword);
 router.post('/change-own-password', authenticateJwt, changeOwnPassword);
-router.post('/revoke-all',        authenticateJwt, verifyAdmin, revokeAllSessions);
+router.post('/revoke-all',           authenticateJwt, verifyAdmin, revokeAllSessions);
 router.post('/force-password-reset', authenticateJwt, verifyAdmin, forcePasswordReset);
+
+// User management (admin-only)
+router.get('/users',                 authenticateJwt, verifyAdmin, listLocalUsers);
+router.post('/users/admin',          authenticateJwt, verifyAdmin, createAdminUser);
+router.post('/users/:username/promote', authenticateJwt, verifyAdmin, promoteToAdmin);
 
 // Google SSO routes
 router.get('/google',

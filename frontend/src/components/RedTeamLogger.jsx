@@ -1,6 +1,6 @@
 // frontend/src/components/RedTeamLogger.jsx - Updated with Operations tab
 import React, { useState } from 'react';
-import { Network, File, Database, Users, Key, Book, HardDrive, Settings, Shield, Briefcase } from 'lucide-react';
+import { Network, File, Database, Users, Key, Book, HardDrive, Settings, Shield, Briefcase, UserPlus } from 'lucide-react';
 import LoggerCardView from './LoggerCardView';
 import RelationViewer from './RelationViewer';
 import FileStatusTracker from './FileStatusTracker';
@@ -11,6 +11,7 @@ import ApiDocumentation from './ApiDocumentation';
 import LogManagement from './LogManagement';
 import UserSettings from './UserSettings';
 import CertificateManager from './CertificateManager';
+import UserManagement from './UserManagement';
 import { OperationsManagement } from './Operations';
 import useLoggerOperations from '../hooks/useLoggerOperations';
 
@@ -141,10 +142,22 @@ const RedTeamLogger = ({ currentUser, csrfToken }) => {
                 </button>
 
                 <button
+                  onClick={() => setActiveView('users')}
+                  className={`px-4 py-2 rounded-md flex items-center gap-2 transition-colors duration-200 ${
+                    activeView === 'users'
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-gray-700 text-white hover:bg-gray-600'
+                  }`}
+                >
+                  <UserPlus className="w-5 h-5" />
+                  <span className="inline">Users</span>
+                </button>
+
+                <button
                   onClick={() => setActiveView('api-keys')}
                   className={`px-4 py-2 rounded-md flex items-center gap-2 transition-colors duration-200 ${
-                    activeView === 'api-keys' 
-                      ? 'bg-blue-600 text-white' 
+                    activeView === 'api-keys'
+                      ? 'bg-blue-600 text-white'
                       : 'bg-gray-700 text-white hover:bg-gray-600'
                   }`}
                 >
@@ -241,6 +254,14 @@ const RedTeamLogger = ({ currentUser, csrfToken }) => {
           <div className="w-full">
             <div className="bg-gray-800 rounded-lg shadow-lg p-4">
               <SessionManagement csrfToken={csrfToken} />
+            </div>
+          </div>
+        )}
+
+        {activeView === 'users' && isAdmin && (
+          <div className="w-full">
+            <div className="bg-gray-800 rounded-lg shadow-lg p-4">
+              <UserManagement csrfToken={csrfToken} />
             </div>
           </div>
         )}
