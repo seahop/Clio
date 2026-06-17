@@ -51,8 +51,6 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /var/lib/postgresql/data
-            - name: init-scripts
-              mountPath: /docker-entrypoint-initdb.d
           readinessProbe:
             exec:
               command: ["pg_isready", "-U", "$(POSTGRES_USER)", "-d", "$(POSTGRES_DB)"]
@@ -66,10 +64,6 @@ spec:
             periodSeconds: 30
           resources:
             {{- toYaml .Values.postgres.resources | nindent 12 }}
-      volumes:
-        - name: init-scripts
-          configMap:
-            name: clio-postgres-init
   volumeClaimTemplates:
     - metadata:
         name: data

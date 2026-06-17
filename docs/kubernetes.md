@@ -366,6 +366,152 @@ local username/password form.
 
 ---
 
+## Database migrations
+
+### How it works
+
+Clio uses a file-based migration system with a `schema_migrations` table that
+tracks exactly which migrations have been applied:
+
+```
+backend/db/migrations/
+  001-initial-schema.sql          ← tables, indexes, triggers, seed data
+  002-relation-tables.sql         ← relation analysis tables
+  003-add-operation-to-api-keys.sql
+  004-your-next-change.sql        ← you add new files here
+```
+
+**Every time the backend starts** it calls the migration runner before serving
+traffic.  The runner reads every `.sql` file in order, skips files already
+recorded in `schema_migrations`, and applies the rest — each in its own
+transaction so a failure rolls back cleanly and the backend refuses to start
+rather than serving requests against a broken schema.
+
+**On `helm upgrade`**, the Helm chart runs a Kubernetes Job with the hook
+annotation `helm.sh/hook: pre-upgrade`.  That Job runs the migration runner
+from the new image *before* any new pods are deployed.  The sequence is:
+
+```
+helm upgrade
+  │
+  ├─ 1. Helm runs clio-migrate Job (pre-upgrade hook)
+  │      └─ node db/migrate.js → applies any new .sql files
+  │         ✓ success → continues
+  │         ✗ failure → upgrade aborted; old pods keep running
+  │
+  └─ 2. Helm rolls out new Deployment pods (new image tag)
+         └─ migration runner runs again at startup (idempotent — nothing to do)
+```
+
+This means old pods are still serving traffic while the migration runs.
+**Write migrations that are backwards-compatible with the running version of
+the code** — see the additive-changes guideline below.
+
+### Writing a new migration
+
+Create the next numbered file in `backend/db/migrations/`:
+
+```sql
+-- 004-add-target-url-to-logs.sql
+ALTER TABLE logs ADD COLUMN IF NOT EXISTS target_url TEXT;
+CREATE INDEX IF NOT EXISTS idx_logs_target_url ON logs(target_url);
+```
+
+Rules:
+- **Always use `IF NOT EXISTS` / `OR REPLACE`.**  The runner skips applied
+  migrations but if something goes wrong and a migration is re-run against a
+  database that already has the change, it must not crash.
+- **One concern per file.**  Don't bundle unrelated changes.
+- **Pad the number to three digits** (`004-`, not `4-`), so lexicographic
+  sort matches logical order for filenames up to 999.
+- **Never edit an applied migration.**  If you need to fix something, write a
+  new migration that corrects it.
+
+### Full-stack change walkthrough
+
+Suppose you need to add a `target_url` field to log entries.
+
+**1. Write the migration**
+
+```sql
+-- backend/db/migrations/004-add-target-url-to-logs.sql
+ALTER TABLE logs ADD COLUMN IF NOT EXISTS target_url TEXT;
+```
+
+**2. Update the backend model**
+
+In [backend/db/models/logs.js](../backend/db/models/logs.js) (and any route
+that inserts/selects logs), add `target_url` to the field list.
+
+**3. Update the frontend**
+
+Add the field to the relevant component (e.g. [LogCard](../frontend/src/components/LogCard/)).
+
+**4. Test locally with docker-compose**
+
+```bash
+docker compose build backend
+docker compose up -d
+# Migration runs automatically on backend startup:
+docker compose logs backend | grep -E "Applying|up to date"
+```
+
+**5. Deploy to Kubernetes**
+
+```bash
+helm upgrade clio ./k8s \
+  --namespace clio \
+  --values my-clio-values.yaml \
+  --set backend.image.tag=v1.3.0 \
+  --set frontend.image.tag=v1.3.0
+```
+
+Watch the migration job and rollout:
+```bash
+kubectl get job -n clio clio-migrate -w          # wait for Completed
+kubectl rollout status -n clio deploy/clio-backend
+kubectl rollout status -n clio deploy/clio-frontend
+```
+
+### Backwards-compatible migrations (zero-downtime deploys)
+
+During a rolling deploy there is a brief window where old and new pods run
+simultaneously.  **Adding a column** is always safe — old code ignores it,
+new code can use it.  Other changes need care:
+
+| Change | Safe? | Pattern |
+|--------|-------|---------|
+| `ADD COLUMN` with `DEFAULT` | ✅ Yes | One migration, one deploy |
+| `ADD COLUMN NOT NULL` (no default) | ⚠️ Careful | Add as `NULL` first, backfill, then add constraint |
+| `DROP COLUMN` | ⚠️ Careful | Deploy code that ignores the column first, then drop it |
+| `RENAME COLUMN` | ❌ No | Add the new column, migrate data, deprecate old, then drop |
+| Add index `CONCURRENTLY` | ✅ Yes | Postgres builds it without locking the table |
+| `ALTER COLUMN TYPE` (compatible cast) | ⚠️ Careful | Test row count / nullability impact first |
+
+For a red-team ops tool with one writer at a time, these edge cases rarely
+matter — but the pattern above is good to know.
+
+### Checking migration status
+
+```bash
+# Which migrations have been applied?
+kubectl exec -n clio \
+  $(kubectl get pod -n clio -l app.kubernetes.io/component=postgres -o name | head -1) \
+  -- psql -U clio redteamlogger \
+     -c "SELECT version, applied_at FROM schema_migrations ORDER BY version;"
+
+# Run migrations manually (useful for debugging)
+kubectl run migrate-debug --rm -it \
+  --image=ghcr.io/seahop/clio-backend:latest \
+  --restart=Never \
+  --namespace=clio \
+  --env-from=secret/clio-secrets \
+  --env-from=configmap/clio-config \
+  -- node db/migrate.js
+```
+
+---
+
 ## Upgrading
 
 ### Standard upgrade (new config values)

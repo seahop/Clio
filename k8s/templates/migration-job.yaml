@@ -1,0 +1,49 @@
+{{- /*
+  Migration Job — runs as a Helm pre-install and pre-upgrade hook.
+
+  On `helm upgrade`:  runs before any pods are replaced, so the new schema
+                      is in place before new application code starts.
+                      If the migration fails the upgrade is blocked and
+                      the running pods are left untouched.
+
+  On `helm install`:  schema is NOT managed here.  The official postgres image
+                      creates the database from POSTGRES_USER/DB env vars, and
+                      the backend's startup sequence (waitForDatabase → runMigrations)
+                      handles the full schema on first boot.
+*/ -}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "clio.fullname" . }}-migrate
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "clio.labels" . | nindent 4 }}
+    app.kubernetes.io/component: migrate
+  annotations:
+    # Run before every upgrade (not pre-install: postgres doesn't exist yet at install time)
+    helm.sh/hook: pre-upgrade
+    # Delete the previous Job before creating a new one (avoids name conflicts)
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+    # Lowest weight so this runs before any other pre-install/pre-upgrade hooks
+    helm.sh/hook-weight: "-10"
+spec:
+  # Retry up to 2 times if the DB is not yet ready
+  backoffLimit: 2
+  activeDeadlineSeconds: 300
+  template:
+    metadata:
+      labels:
+        {{- include "clio.selectorLabels" (dict "root" . "component" "migrate") | nindent 8 }}
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: migrate
+          image: "{{ .Values.backend.image.repository }}:{{ .Values.backend.image.tag }}"
+          imagePullPolicy: {{ .Values.backend.image.pullPolicy }}
+          # Run the standalone migration script bundled inside the backend image
+          command: ["node", "db/migrate.js"]
+          envFrom:
+            - configMapRef:
+                name: clio-config
+            - secretRef:
+                name: clio-secrets

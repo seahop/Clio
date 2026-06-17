@@ -35,6 +35,7 @@ const cron = require('node-cron');
 const RelationAnalyzer = require('./services/relations/relationAnalyzer');
 const batchService = require('./services/relations/batchService');
 const initRelationTables = require('./services/relations/initRelationTables');
+const { runMigrations } = require('./db/migrate');
 const relationsRoutes = require('./routes/relations.routes');
 const fileStatusRoutes = require('./routes/fileStatus.routes');
 const updatesRoutes = require('./routes/updates.routes');
@@ -516,6 +517,11 @@ async function initialize() {
     
     await waitForDatabase();
     console.log('Database connection established');
+
+    // Run numbered SQL migrations before any table-level code executes.
+    // migrate.js tracks applied versions in schema_migrations so each file
+    // runs exactly once, even across rolling restarts.
+    await runMigrations();
 
     await initRelationTables();
     console.log('Relation tables initialised');
