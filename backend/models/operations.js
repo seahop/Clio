@@ -361,6 +361,39 @@ class OperationsModel {
   }
 
   /**
+   * Get the tag_id the admin has scoped their log view to, or null for "all".
+   * Returns null when the filter is absent or set to the "ALL" sentinel.
+   */
+  static async getAdminViewFilter(username) {
+    try {
+      const raw = await redisClient.get(`user:${username}:admin_view_filter`);
+      if (!raw || raw === 'ALL') return null;
+
+      const op = await this.getOperationById(parseInt(raw, 10));
+      return (op && op.tag_id) ? op.tag_id : null;
+    } catch (err) {
+      console.error('Error reading admin view filter:', err);
+      return null;
+    }
+  }
+
+  /**
+   * Get the operation object the admin has scoped their view to, or null for "all".
+   */
+  static async getAdminViewOperation(username) {
+    try {
+      const raw = await redisClient.get(`user:${username}:admin_view_filter`);
+      if (!raw || raw === 'ALL') return null;
+
+      const op = await this.getOperationById(parseInt(raw, 10));
+      return op || null;
+    } catch (err) {
+      console.error('Error reading admin view operation:', err);
+      return null;
+    }
+  }
+
+  /**
    * Set user's active operation
    */
   static async setUserActiveOperation(username, operationId) {

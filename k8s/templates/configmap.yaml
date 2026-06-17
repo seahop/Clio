@@ -1,0 +1,152 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: clio-config
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "clio.labels" . | nindent 4 }}
+data:
+  NODE_ENV:          {{ .Values.config.nodeEnv | quote }}
+  TZ:                {{ .Values.config.timezone | quote }}
+  PGTZ:              {{ .Values.config.timezone | quote }}
+  FRONTEND_URL:      {{ .Values.config.frontendUrl | quote }}
+  EXTERNAL_HOSTNAME: {{ .Values.config.externalHostname | quote }}
+  # Backend connects to postgres and redis by K8s service name
+  POSTGRES_HOST:     {{ printf "%s-postgres" (include "clio.fullname" .) | quote }}
+  POSTGRES_PORT:     {{ .Values.postgres.port | quote }}
+  REDIS_HOST:        {{ printf "%s-redis" (include "clio.fullname" .) | quote }}
+  REDIS_PORT:        {{ .Values.redis.port | quote }}
+  # Disable per-connection TLS for internal cluster traffic.
+  # TLS is terminated at the Ingress; internal pod networking is trusted.
+  REDIS_SSL:         "false"
+  POSTGRES_SSL:      "false"
+  # Run the backend on plain HTTP so the frontend nginx can proxy without certs.
+  BACKEND_HTTP:      "true"
+  PORT:              {{ .Values.backend.port | quote }}
+---
+# Redis configuration (no TLS, password auth via requirepass)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: clio-redis-config
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "clio.labels" . | nindent 4 }}
+data:
+  redis.conf: |
+    appendonly yes
+    save 60 1
+    maxmemory {{ .Values.redis.maxmemory }}
+    maxmemory-policy noeviction
+    # Password is injected at startup via --requirepass; do not set here.
+---
+# PostgreSQL init SQL — creates all application tables on first boot.
+# Mounted into /docker-entrypoint-initdb.d/ inside the postgres container.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: clio-postgres-init
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "clio.labels" . | nindent 4 }}
+data:
+  init.sql: |
+    -- Create application tables (idempotent — uses IF NOT EXISTS)
+    CREATE TABLE IF NOT EXISTS logs (
+        id SERIAL PRIMARY KEY,
+        timestamp TIMESTAMPTZ NOT NULL,
+        internal_ip VARCHAR(45),
+        external_ip VARCHAR(45),
+        mac_address VARCHAR(17),
+        hostname VARCHAR(75),
+        domain VARCHAR(75),
+        username VARCHAR(75),
+        command TEXT CHECK (LENGTH(command) <= 254),
+        notes TEXT CHECK (LENGTH(notes) <= 254),
+        filename VARCHAR(254),
+        status VARCHAR(75),
+        secrets TEXT CHECK (LENGTH(secrets) <= 254),
+        hash_algorithm VARCHAR(50),
+        hash_value VARCHAR(128),
+        pid VARCHAR(20),
+        analyst VARCHAR(100),
+        locked BOOLEAN DEFAULT FALSE,
+        locked_by VARCHAR(100),
+        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS tags (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(50) NOT NULL UNIQUE,
+        color VARCHAR(7) DEFAULT '#6B7280',
+        category VARCHAR(50),
+        description TEXT,
+        is_default BOOLEAN DEFAULT FALSE,
+        created_by VARCHAR(100),
+        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS log_tags (
+        id SERIAL PRIMARY KEY,
+        log_id INTEGER NOT NULL REFERENCES logs(id) ON DELETE CASCADE,
+        tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+        tagged_by VARCHAR(100),
+        tagged_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(log_id, tag_id)
+    );
+    CREATE TABLE IF NOT EXISTS operations (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(100) NOT NULL UNIQUE,
+        description TEXT,
+        is_active BOOLEAN DEFAULT TRUE,
+        created_by VARCHAR(100),
+        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS users (
+        id SERIAL PRIMARY KEY,
+        username VARCHAR(100) NOT NULL UNIQUE,
+        password_hash VARCHAR(255),
+        role VARCHAR(20) DEFAULT 'user',
+        is_active BOOLEAN DEFAULT TRUE,
+        last_login TIMESTAMPTZ,
+        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS user_operations (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        operation_id INTEGER NOT NULL REFERENCES operations(id) ON DELETE CASCADE,
+        assigned_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        assigned_by VARCHAR(100),
+        UNIQUE(user_id, operation_id)
+    );
+    CREATE TABLE IF NOT EXISTS evidence_files (
+        id SERIAL PRIMARY KEY,
+        log_id INTEGER REFERENCES logs(id) ON DELETE SET NULL,
+        filename VARCHAR(255) NOT NULL,
+        original_name VARCHAR(255),
+        mime_type VARCHAR(100),
+        size INTEGER,
+        uploaded_by VARCHAR(100),
+        uploaded_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS api_keys (
+        id SERIAL PRIMARY KEY,
+        key_hash VARCHAR(255) NOT NULL UNIQUE,
+        name VARCHAR(100),
+        operation_id INTEGER REFERENCES operations(id) ON DELETE SET NULL,
+        created_by VARCHAR(100),
+        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        last_used_at TIMESTAMPTZ,
+        is_active BOOLEAN DEFAULT TRUE
+    );
+    CREATE TABLE IF NOT EXISTS log_templates (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(100) NOT NULL,
+        description TEXT,
+        template_data JSONB,
+        created_by VARCHAR(100),
+        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+    );

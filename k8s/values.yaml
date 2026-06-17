@@ -1,0 +1,124 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Clio Helm chart — default values
+# Override any value with: helm install clio ./k8s -f my-values.yaml
+# ─────────────────────────────────────────────────────────────────────────────
+
+# -- Kubernetes namespace (create it first: kubectl create namespace clio)
+namespace: clio
+
+# ── Images ────────────────────────────────────────────────────────────────────
+backend:
+  image:
+    repository: ghcr.io/seahop/clio-backend
+    tag: latest
+    pullPolicy: IfNotPresent
+  replicas: 1
+  port: 3001
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  # Evidence file uploads — needs a PVC
+  evidenceStorage:
+    size: 10Gi
+    storageClass: ""   # leave blank to use cluster default
+
+frontend:
+  image:
+    repository: ghcr.io/seahop/clio-frontend
+    tag: latest
+    pullPolicy: IfNotPresent
+  replicas: 1
+  port: 80
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+postgres:
+  image:
+    repository: postgres
+    tag: "17-alpine"
+    pullPolicy: IfNotPresent
+  port: 5432
+  storage:
+    size: 20Gi
+    storageClass: ""
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+redis:
+  image:
+    repository: redis
+    tag: "7.4.2-alpine"
+    pullPolicy: IfNotPresent
+  port: 6379
+  storage:
+    size: 2Gi
+    storageClass: ""
+  maxmemory: "256mb"
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 384Mi
+
+# ── Ingress ───────────────────────────────────────────────────────────────────
+ingress:
+  enabled: true
+  # Ingress class — nginx is the most common; change to your controller.
+  className: nginx
+  # Your external hostname (required)
+  host: clio.example.com
+  # TLS — set enabled: true and provide a cert-manager ClusterIssuer name,
+  # or manage the Secret manually (see NOTES.txt for instructions).
+  tls:
+    enabled: true
+    # cert-manager ClusterIssuer (e.g. letsencrypt-prod).
+    # Set to "" to manage the TLS Secret manually.
+    certManagerIssuer: letsencrypt-prod
+    # Name of the K8s TLS Secret.  cert-manager will create it automatically
+    # when certManagerIssuer is set; otherwise create it yourself.
+    secretName: clio-tls
+
+# ── Secrets ───────────────────────────────────────────────────────────────────
+# Provide ALL values here (they are stored as a K8s Secret).
+# Never commit real credentials — use Helm --set or an external secrets manager.
+secrets:
+  postgresUser: clio
+  postgresPassword: CHANGE_ME_postgres
+  postgresDb: redteamlogger
+  redisPassword: CHANGE_ME_redis
+  jwtSecret: CHANGE_ME_jwt_secret_min_32_chars
+  csrfSecret: CHANGE_ME_csrf_secret_min_32_chars
+  sessionSecret: CHANGE_ME_session_secret
+  redisEncryptionKey: CHANGE_ME_32_char_hex_encryption_key
+  # Optional SSO (leave blank to disable)
+  googleClientId: ""
+  googleClientSecret: ""
+  oidcIssuerUrl: ""
+  oidcClientId: ""
+  oidcClientSecret: ""
+
+# ── Backend environment config (non-secret) ───────────────────────────────────
+config:
+  nodeEnv: production
+  timezone: UTC
+  logLevel: info
+  # FRONTEND_URL must match the external URL users hit (used for CORS + CSRF).
+  frontendUrl: "https://clio.example.com"
+  # Relay this to match ingress.host
+  externalHostname: "clio.example.com"

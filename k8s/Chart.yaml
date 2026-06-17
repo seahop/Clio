@@ -1,0 +1,15 @@
+apiVersion: v2
+name: clio
+description: Clio red-team logging platform — HA Kubernetes deployment
+type: application
+version: 0.1.0
+appVersion: "latest"
+keywords:
+  - redteam
+  - logging
+  - security
+home: https://github.com/seahop/Clio
+sources:
+  - https://github.com/seahop/Clio
+maintainers:
+  - name: seahop

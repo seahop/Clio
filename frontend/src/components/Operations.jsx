@@ -17,6 +17,7 @@ export const useOperations = () => {
 export const OperationsProvider = ({ children, csrfToken }) => {
   const [operations, setOperations] = useState([]);
   const [activeOperationId, setActiveOperationId] = useState(null);
+  const [canViewAll, setCanViewAll] = useState(false);
   const [loading, setLoading] = useState(true);
 
   const fetchMyOperations = useCallback(async () => {
@@ -27,15 +28,18 @@ export const OperationsProvider = ({ children, csrfToken }) => {
           'CSRF-Token': csrfToken
         }
       });
-      
+
       if (response.ok) {
         const data = await response.json();
         setOperations(data.operations || []);
-        setActiveOperationId(data.activeOperationId);
-        
-        // Store in localStorage for persistence
+        setCanViewAll(!!data.canViewAll);
+        // null activeOperationId means "All Operations" for admins
+        setActiveOperationId(data.activeOperationId ?? null);
+
         if (data.activeOperationId) {
           localStorage.setItem('activeOperationId', data.activeOperationId);
+        } else {
+          localStorage.removeItem('activeOperationId');
         }
       }
     } catch (error) {
@@ -54,14 +58,18 @@ export const OperationsProvider = ({ children, csrfToken }) => {
           'Content-Type': 'application/json',
           'CSRF-Token': csrfToken
         },
-        body: JSON.stringify({ operationId })
+        // null signals "All Operations" for admins
+        body: JSON.stringify({ operationId: operationId ?? null })
       });
-      
+
       if (response.ok) {
-        setActiveOperationId(operationId);
-        localStorage.setItem('activeOperationId', operationId);
-        
-        // Reload the page to refresh all data with new operation context
+        setActiveOperationId(operationId ?? null);
+        if (operationId) {
+          localStorage.setItem('activeOperationId', operationId);
+        } else {
+          localStorage.removeItem('activeOperationId');
+        }
+        // Reload to refresh log list with new operation context
         window.location.reload();
       }
     } catch (error) {
@@ -78,7 +86,8 @@ export const OperationsProvider = ({ children, csrfToken }) => {
   const value = {
     operations,
     activeOperationId,
-    activeOperation: operations.find(op => op.operation_id === activeOperationId),
+    canViewAll,
+    activeOperation: operations.find(op => op.operation_id === activeOperationId) ?? null,
     loading,
     setActiveOperation,
     refreshOperations: fetchMyOperations
@@ -93,8 +102,10 @@ export const OperationsProvider = ({ children, csrfToken }) => {
 
 // Operation Switcher Component (for header/navbar)
 export const OperationSwitcher = () => {
-  const { operations, activeOperation, setActiveOperation, loading } = useOperations();
+  const { operations, activeOperation, activeOperationId, canViewAll, setActiveOperation, loading } = useOperations();
   const [isOpen, setIsOpen] = useState(false);
+
+  const isViewingAll = canViewAll && activeOperationId === null;
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -103,7 +114,7 @@ export const OperationSwitcher = () => {
         setIsOpen(false);
       }
     };
-    
+
     document.addEventListener('click', handleClickOutside);
     return () => document.removeEventListener('click', handleClickOutside);
   }, [isOpen]);
@@ -118,7 +129,7 @@ export const OperationSwitcher = () => {
   }
 
   if (!operations || operations.length === 0) {
-    return null; // Don't show switcher if user has no operations
+    return null;
   }
 
   return (
@@ -127,22 +138,54 @@ export const OperationSwitcher = () => {
         onClick={() => setIsOpen(!isOpen)}
         className="flex items-center gap-2 px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded-md transition-colors"
       >
-        <Briefcase size={16} className="text-blue-400" />
+        <Briefcase size={16} className={isViewingAll ? 'text-purple-400' : 'text-blue-400'} />
         <span className="text-white text-sm font-medium">
-          {activeOperation ? activeOperation.operation_name : 'Select Operation'}
+          {isViewingAll
+            ? 'All Operations'
+            : activeOperation
+              ? activeOperation.operation_name
+              : 'Select Operation'}
         </span>
-        <ChevronDown 
-          size={16} 
-          className={`text-gray-400 transition-transform ${isOpen ? 'rotate-180' : ''}`} 
+        <ChevronDown
+          size={16}
+          className={`text-gray-400 transition-transform ${isOpen ? 'rotate-180' : ''}`}
         />
       </button>
 
       {isOpen && (
         <div className="absolute top-full left-0 mt-2 w-64 bg-gray-800 border border-gray-700 rounded-lg shadow-xl z-[9999]">
           <div className="p-2">
+            {/* "All Operations" option — admins only */}
+            {canViewAll && (
+              <>
+                <button
+                  onClick={() => {
+                    setActiveOperation(null);
+                    setIsOpen(false);
+                  }}
+                  className={`
+                    w-full text-left px-3 py-2 rounded-md transition-colors
+                    ${isViewingAll
+                      ? 'bg-purple-700 text-white'
+                      : 'hover:bg-gray-700 text-gray-300'}
+                  `}
+                >
+                  <div className="flex items-center gap-2">
+                    <Shield size={14} className="text-purple-400 shrink-0" />
+                    <div>
+                      <div className="font-medium">All Operations</div>
+                      <div className="text-xs opacity-75 mt-0.5">View logs across all operations</div>
+                    </div>
+                  </div>
+                </button>
+                <div className="border-t border-gray-700 my-1" />
+              </>
+            )}
+
             <div className="text-xs text-gray-500 px-2 py-1 uppercase tracking-wide">
-              Your Operations
+              {canViewAll ? 'Filter by Operation' : 'Your Operations'}
             </div>
+
             {operations.map((op) => (
               <button
                 key={op.operation_id}
@@ -152,10 +195,9 @@ export const OperationSwitcher = () => {
                 }}
                 className={`
                   w-full text-left px-3 py-2 rounded-md transition-colors
-                  ${activeOperation?.operation_id === op.operation_id
+                  ${!isViewingAll && activeOperation?.operation_id === op.operation_id
                     ? 'bg-blue-600 text-white'
-                    : 'hover:bg-gray-700 text-gray-300'
-                  }
+                    : 'hover:bg-gray-700 text-gray-300'}
                 `}
               >
                 <div className="flex items-center justify-between">
@@ -176,8 +218,8 @@ export const OperationSwitcher = () => {
               </button>
             ))}
           </div>
-          
-          {activeOperation && (
+
+          {!isViewingAll && activeOperation && (
             <div className="border-t border-gray-700 p-2">
               <div className="px-2 py-1 text-xs text-gray-500">
                 Active: <span className="text-blue-400">{activeOperation.tag_name}</span>

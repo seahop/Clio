@@ -1,0 +1,78 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "clio.fullname" . }}-backend
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "clio.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backend
+spec:
+  replicas: {{ .Values.backend.replicas }}
+  selector:
+    matchLabels:
+      {{- include "clio.selectorLabels" (dict "root" . "component" "backend") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "clio.selectorLabels" (dict "root" . "component" "backend") | nindent 8 }}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: backend
+          image: "{{ .Values.backend.image.repository }}:{{ .Values.backend.image.tag }}"
+          imagePullPolicy: {{ .Values.backend.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.backend.port }}
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: clio-config
+            - secretRef:
+                name: clio-secrets
+          volumeMounts:
+            - name: evidence
+              mountPath: /app/evidence
+          readinessProbe:
+            httpGet:
+              path: /api/csrf-token
+              port: {{ .Values.backend.port }}
+              scheme: HTTP
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /api/csrf-token
+              port: {{ .Values.backend.port }}
+              scheme: HTTP
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.backend.resources | nindent 12 }}
+      volumes:
+        - name: evidence
+          persistentVolumeClaim:
+            claimName: clio-evidence
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "clio.fullname" . }}-backend
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "clio.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backend
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: {{ .Values.backend.port }}
+      targetPort: http
+      protocol: TCP
+  selector:
+    {{- include "clio.selectorLabels" (dict "root" . "component" "backend") | nindent 4 }}

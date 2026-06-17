@@ -1,0 +1,33 @@
+Clio has been deployed!
+
+EXTERNAL URL
+  https://{{ .Values.ingress.host }}
+
+NEXT STEPS
+  1. Check all pods are running:
+       kubectl get pods -n {{ .Values.namespace }}
+
+  2. Find the initial admin password in the backend logs (first boot only):
+       kubectl logs -n {{ .Values.namespace }} \
+         -l app.kubernetes.io/component=backend --tail=50 | grep -i "admin\|password"
+
+{{- if .Values.ingress.tls.enabled }}
+  3. TLS certificate status:
+       kubectl get certificate -n {{ .Values.namespace }}
+{{- end }}
+
+MANAGING SECRETS
+  Credentials are stored in the 'clio-secrets' Secret.  To rotate a value:
+    kubectl patch secret -n {{ .Values.namespace }} clio-secrets \
+      --type=merge -p '{"stringData":{"REDIS_PASSWORD":"new-value"}}'
+  Then roll the backend deployment:
+    kubectl rollout restart deployment -n {{ .Values.namespace }} \
+      {{ include "clio.fullname" . }}-backend
+
+UPGRADING
+  helm upgrade clio ./k8s -n {{ .Values.namespace }} -f my-values.yaml
+
+  Image tag pinning (recommended for production):
+    helm upgrade clio ./k8s -n {{ .Values.namespace }} \
+      --set backend.image.tag=v1.2.3 \
+      --set frontend.image.tag=v1.2.3

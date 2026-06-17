@@ -1,6 +1,7 @@
 // backend/server.js
 const express = require('express');
 const https = require('https');
+const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const cors = require('cors');
@@ -40,7 +41,9 @@ const updatesRoutes = require('./routes/updates.routes');
 
 const app = express();
 
-app.set('trust proxy', ['loopback', 'linklocal', 'uniquelocal', '172.16.0.0/12']);
+// Trust the Ingress proxy in both docker-compose (172.16/12 = Docker bridge) and
+// Kubernetes (10.0/8 covers most pod/service CIDR ranges).
+app.set('trust proxy', ['loopback', 'linklocal', 'uniquelocal', '172.16.0.0/12', '10.0.0.0/8']);
 
 // Set serverInstanceId for global access
 app.set('serverInstanceId', security.SERVER_INSTANCE_ID);
@@ -172,8 +175,12 @@ app.use((req, res, next) => {
   next();
 });
 
-// HTTPS options
-const httpsOptions = {
+// When BACKEND_HTTP=true the server listens on plain HTTP.
+// Use this in Kubernetes where TLS is terminated at the Ingress and
+// internal pod-to-pod traffic does not need end-to-end encryption.
+const USE_HTTP = process.env.BACKEND_HTTP === 'true';
+
+const httpsOptions = USE_HTTP ? null : {
   key: fs.readFileSync(path.join(__dirname, 'certs', 'backend.key')),
   cert: fs.readFileSync(path.join(__dirname, 'certs', 'backend.crt')),
   minVersion: 'TLSv1.2'
@@ -525,11 +532,13 @@ async function initialize() {
       console.log('Generic OIDC not configured - skipping initialization');
     }
 
-    // Create HTTPS server
-    const server = https.createServer(httpsOptions, app);
-    
+    // Create server — HTTP in Kubernetes (TLS at Ingress), HTTPS otherwise
+    const server = USE_HTTP
+      ? http.createServer(app)
+      : https.createServer(httpsOptions, app);
+
     server.listen(PORT, () => {
-      console.log(`Secure server running on port ${PORT}`);
+      console.log(`${USE_HTTP ? 'HTTP' : 'HTTPS'} server running on port ${PORT}`);
       console.log('\x1b[36m%s\x1b[0m', `Server Instance ID: ${security.SERVER_INSTANCE_ID}`);
       
       // NEW: Enhanced startup message with tags

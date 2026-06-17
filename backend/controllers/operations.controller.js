@@ -1,5 +1,6 @@
 // backend/controllers/operations.controller.js
 const OperationsModel = require('../models/operations');
+const { redisClient } = require('../lib/redis');
 const eventLogger = require('../lib/eventLogger');
 
 const operationsController = {
@@ -174,16 +175,41 @@ const operationsController = {
   },
 
   /**
-   * Get current user's operations
+   * Get current user's operations.
+   * Admins receive every operation and a canViewAll flag so the UI can show
+   * the "All Operations" option.  Regular users get their assigned operations.
    */
   async getMyOperations(req, res) {
     try {
-      const operations = await OperationsModel.getUserOperations(req.user.username);
-      const activeOp = await OperationsModel.getUserActiveOperation(req.user.username);
-      
+      const isAdmin = req.user.role === 'admin';
+      const username = req.user.username;
+
+      if (isAdmin) {
+        const allOps = await OperationsModel.getAllOperations(false);
+        // Reshape to match the user_operations join shape the frontend expects
+        const operations = allOps.map(op => ({
+          operation_id: op.id,
+          operation_name: op.name,
+          operation_description: op.description,
+          tag_id: op.tag_id,
+          tag_name: op.tag_name,
+          tag_color: op.tag_color,
+          is_primary: false,
+        }));
+
+        const viewOp = await OperationsModel.getAdminViewOperation(username);
+        return res.json({
+          operations,
+          activeOperationId: viewOp ? viewOp.id : null,
+          canViewAll: true,
+        });
+      }
+
+      const operations = await OperationsModel.getUserOperations(username);
+      const activeOp = await OperationsModel.getUserActiveOperation(username);
       res.json({
         operations,
-        activeOperationId: activeOp ? activeOp.id : null
+        activeOperationId: activeOp ? activeOp.id : null,
       });
     } catch (error) {
       console.error('Error fetching user operations:', error);
@@ -192,23 +218,51 @@ const operationsController = {
   },
 
   /**
-   * Set current user's active operation
+   * Set the active (view) operation.
+   * Admins: operationId === null means "All Operations" — stores the "ALL"
+   * sentinel in Redis and does not touch user_operations.  For a real operation
+   * ID the view filter and the log-creation active_operation are both updated.
+   * Regular users: existing behaviour (validates user_operations membership).
    */
   async setActiveOperation(req, res) {
     try {
       const { operationId } = req.body;
+      const isAdmin = req.user.role === 'admin';
+      const username = req.user.username;
 
+      if (isAdmin) {
+        if (!operationId) {
+          // "All Operations" mode
+          await redisClient.set(`user:${username}:admin_view_filter`, 'ALL');
+          await eventLogger.logAuditEvent('active_operation_changed', username, {
+            operationId: null,
+            viewMode: 'all',
+            ip: req.ip,
+          });
+          return res.json({ message: 'Viewing all operations', operationId: null });
+        }
+
+        // Scope view to a specific operation and also set it as the active
+        // operation so new logs get auto-tagged with it.
+        await redisClient.set(`user:${username}:admin_view_filter`, operationId.toString());
+        await redisClient.set(`user:${username}:active_operation`, operationId.toString());
+        await eventLogger.logAuditEvent('active_operation_changed', username, {
+          operationId,
+          ip: req.ip,
+        });
+        return res.json({ message: 'Active operation updated successfully', operationId });
+      }
+
+      // Non-admin path — unchanged
       if (!operationId) {
         return res.status(400).json({ error: 'Operation ID is required' });
       }
 
-      await OperationsModel.setUserActiveOperation(req.user.username, operationId);
-
-      await eventLogger.logAuditEvent('active_operation_changed', req.user.username, {
+      await OperationsModel.setUserActiveOperation(username, operationId);
+      await eventLogger.logAuditEvent('active_operation_changed', username, {
         operationId,
-        ip: req.ip
+        ip: req.ip,
       });
-
       res.json({ message: 'Active operation updated successfully', operationId });
     } catch (error) {
       console.error('Error setting active operation:', error);

@@ -656,7 +656,9 @@ const listLocalUsers = async (req, res) => {
       if (!m) continue;
       const username = m[1];
       if (!userMap.has(username)) {
-        userMap.set(username, { username, role: 'user' });
+        // SSO users have no password key — read their persisted role instead.
+        const storedRole = await redisClient.get(`user:${username}:role`);
+        userMap.set(username, { username, role: storedRole === 'admin' ? 'admin' : 'user' });
       }
     }
 

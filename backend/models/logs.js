@@ -67,38 +67,55 @@ const LogsModel = {
 
   async getAllLogs(username = null, isAdmin = false) {
     try {
-      // Admins always see all logs regardless of any active operation
-      if (isAdmin) {
-        const result = await db.query(`
-          SELECT * FROM logs
-          ORDER BY timestamp DESC, id DESC
-        `);
+      if (isAdmin && username) {
+        // Check whether the admin has scoped their view to a specific operation.
+        // The admin_view_filter key is set by the operations set-active endpoint;
+        // absent or set to "ALL" means show everything.
+        let filterTagId = null;
+        try {
+          const raw = await OperationsModel.getAdminViewFilter(username);
+          filterTagId = raw;
+        } catch (_) {}
 
+        if (!filterTagId) {
+          const result = await db.query(
+            `SELECT * FROM logs ORDER BY timestamp DESC, id DESC`
+          );
+          return result.rows.map(row => this._processFromStorage(row));
+        }
+
+        const result = await db.query(`
+          SELECT DISTINCT l.*
+          FROM logs l
+          JOIN log_tags lt ON l.id = lt.log_id
+          WHERE lt.tag_id = $1
+          ORDER BY l.timestamp DESC, l.id DESC
+        `, [filterTagId]);
         return result.rows.map(row => this._processFromStorage(row));
       }
-      
-      // Non-admin users - filter by their active operation
+
+      // Non-admin users — filter by their active operation
       if (!username) {
         throw new Error('Username required for non-admin users');
       }
-      
+
       const activeOp = await OperationsModel.getUserActiveOperation(username);
-      
+
       // If user has no operations, return empty array
       if (!activeOp || !activeOp.tag_id) {
         console.log(`User ${username} has no active operation`);
         return [];
       }
-      
+
       // Filter logs by operation tag
       const result = await db.query(`
-        SELECT DISTINCT l.* 
+        SELECT DISTINCT l.*
         FROM logs l
         JOIN log_tags lt ON l.id = lt.log_id
         WHERE lt.tag_id = $1
         ORDER BY l.timestamp DESC, l.id DESC
       `, [activeOp.tag_id]);
-      
+
       return result.rows.map(row => this._processFromStorage(row));
     } catch (error) {
       console.error('Error fetching logs:', error);
@@ -301,15 +318,21 @@ const LogsModel = {
       const values = [];
       let valueIndex = 1;
       
-      // Add operation filter for non-admins only — admins search across all logs
-      if (!isAdmin) {
+      // Apply operation filter — admins filter by their view filter (if set),
+      // non-admins always filter by their active operation.
+      if (isAdmin && username) {
+        const filterTagId = await OperationsModel.getAdminViewFilter(username).catch(() => null);
+        if (filterTagId) {
+          conditions.push(`lt.tag_id = $${valueIndex++}`);
+          values.push(filterTagId);
+        }
+        // filterTagId === null means "all" — no WHERE clause added
+      } else {
         const activeOp = username ? await OperationsModel.getUserActiveOperation(username) : null;
-
         if (activeOp && activeOp.tag_id) {
           conditions.push(`lt.tag_id = $${valueIndex++}`);
           values.push(activeOp.tag_id);
         } else {
-          // Non-admin with no operation sees nothing
           return [];
         }
       }

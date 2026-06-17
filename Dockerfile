@@ -2,16 +2,19 @@
 # Clio — Multi-stage Dockerfile
 #
 # Targets:
-#   backend   Production backend image for HA / docker-compose deployments.
-#             Identical to backend/Dockerfile but built from the project root.
-#
-#   omnibus   All-in-one single-container image for simple deployments.
-#             Bundles Nginx, Node.js backend, Redis, and PostgreSQL.
-#             Data persists in a single /data volume.
+#   backend        Production backend image for HA / docker-compose / K8s.
+#   frontend-prod  Production frontend: nginx serving the static React build.
+#                  Proxies /api, /exports, /relation-service, /ingest to the
+#                  backend service.  Set BACKEND_URL env var to override the
+#                  default http://clio-backend:3001.
+#   omnibus        All-in-one single-container image for simple deployments.
+#                  Bundles Nginx, Node.js backend, Redis, and PostgreSQL.
+#                  Data persists in a single /data volume.
 #
 # Build examples:
-#   docker build --target omnibus -t clio .
-#   docker build --target backend -t clio-backend .
+#   docker build --target backend       -t clio-backend .
+#   docker build --target frontend-prod -t clio-frontend .
+#   docker build --target omnibus       -t clio .
 # ─────────────────────────────────────────────────────────────────────────────
 
 # ── Stage 1: Build React frontend into static files ───────────────────────────
@@ -49,7 +52,21 @@ EXPOSE 3001
 CMD ["node", "server.js"]
 
 
-# ── Stage 4: omnibus — all-in-one single-container image ─────────────────────
+# ── Stage 4: frontend-prod — nginx serving the static React build ─────────────
+# Designed for Kubernetes: listens on port 80 (TLS terminated at the Ingress).
+# BACKEND_URL env var controls where API calls are proxied (default: http://clio-backend:3001).
+FROM nginx:alpine AS frontend-prod
+RUN apk add --no-cache gettext   # provides envsubst
+COPY --from=frontend-build /build/build /usr/share/nginx/html
+# Place the template where nginx's default entrypoint picks it up via envsubst
+COPY docker/frontend-prod/nginx.conf /etc/nginx/templates/default.conf.template
+COPY docker/frontend-prod/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+EXPOSE 80
+ENTRYPOINT ["/entrypoint.sh"]
+
+
+# ── Stage 5: omnibus — all-in-one single-container image ─────────────────────
 FROM postgres:17-alpine AS omnibus
 
 # Install: Node.js, Redis, Nginx, Supervisor (process manager), OpenSSL, tini (PID 1)

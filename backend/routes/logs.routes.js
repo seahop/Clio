@@ -22,12 +22,15 @@ router.get('/', authenticateJwt, async (req, res, next) => {
     // Get logs with operation filtering
     const logs = await LogsModel.getAllLogs(username, isAdmin);
     
-    // Get the active operation for context
-    const activeOp = await OperationsModel.getUserActiveOperation(username);
+    // For admins, active operation comes from their view filter so the UI
+    // header reflects what they're looking at, not their log-creation target.
+    const activeOp = isAdmin
+      ? await OperationsModel.getAdminViewOperation(username)
+      : await OperationsModel.getUserActiveOperation(username);
 
     // For logging purposes, create a redacted version that doesn't include secrets
     const logsForLogging = logs.map(log => redactSensitiveData(log, ['secrets']));
-    
+
     await eventLogger.logDataEvent('view_logs', req.user.username, {
       count: logs.length,
       timestamp: new Date().toISOString(),

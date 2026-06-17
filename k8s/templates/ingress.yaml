@@ -1,0 +1,48 @@
+{{- if .Values.ingress.enabled -}}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "clio.fullname" . }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "clio.labels" . | nindent 4 }}
+  annotations:
+    {{- if .Values.ingress.tls.certManagerIssuer }}
+    cert-manager.io/cluster-issuer: {{ .Values.ingress.tls.certManagerIssuer | quote }}
+    {{- end }}
+    # Force HTTPS at the Ingress layer
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    # Pass the real client IP through to the backend
+    nginx.ingress.kubernetes.io/use-forwarded-headers: "true"
+    nginx.ingress.kubernetes.io/proxy-real-ip-cidr: "0.0.0.0/0"
+    # Increase proxy timeouts for long-lived SSE / file-upload endpoints
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "120"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "120"
+    # Allow larger request bodies for evidence file uploads (default is 1m)
+    nginx.ingress.kubernetes.io/proxy-body-size: "100m"
+spec:
+  {{- if .Values.ingress.className }}
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- end }}
+  {{- if .Values.ingress.tls.enabled }}
+  tls:
+    - hosts:
+        - {{ .Values.ingress.host | quote }}
+      secretName: {{ .Values.ingress.tls.secretName }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.ingress.host | quote }}
+      http:
+        paths:
+          # All traffic goes to the frontend service.
+          # The frontend nginx container proxies /api, /exports, /relation-service,
+          # and /ingest to the backend; everything else serves the React SPA.
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "clio.fullname" . }}-frontend
+                port:
+                  name: http
+{{- end }}

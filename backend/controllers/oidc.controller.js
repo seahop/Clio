@@ -217,6 +217,11 @@ const oidcCallback = async (req, res) => {
       });
     }
 
+    // Persist the resolved role so user-management listings can show the
+    // correct role without having to decode the JWT or re-evaluate groups.
+    // Updated on every login so group-membership changes take effect immediately.
+    await redisClient.set(`user:${username}:role`, isAdmin ? 'admin' : 'user');
+
     // OIDC users never go through the password-change flow
     await redisClient.del(`user:password_reset:${username}`);
 
