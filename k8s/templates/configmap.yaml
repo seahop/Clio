@@ -5,12 +5,14 @@ metadata:
   namespace: {{ .Values.namespace }}
   labels:
     {{- include "clio.labels" . | nindent 4 }}
+{{- $host := .Values.ingress.host }}
+{{- $frontendUrl := .Values.config.frontendUrl | default (printf "https://%s" $host) }}
 data:
   NODE_ENV:          {{ .Values.config.nodeEnv | quote }}
   TZ:                {{ .Values.config.timezone | quote }}
   PGTZ:              {{ .Values.config.timezone | quote }}
-  FRONTEND_URL:      {{ .Values.config.frontendUrl | quote }}
-  EXTERNAL_HOSTNAME: {{ .Values.config.externalHostname | quote }}
+  FRONTEND_URL:      {{ $frontendUrl | quote }}
+  EXTERNAL_HOSTNAME: {{ $host | quote }}
   # Backend connects to postgres and redis by K8s service name
   POSTGRES_HOST:     {{ printf "%s-postgres" (include "clio.fullname" .) | quote }}
   POSTGRES_PORT:     {{ .Values.postgres.port | quote }}
@@ -23,6 +25,24 @@ data:
   # Run the backend on plain HTTP so the frontend nginx can proxy without certs.
   BACKEND_HTTP:      "true"
   PORT:              {{ .Values.backend.port | quote }}
+  {{- if .Values.googleSso.enabled }}
+  # ── Google OAuth ────────────────────────────────────────────────────────────
+  GOOGLE_CLIENT_ID:   {{ required "googleSso.clientId is required when googleSso.enabled=true" .Values.googleSso.clientId | quote }}
+  GOOGLE_CALLBACK_URL: {{ .Values.googleSso.callbackUrl | default (printf "https://%s/api/auth/google/callback" $host) | quote }}
+  {{- end }}
+  {{- if .Values.oidc.enabled }}
+  # ── Generic OIDC ────────────────────────────────────────────────────────────
+  OIDC_ISSUER_URL:    {{ required "oidc.issuerUrl is required when oidc.enabled=true" .Values.oidc.issuerUrl | quote }}
+  OIDC_CLIENT_ID:     {{ required "oidc.clientId is required when oidc.enabled=true" .Values.oidc.clientId | quote }}
+  OIDC_CALLBACK_URL:  {{ .Values.oidc.callbackUrl | default (printf "https://%s/api/auth/oidc/callback" $host) | quote }}
+  OIDC_PROVIDER_NAME: {{ .Values.oidc.providerName | quote }}
+  OIDC_SCOPE:         {{ .Values.oidc.scope | quote }}
+  OIDC_ADMIN_GROUP:   {{ .Values.oidc.adminGroup | quote }}
+  OIDC_USER_GROUP:    {{ .Values.oidc.userGroup | quote }}
+  {{- if .Values.oidc.idTokenAlg }}
+  OIDC_ID_TOKEN_ALG:  {{ .Values.oidc.idTokenAlg | quote }}
+  {{- end }}
+  {{- end }}
 ---
 # Redis configuration (no TLS, password auth via requirepass)
 apiVersion: v1

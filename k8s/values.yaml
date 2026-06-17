@@ -1,6 +1,11 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # Clio Helm chart — default values
-# Override any value with: helm install clio ./k8s -f my-values.yaml
+#
+# Override any value at install/upgrade time:
+#   helm install clio ./k8s -f my-values.yaml
+#   helm install clio ./k8s --set ingress.host=clio.example.com
+#
+# See docs/kubernetes.md for the full deployment guide.
 # ─────────────────────────────────────────────────────────────────────────────
 
 # -- Kubernetes namespace (create it first: kubectl create namespace clio)
@@ -80,23 +85,23 @@ redis:
 ingress:
   enabled: true
   # Ingress class — nginx is the most common; change to your controller.
+  # Examples: nginx | traefik | haproxy | alb (AWS) | gce (GKE)
   className: nginx
-  # Your external hostname (required)
+  # Your external hostname (required — also drives OIDC/Google callback URL defaults)
   host: clio.example.com
-  # TLS — set enabled: true and provide a cert-manager ClusterIssuer name,
-  # or manage the Secret manually (see NOTES.txt for instructions).
+  # TLS options — see docs/kubernetes.md for all three approaches.
   tls:
     enabled: true
-    # cert-manager ClusterIssuer (e.g. letsencrypt-prod).
-    # Set to "" to manage the TLS Secret manually.
+    # cert-manager ClusterIssuer to use for automatic certificate issuance.
+    # Set to "" if you are providing the TLS Secret manually.
     certManagerIssuer: letsencrypt-prod
-    # Name of the K8s TLS Secret.  cert-manager will create it automatically
-    # when certManagerIssuer is set; otherwise create it yourself.
+    # Name of the K8s TLS Secret.  cert-manager creates it automatically when
+    # certManagerIssuer is set.  Otherwise: kubectl create secret tls clio-tls ...
     secretName: clio-tls
 
-# ── Secrets ───────────────────────────────────────────────────────────────────
-# Provide ALL values here (they are stored as a K8s Secret).
-# Never commit real credentials — use Helm --set or an external secrets manager.
+# ── Secrets (stored in a K8s Secret — never commit real values) ───────────────
+# Provide values via --set flags or a values file that is NOT committed to git.
+# See docs/kubernetes.md for external secrets manager integration.
 secrets:
   postgresUser: clio
   postgresPassword: CHANGE_ME_postgres
@@ -106,19 +111,62 @@ secrets:
   csrfSecret: CHANGE_ME_csrf_secret_min_32_chars
   sessionSecret: CHANGE_ME_session_secret
   redisEncryptionKey: CHANGE_ME_32_char_hex_encryption_key
-  # Optional SSO (leave blank to disable)
-  googleClientId: ""
+
+  # ── Google OAuth secret (leave blank to disable Google login) ──────────────
   googleClientSecret: ""
-  oidcIssuerUrl: ""
-  oidcClientId: ""
+
+  # ── Generic OIDC client secret (leave blank to disable OIDC login) ─────────
   oidcClientSecret: ""
 
 # ── Backend environment config (non-secret) ───────────────────────────────────
 config:
   nodeEnv: production
   timezone: UTC
-  logLevel: info
-  # FRONTEND_URL must match the external URL users hit (used for CORS + CSRF).
-  frontendUrl: "https://clio.example.com"
-  # Relay this to match ingress.host
-  externalHostname: "clio.example.com"
+  # FRONTEND_URL must match the external URL users hit (drives CORS + CSRF).
+  # Defaults to https://<ingress.host> — only override if your external URL
+  # differs from the Ingress hostname (e.g. a CDN in front).
+  frontendUrl: ""    # leave blank to auto-derive from ingress.host
+
+# ── Google OAuth (non-secret config) ─────────────────────────────────────────
+# Set secrets.googleClientSecret to enable.
+googleSso:
+  enabled: false
+  # OAuth client ID from Google Cloud Console (not a secret; it appears in redirects)
+  clientId: ""
+  # Callback URL registered in Google Cloud Console.
+  # Leave blank to auto-derive: https://<ingress.host>/api/auth/google/callback
+  callbackUrl: ""
+
+# ── Generic OIDC / SSO ────────────────────────────────────────────────────────
+# Works with any OIDC-compliant provider: Keycloak, Okta, Azure AD, Auth0,
+# Google Workspace, Authentik, Zitadel, Dex, etc.
+# Set secrets.oidcClientSecret to enable.
+oidc:
+  enabled: false
+  # Provider discovery URL — the /.well-known/openid-configuration endpoint
+  # minus the path suffix (openid-connect library appends it automatically).
+  # Examples:
+  #   Keycloak:   https://keycloak.example.com/realms/my-realm
+  #   Okta:       https://dev-12345.okta.com
+  #   Azure AD:   https://login.microsoftonline.com/<tenant-id>/v2.0
+  #   Auth0:      https://<tenant>.auth0.com
+  issuerUrl: ""
+  # OAuth 2.0 client ID (not a secret; it is included in browser redirects)
+  clientId: ""
+  # Label shown on the login button ("Log in with <providerName>")
+  providerName: "SSO"
+  # OIDC scopes to request
+  scope: "openid email profile"
+  # ID token signing algorithm override.
+  # Leave blank — the chart auto-detects from the provider's discovery document.
+  # Set only if validation fails (e.g. some Azure AD tenants need "RS256").
+  idTokenAlg: ""
+  # Callback URL registered with the OIDC provider.
+  # Leave blank to auto-derive: https://<ingress.host>/api/auth/oidc/callback
+  callbackUrl: ""
+  # Group-based role assignment.
+  # The OIDC provider must include a "groups" claim (or equivalent) in the ID token.
+  # Users in neither group are denied access.
+  # Leave both blank to allow any authenticated user in as a regular user.
+  adminGroup: "clio-admin"
+  userGroup:  "clio-user"
