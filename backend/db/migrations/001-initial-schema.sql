@@ -240,7 +240,7 @@ DO $$ BEGIN
     BEGIN
         ALTER TABLE file_status ADD CONSTRAINT file_status_composite_key
             UNIQUE (filename, hostname, internal_ip);
-    EXCEPTION WHEN duplicate_object THEN NULL;
+    EXCEPTION WHEN duplicate_object OR duplicate_table THEN NULL;
     END;
 END $$;
 
