@@ -83,7 +83,11 @@ const createOIDCUser = async (sub, email, proposedUsername) => {
   let username = sanitizedBase;
   let counter  = 1;
 
-  while (await redisClient.exists(`user:${username}:exists`)) {
+  while (await redisClient.exists(
+    `user:${username}:exists`,
+    `admin:password:${username}`,
+    `user:password:${username}`
+  )) {
     username = `${sanitizedBase}${counter++}`;
   }
 

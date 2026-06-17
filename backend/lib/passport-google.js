@@ -136,7 +136,11 @@ const createGoogleUser = async (googleId, email, proposedUsername) => {
     console.log(`Attempting to create user with base username: ${username}`);
     
     // Keep trying usernames until we find one that doesn't exist
-    while (await redisClient.exists(`user:${username}:exists`)) {
+    while (await redisClient.exists(
+      `user:${username}:exists`,
+      `admin:password:${username}`,
+      `user:password:${username}`
+    )) {
       console.log(`Username ${username} already exists, trying next variant`);
       username = `${proposedUsername}${counter}`;
       counter++;

@@ -14,8 +14,8 @@ module.exports = {
   idTokenAlg:   process.env.OIDC_ID_TOKEN_ALG || null,
   // Group-based role assignment via the 'groups' claim.
   // When the provider includes a groups claim, users must belong to one of
-  // these groups. Admin takes precedence over user. Users in neither group are
-  // denied login. When no groups claim is present, users get the regular role.
+  // these groups. Admin takes precedence over user. Users in neither group,
+  // or with no groups claim at all, are denied login.
   adminGroup:   process.env.OIDC_ADMIN_GROUP || 'clio-admin',
   userGroup:    process.env.OIDC_USER_GROUP  || 'clio-user',
 };
