@@ -199,6 +199,16 @@ docker compose up -d
 
 Generated passwords are printed to stdout on first run and saved to `credentials-backup-*.txt`.
 
+**Non-standard port binding** (e.g. Rancher Desktop, rootless Docker, or any environment that can't bind ports below 1024): add the following to the root `.env` file before `docker compose up`:
+
+```env
+HTTP_HOST_PORT=8080
+HTTPS_HOST_PORT=8443
+HTTPS_REDIRECT_PORT=:8443
+```
+
+This maps host ports 8080/8443 to the container's 80/443. The app is then reachable at `https://<host>:8443`. HTTP requests to port 8080 redirect automatically to the HTTPS port. Leave these variables unset (or remove them) for standard 80/443 production deployments.
+
 **Generic OIDC with the HA deployment:** Add these variables to `backend/.env` after running `generate-env.py`:
 
 ```env
