@@ -7,9 +7,9 @@ NEXT STEPS
   1. Check all pods are running:
        kubectl get pods -n {{ .Values.namespace }}
 
-  2. Find the initial admin password in the backend logs (first boot only):
-       kubectl logs -n {{ .Values.namespace }} \
-         -l app.kubernetes.io/component=backend --tail=50 | grep -i "admin\|password"
+  2. Retrieve the auto-generated admin password:
+       kubectl get secret clio-secrets -n {{ .Values.namespace }} \
+         -o jsonpath='{.data.ADMIN_PASSWORD}' | base64 -d && echo
 
 {{- if .Values.ingress.tls.enabled }}
   3. TLS certificate status:
@@ -17,15 +17,19 @@ NEXT STEPS
 {{- end }}
 
 MANAGING SECRETS
-  Credentials are stored in the 'clio-secrets' Secret.  To rotate a value:
+  All passwords and cryptographic secrets are auto-generated on first install
+  and preserved across upgrades.  To rotate everything:
+    kubectl delete secret clio-secrets -n {{ .Values.namespace }}
+    helm upgrade clio ./k8s -f my-values.yaml
+  To patch a single value without rotation:
     kubectl patch secret -n {{ .Values.namespace }} clio-secrets \
       --type=merge -p '{"stringData":{"REDIS_PASSWORD":"new-value"}}'
-  Then roll the backend deployment:
     kubectl rollout restart deployment -n {{ .Values.namespace }} \
       {{ include "clio.fullname" . }}-backend
 
 UPGRADING
   helm upgrade clio ./k8s -n {{ .Values.namespace }} -f my-values.yaml
+  (always pass -n {{ .Values.namespace }} so release state stays in this namespace)
 
   Image tag pinning (recommended for production):
     helm upgrade clio ./k8s -n {{ .Values.namespace }} \

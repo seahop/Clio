@@ -47,7 +47,9 @@ COPY --from=backend-deps /build/node_modules ./node_modules
 COPY backend/ .
 RUN echo "[system_default_sect]"       > /app/openssl.cnf && \
     echo "MinProtocol = TLSv1"        >> /app/openssl.cnf && \
-    echo "CipherString = DEFAULT@SECLEVEL=0" >> /app/openssl.cnf
+    echo "CipherString = DEFAULT@SECLEVEL=0" >> /app/openssl.cnf && \
+    chown -R node:node /app
+USER node
 EXPOSE 3001
 CMD ["node", "server.js"]
 

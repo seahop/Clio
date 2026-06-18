@@ -30,6 +30,15 @@ backend:
   evidenceStorage:
     size: 10Gi
     storageClass: ""   # leave blank to use cluster default
+  # Pod security context.
+  # Enable runAsNonRoot once the image is built with a non-root USER directive
+  # (docker build --target backend sets USER node / chown -R node:node /app).
+  # The published ghcr.io image currently runs as root, so this is off by default.
+  podSecurityContext:
+    enabled: false
+    runAsNonRoot: true
+    runAsUser: 1000
+    fsGroup: 1000
 
 frontend:
   image:
@@ -99,23 +108,26 @@ ingress:
     # certManagerIssuer is set.  Otherwise: kubectl create secret tls clio-tls ...
     secretName: clio-tls
 
-# ── Secrets (stored in a K8s Secret — never commit real values) ───────────────
-# Provide values via --set flags or a values file that is NOT committed to git.
-# See docs/kubernetes.md for external secrets manager integration.
+# ── Secrets ───────────────────────────────────────────────────────────────────
+# Passwords and cryptographic secrets are AUTO-GENERATED on first install and
+# preserved across upgrades via Helm's lookup function — you do NOT set them
+# here.  To retrieve the generated admin password after install:
+#
+#   kubectl get secret clio-secrets -n <namespace> \
+#     -o jsonpath='{.data.ADMIN_PASSWORD}' | base64 -d && echo
+#
+# To rotate all secrets: delete the Secret and run helm upgrade.
+#
+# Only set the values below if you are enabling Google SSO or generic OIDC.
 secrets:
+  # Non-secret database config (safe to keep here)
   postgresUser: clio
-  postgresPassword: CHANGE_ME_postgres
   postgresDb: redteamlogger
-  redisPassword: CHANGE_ME_redis
-  jwtSecret: CHANGE_ME_jwt_secret_min_32_chars
-  csrfSecret: CHANGE_ME_csrf_secret_min_32_chars
-  sessionSecret: CHANGE_ME_session_secret
-  redisEncryptionKey: CHANGE_ME_32_char_hex_encryption_key
 
-  # ── Google OAuth secret (leave blank to disable Google login) ──────────────
+  # ── Google OAuth client secret (only needed when googleSso.enabled=true) ────
   googleClientSecret: ""
 
-  # ── Generic OIDC client secret (leave blank to disable OIDC login) ─────────
+  # ── Generic OIDC client secret (only needed when oidc.enabled=true) ─────────
   oidcClientSecret: ""
 
 # ── Backend environment config (non-secret) ───────────────────────────────────
@@ -170,3 +182,21 @@ oidc:
   # Leave both blank to allow any authenticated user in as a regular user.
   adminGroup: "clio-admin"
   userGroup:  "clio-user"
+
+# ── NetworkPolicy ──────────────────────────────────────────────────────────────
+# Restricts pod-to-pod traffic to only legitimate paths.
+# Requires a CNI that enforces NetworkPolicy (flannel+kube-router, Calico, Cilium).
+# k3s/Rancher Desktop: works with the default flannel CNI (≥ k3s 1.21).
+networkPolicy:
+  enabled: true
+
+# ── Linkerd service mesh ───────────────────────────────────────────────────────
+# Adds automatic mTLS between all pods via sidecar injection.
+# Install Linkerd first (one-time, cluster-wide):
+#   curl --proto '=https' --tlsv1.2 -sSfL https://run.linkerd.io/install | sh
+#   linkerd install --crds | kubectl apply -f -
+#   linkerd install | kubectl apply -f -
+#   linkerd check
+# Then set enabled: true and run helm upgrade.
+linkerd:
+  enabled: false

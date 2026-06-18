@@ -15,11 +15,23 @@ spec:
     metadata:
       labels:
         {{- include "clio.selectorLabels" (dict "root" . "component" "backend") | nindent 8 }}
+      {{- if .Values.linkerd.enabled }}
+      annotations:
+        linkerd.io/inject: enabled
+        # Skip Linkerd's outbound mTLS for database ports. Linkerd edge's
+        # transport-header protocol breaks opaque TCP (Redis RESP, Postgres),
+        # causing persistent ECONNRESET. Traffic stays in-cluster; the inbound
+        # Linkerd proxy on each DB pod still accepts plain connections via
+        # defaultInboundPolicy: all-unauthenticated.
+        config.linkerd.io/skip-outbound-ports: "6379,5432"
+      {{- end }}
     spec:
+      {{- if .Values.backend.podSecurityContext.enabled }}
       securityContext:
-        runAsNonRoot: true
-        runAsUser: 1000
-        fsGroup: 1000
+        runAsNonRoot: {{ .Values.backend.podSecurityContext.runAsNonRoot }}
+        runAsUser: {{ .Values.backend.podSecurityContext.runAsUser }}
+        fsGroup: {{ .Values.backend.podSecurityContext.fsGroup }}
+      {{- end }}
       containers:
         - name: backend
           image: "{{ .Values.backend.image.repository }}:{{ .Values.backend.image.tag }}"

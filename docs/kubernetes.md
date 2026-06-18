@@ -58,15 +58,15 @@ Here is why:
 If your threat model requires zero-trust networking inside the cluster (e.g. multi-tenant
 clusters, strict compliance requirements like PCI-DSS Level 1), add a **service mesh**:
 
-| Mesh       | How to enable mTLS                                      |
+| Mesh       | How to enable                                           |
 |------------|---------------------------------------------------------|
+| Linkerd    | Set `linkerd.enabled: true` in values (see [Cloud provider deployment](#cloud-provider-deployment-gke--eks--aks)) |
 | Istio      | `PeerAuthentication` policy in the `clio` namespace     |
-| Linkerd    | Automatic with the `linkerd.io/inject: enabled` annotation |
 | Cilium     | `CiliumNetworkPolicy` with `encryption: wireguard`      |
 
-The service mesh handles cert issuance and rotation transparently — you do not
-need to change the application code. Clio's `BACKEND_HTTP=true` mode works correctly
-behind a mesh sidecar.
+The service mesh handles cert issuance and rotation transparently — no
+application code changes needed. **NetworkPolicy alone is sufficient for most
+deployments** and is already included in the chart.
 
 ---
 
@@ -93,29 +93,24 @@ kubectl create namespace clio
 
 ### 2. Create a values file for your deployment
 
-Copy `k8s/values.yaml` to a file that you **do not commit to git** (e.g. `my-clio-values.yaml`)
-and fill in the required fields:
+The **only required field** is `ingress.host` — every secret and password is
+auto-generated on first install and preserved across upgrades.  Create a file
+you **do not commit to git** (e.g. `my-clio-values.yaml`):
 
 ```yaml
 ingress:
-  host: clio.yourcompany.com   # the DNS name users will visit
+  host: clio.yourcompany.com          # DNS name users will visit — also drives FRONTEND_URL
   tls:
     certManagerIssuer: letsencrypt-prod   # or your ClusterIssuer name
-
-secrets:
-  postgresPassword:    "$(openssl rand -hex 24)"
-  redisPassword:       "$(openssl rand -hex 24)"
-  jwtSecret:           "$(openssl rand -hex 32)"
-  csrfSecret:          "$(openssl rand -hex 32)"
-  sessionSecret:       "$(openssl rand -hex 32)"
-  redisEncryptionKey:  "$(openssl rand -hex 32)"
 ```
 
-> **Tip:** Generate all secrets at once:
-> ```bash
-> for s in postgresPassword redisPassword jwtSecret csrfSecret sessionSecret redisEncryptionKey; do
->   echo "$s: $(openssl rand -hex 32)"; done
-> ```
+That's it for a basic deployment. See the sections below for optional extras
+(SSO, storage class overrides, NetworkPolicy, etc.).
+
+> **How `FRONTEND_URL` is derived:** The chart automatically sets
+> `FRONTEND_URL=https://<ingress.host>` in the backend config. You only need to
+> set `config.frontendUrl` explicitly if your external URL differs from the
+> ingress hostname — for example if a CDN in front uses a different domain.
 
 ### 3. Install
 
@@ -135,14 +130,17 @@ kubectl get certificate -n clio   # TLS cert should reach Ready=True
 
 ### 5. Get the initial admin password
 
-On the very first boot the backend creates an admin account and prints the
-password to its logs:
+All secrets (including the admin password) are auto-generated on first install
+and stored in the `clio-secrets` Kubernetes Secret:
 
 ```bash
-kubectl logs -n clio \
-  -l app.kubernetes.io/component=backend \
-  --tail=80 | grep -iE "admin|password|credential"
+kubectl get secret clio-secrets -n clio \
+  -o jsonpath='{.data.ADMIN_PASSWORD}' | base64 -d && echo
 ```
+
+> Secrets are preserved across `helm upgrade` — rotating them requires either
+> deleting the Secret (rotates everything) or patching individual keys (see
+> [Rotating secrets](#rotating-secrets)).
 
 ---
 
@@ -647,6 +645,273 @@ kubectl exec -n clio \
 
 ---
 
+## NetworkPolicy
+
+The chart ships a `NetworkPolicy` resource for each workload that restricts
+pod-to-pod traffic to only the paths that are actually needed:
+
+| Source | Destination | Port |
+|--------|------------|------|
+| Ingress controller (kube-system) | frontend | 80 |
+| frontend | backend | 3001 |
+| backend | postgres | 5432 |
+| backend | redis | 6379 |
+
+All other pod-to-pod traffic is denied by default.
+
+### Enable / disable
+
+```yaml
+# values.yaml (or your override file)
+networkPolicy:
+  enabled: true    # default — recommended for production
+```
+
+### Requirements
+
+NetworkPolicy enforcement requires a CNI plugin that supports it. Most managed
+Kubernetes distributions ship one by default:
+
+| Platform | CNI / Policy enforcement |
+|----------|--------------------------|
+| GKE | Calico (enable at cluster creation) or Dataplane V2 |
+| EKS | VPC CNI + Network Policy controller (enable in add-ons) |
+| AKS | Azure CNI or Calico (enable at cluster creation) |
+| k3s / Rancher Desktop | flannel — policy enforcement built in since k3s 1.21 |
+| Rancher RKE2 | Canal (flannel + Calico) — enabled by default |
+
+If your CNI does not enforce NetworkPolicy, setting `networkPolicy.enabled: true`
+is harmless — the resources are created but have no effect.
+
+---
+
+## Ingress controller
+
+The chart defaults to `ingress.className: nginx`. Change this to match your
+cluster's ingress controller:
+
+| Controller | `ingress.className` value |
+|------------|--------------------------|
+| ingress-nginx | `nginx` |
+| Traefik (k3s default) | `traefik` |
+| AWS ALB | `alb` |
+| GCE (GKE) | `gce` |
+| Azure Application Gateway | `azure/application-gateway` |
+| HAProxy | `haproxy` |
+
+```yaml
+ingress:
+  className: traefik    # example for k3s / Rancher Desktop
+```
+
+---
+
+## Local development (Rancher Desktop / k3s)
+
+Rancher Desktop ships k3s with Traefik as the default ingress controller. The
+Lima VM that k3s runs in is not directly routable from the host on Linux, so
+use `kubectl port-forward` to access the cluster.
+
+### One-time setup
+
+```bash
+# 1. Create namespace
+kubectl create namespace clio
+
+# 2. Create a self-signed TLS certificate for clio.local
+openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+  -keyout /tmp/clio-tls.key -out /tmp/clio-tls.crt \
+  -subj "/CN=clio.local" \
+  -addext "subjectAltName=DNS:clio.local,IP:127.0.0.1"
+
+kubectl create secret tls clio-tls \
+  --cert=/tmp/clio-tls.crt --key=/tmp/clio-tls.key -n clio
+
+# 3. Point clio.local to localhost
+echo "127.0.0.1 clio.local" | sudo tee -a /etc/hosts
+```
+
+### Install
+
+Use the provided `k8s/local-values.yaml` which pre-configures Traefik, local
+image overrides, and `clio.local` as the hostname:
+
+```bash
+helm install clio ./k8s -n clio -f k8s/local-values.yaml
+```
+
+### Access via port-forward
+
+The Lima VM IP is not directly routable from the host on Linux. Run a
+port-forward to Traefik instead:
+
+```bash
+sudo kubectl port-forward -n kube-system svc/traefik 443:443 --address 127.0.0.1
+```
+
+Then visit `https://clio.local` in your browser (accept the self-signed cert warning).
+
+### Building local images
+
+If you want to test local code changes without pushing to a registry:
+
+```bash
+# Build images into the Rancher Desktop Docker context
+docker build --target frontend-prod -t clio-k8s-frontend:latest .
+docker build --target backend       -t clio-k8s-backend:latest  .
+
+# local-values.yaml already sets pullPolicy: Never for these image names
+helm upgrade clio ./k8s -n clio -f k8s/local-values.yaml
+```
+
+### Teardown
+
+```bash
+helm uninstall clio -n clio
+kubectl delete namespace clio
+```
+
+---
+
+## Cloud provider deployment (GKE / EKS / AKS)
+
+The chart is cloud-agnostic. These notes cover the most common cloud-specific
+configuration.
+
+### Google Kubernetes Engine (GKE)
+
+```yaml
+ingress:
+  className: gce          # or nginx if you installed ingress-nginx
+  host: clio.example.com
+  tls:
+    enabled: true
+    certManagerIssuer: letsencrypt-prod
+    secretName: clio-tls
+
+networkPolicy:
+  enabled: true   # requires Calico or Dataplane V2 at cluster creation
+```
+
+cert-manager with Let's Encrypt requires a public DNS record. For internal
+deployments, use a manual cert or GCP Certificate Manager.
+
+### Amazon Elastic Kubernetes Service (EKS)
+
+```yaml
+ingress:
+  className: alb          # AWS Load Balancer Controller required
+  host: clio.example.com
+  tls:
+    enabled: false        # ALB handles TLS via ACM — set cert ARN in annotation instead
+
+networkPolicy:
+  enabled: true   # requires Network Policy controller enabled in EKS add-ons
+```
+
+For ALB TLS, add the cert ARN annotation outside the chart (or use a values
+override to add ingress annotations).
+
+### Azure Kubernetes Service (AKS)
+
+```yaml
+ingress:
+  className: nginx        # or azure/application-gateway
+  host: clio.example.com
+  tls:
+    enabled: true
+    certManagerIssuer: letsencrypt-prod
+    secretName: clio-tls
+
+networkPolicy:
+  enabled: true   # requires Azure CNI or Calico selected at cluster creation
+```
+
+### Storage class recommendations
+
+| Platform | Recommended `storageClass` |
+|----------|---------------------------|
+| GKE | `standard-rwo` (balanced PD) or `premium-rwo` (SSD) |
+| EKS | `gp3` |
+| AKS | `managed-premium` (SSD) or `managed` (HDD) |
+| k3s | leave blank — uses `local-path` provisioner |
+
+```yaml
+postgres:
+  storage:
+    storageClass: "gp3"
+
+redis:
+  storage:
+    storageClass: "gp3"
+
+backend:
+  evidenceStorage:
+    storageClass: "gp3"
+```
+
+### Non-root pod security context
+
+The published `ghcr.io` images run as root. If your cluster enforces a
+non-root pod policy (OPA/Gatekeeper, Pod Security Standards), build the images
+from source — the Dockerfile's `backend` stage sets `USER node`:
+
+```bash
+docker build --target backend       -t your-registry/clio-backend:latest .
+docker build --target frontend-prod -t your-registry/clio-frontend:latest .
+docker push your-registry/clio-backend:latest
+docker push your-registry/clio-frontend:latest
+```
+
+Then enable the security context in your values file:
+
+```yaml
+backend:
+  image:
+    repository: your-registry/clio-backend
+    tag: latest
+  podSecurityContext:
+    enabled: true
+    runAsNonRoot: true
+    runAsUser: 1000
+    fsGroup: 1000
+
+frontend:
+  image:
+    repository: your-registry/clio-frontend
+    tag: latest
+```
+
+### mTLS between pods (service mesh)
+
+If your threat model requires encrypted pod-to-pod traffic (e.g. multi-tenant
+cluster, PCI-DSS), a service mesh like Linkerd adds automatic mTLS with no
+application changes.  On cloud providers this is straightforward:
+
+```bash
+# Install Linkerd (no extra flags needed — cloud clusters use containerd)
+curl --proto '=https' --tlsv1.2 -sSfL https://run.linkerd.io/install | sh
+linkerd install --crds | kubectl apply -f -
+linkerd install | kubectl apply -f -
+linkerd check
+```
+
+Then enable injection in your values file:
+
+```yaml
+linkerd:
+  enabled: true
+```
+
+> **Note:** Some versions of Linkerd (edge-26.x) have a transport-header
+> protocol incompatibility with Redis and PostgreSQL that causes persistent
+> connection resets. If you see Redis ECONNRESET errors after enabling Linkerd,
+> the chart already includes the workaround annotation
+> (`config.linkerd.io/skip-outbound-ports: "6379,5432"` on the backend pod).
+> Linkerd stable releases (2.14+) do not have this issue.
+
+---
+
 ## Troubleshooting
 
 ### Pods not starting
@@ -702,9 +967,23 @@ wrong ClusterIssuer name.
 
 ### Session cookies not persisting (CSRF errors)
 
-Ensure `ingress.host` and `config.frontendUrl` resolve to the same origin that
-users are actually hitting in their browser. A mismatch causes CSRF token
-validation to fail.
+1. **Check `ingress.host` matches the URL in the browser.**  The chart sets
+   `FRONTEND_URL=https://<ingress.host>` automatically.  If users are hitting a
+   different hostname (e.g. a CDN alias), override it explicitly:
+   ```yaml
+   config:
+     frontendUrl: "https://clio-cdn.example.com"
+   ```
+
+2. **Check `X-Forwarded-Proto` is reaching the backend.**  The frontend nginx
+   passes the upstream `X-Forwarded-Proto` header through to the backend.  If
+   you have an extra proxy layer between Traefik/nginx and the frontend, ensure
+   it sets this header correctly so the backend sees `https`.
+
+3. **Confirm the TLS secret exists.**
+   ```bash
+   kubectl get secret clio-tls -n clio
+   ```
 
 ### Evidence file uploads fail
 

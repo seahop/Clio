@@ -17,6 +17,10 @@ spec:
     metadata:
       labels:
         {{- include "clio.selectorLabels" (dict "root" . "component" "postgres") | nindent 8 }}
+      {{- if .Values.linkerd.enabled }}
+      annotations:
+        linkerd.io/inject: enabled
+      {{- end }}
     spec:
       securityContext:
         fsGroup: 999    # postgres group

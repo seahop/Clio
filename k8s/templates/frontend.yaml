@@ -15,6 +15,10 @@ spec:
     metadata:
       labels:
         {{- include "clio.selectorLabels" (dict "root" . "component" "frontend") | nindent 8 }}
+      {{- if .Values.linkerd.enabled }}
+      annotations:
+        linkerd.io/inject: enabled
+      {{- end }}
     spec:
       containers:
         - name: frontend

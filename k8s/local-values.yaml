@@ -1,0 +1,65 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Rancher Desktop / k3s local test values
+#
+# All passwords and secrets are auto-generated on first install.
+# Images are pulled from ghcr.io (public, no auth needed).
+#
+# One-time setup (run in order):
+#
+#   1. Create namespace + TLS secret:
+#        kubectl create namespace clio
+#        openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+#          -keyout /tmp/clio-tls.key -out /tmp/clio-tls.crt \
+#          -subj "/CN=clio.local" \
+#          -addext "subjectAltName=DNS:clio.local,IP:192.168.5.15"
+#        kubectl create secret tls clio-tls \
+#          --cert=/tmp/clio-tls.crt --key=/tmp/clio-tls.key -n clio
+#
+#   2. Add the Rancher Desktop VM IP to /etc/hosts:
+#        echo "192.168.5.15 clio.local" | sudo tee -a /etc/hosts
+#
+#   3. Install:
+#        helm install clio ./k8s -n clio -f k8s/local-values.yaml
+#
+#   Retrieve the generated admin password:
+#        kubectl get secret clio-secrets -n clio \
+#          -o jsonpath='{.data.ADMIN_PASSWORD}' | base64 -d && echo
+#
+# Teardown:
+#        helm uninstall clio -n clio && kubectl delete namespace clio
+#   (or just: kubectl delete namespace clio — Helm release state lives in same ns)
+# ─────────────────────────────────────────────────────────────────────────────
+
+namespace: clio
+
+# ── Ingress: Rancher Desktop ships Traefik, not nginx ─────────────────────────
+ingress:
+  enabled: true
+  className: traefik
+  host: clio.local
+  tls:
+    enabled: true
+    certManagerIssuer: ""      # no cert-manager needed locally
+    secretName: clio-tls       # created in step 1 above
+
+# ── Locally-built images (nginx.conf CORS fix + non-root backend) ─────────────
+# Build first:
+#   docker build --target frontend-prod -t clio-k8s-frontend:latest .
+#   docker build --target backend       -t clio-k8s-backend:latest  .
+backend:
+  image:
+    repository: clio-k8s-backend
+    tag: latest
+    pullPolicy: Never
+  podSecurityContext:
+    enabled: true    # safe now — image has USER node + chown -R node:node /app
+
+frontend:
+  image:
+    repository: clio-k8s-frontend
+    tag: latest
+    pullPolicy: Never
+
+# ── Security hardening ────────────────────────────────────────────────────────
+networkPolicy:
+  enabled: true
