@@ -5,12 +5,18 @@ const FileStatusService = require('../services/relations/fileStatusService');
 const { authenticateJwt: authenticateToken, verifyAdmin } = require('../middleware/jwt.middleware');
 const OperationsModel = require('../models/operations');
 
-// authenticateJwt only sets {id, username, role} — look up the active operation
-// here so every handler has req.activeOperationTagId available.
+// authenticateJwt only sets {id, username, role} — look up the effective operation
+// filter here so every handler has req.activeOperationTagId available.
+// Admins respect admin_view_filter (null = "All Operations"); regular users use their active op.
 const attachActiveOp = async (req, res, next) => {
   try {
-    const activeOp = await OperationsModel.getUserActiveOperation(req.user.username);
-    req.activeOperationTagId = activeOp?.tag_id || null;
+    const isAdmin = req.user.role === 'admin';
+    if (isAdmin) {
+      req.activeOperationTagId = await OperationsModel.getAdminViewFilter(req.user.username).catch(() => null);
+    } else {
+      const activeOp = await OperationsModel.getUserActiveOperation(req.user.username);
+      req.activeOperationTagId = activeOp?.tag_id || null;
+    }
   } catch (err) {
     console.error('Failed to load active operation for file-status:', err);
     req.activeOperationTagId = null;

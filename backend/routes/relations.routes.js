@@ -8,13 +8,18 @@ const { authenticateJwt: authenticateToken, verifyAdmin } = require('../middlewa
 const OperationsModel = require('../models/operations');
 const db = require('../db');
 
-// Attach the user's active operation tag to req before any relations handler.
-// authenticateJwt only sets {id, username, role} — it does not look up the
-// active operation, so we do it here once for all read routes.
+// Attach the effective operation tag filter to req before any relations handler.
+// For admins, respect admin_view_filter (null = "All Operations").
+// For regular users, use their active operation.
 const attachActiveOp = async (req, res, next) => {
   try {
-    const activeOp = await OperationsModel.getUserActiveOperation(req.user.username);
-    req.activeOperationTagId = activeOp?.tag_id || null;
+    const isAdmin = req.user.role === 'admin';
+    if (isAdmin) {
+      req.activeOperationTagId = await OperationsModel.getAdminViewFilter(req.user.username).catch(() => null);
+    } else {
+      const activeOp = await OperationsModel.getUserActiveOperation(req.user.username);
+      req.activeOperationTagId = activeOp?.tag_id || null;
+    }
   } catch (err) {
     console.error('Failed to load active operation for relations:', err);
     req.activeOperationTagId = null;
