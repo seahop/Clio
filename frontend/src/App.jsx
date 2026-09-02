@@ -3,6 +3,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import RedTeamLogger from './components/RedTeamLogger';
 import Login from './components/Login';
 import { OperationsProvider, OperationSwitcher } from './components/Operations';
+import { BrandMark } from './components/common/ui';
+import Presence from './components/Presence';
 
 // Debug function to help diagnose CSRF and CORS issues
 const debugNetworkIssues = async () => {
@@ -27,25 +29,6 @@ const debugNetworkIssues = async () => {
       console.log("CSRF Token received:", !!csrfData.csrfToken);
     }
     
-    // Test health check endpoint
-    try {
-      const healthResponse = await fetch('/api/health', {
-        credentials: 'include'
-      });
-      
-      console.log("Health Check Response:", {
-        status: healthResponse.status,
-        ok: healthResponse.ok
-      });
-      
-      if (healthResponse.ok) {
-        const healthData = await healthResponse.json();
-        console.log("Health Check Data:", healthData);
-      }
-    } catch (healthError) {
-      console.log("Health check error:", healthError.message);
-    }
-    
     // Check if cookies are accessible
     console.log("Cookies:", document.cookie ? "Present" : "None or inaccessible");
     
@@ -55,7 +38,7 @@ const debugNetworkIssues = async () => {
   }
 };
 
-// CSRF token refresh interval - 10 minutes (shorter than the 15-minute expiry)
+// CSRF token refresh interval - 10 minutes (well within the server's 4-hour expiry)
 const TOKEN_REFRESH_INTERVAL = 10 * 60 * 1000; 
 
 function App() {
@@ -320,17 +303,18 @@ function App() {
     window.addEventListener('touchstart', handleUserActivity);
     
     // Add event listener for visibility change (tab becomes active again)
-    document.addEventListener('visibilitychange', () => {
+    const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
         handleUserActivity();
       }
-    });
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
       window.removeEventListener('mousedown', handleUserActivity);
       window.removeEventListener('keydown', handleUserActivity);
       window.removeEventListener('touchstart', handleUserActivity);
-      document.removeEventListener('visibilitychange', handleUserActivity);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [lastTokenRefresh, refreshCsrfToken]);
 
@@ -372,28 +356,31 @@ function App() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-900">
+    <div className="min-h-screen bg-canvas">
       {user ? (
         <OperationsProvider csrfToken={csrfToken}>
           <div>
-            <div className="bg-gray-800 shadow">
-              <div className="w-full px-2 sm:px-4 py-4">
-                <div className="flex justify-between items-center">
-                  <div className="flex items-center gap-4">
-                    <h1 className="text-xl font-semibold text-white">Clio Logging Platform</h1>
-                    {/* Add Operation Switcher here */}
+            <div className="bg-surface border-b border-line sticky top-0 z-30">
+              <div className="w-full px-3 sm:px-4 py-3">
+                <div className="flex justify-between items-center gap-3">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <BrandMark size={26} className="flex-shrink-0" />
+                    <h1 className="text-base font-semibold text-content tracking-tight hidden sm:block">Clio</h1>
+                    <div className="h-5 w-px bg-line hidden sm:block" />
                     <OperationSwitcher />
                   </div>
-                  <div className="flex items-center gap-4">
-                    <span className="text-gray-300">Welcome, {user.username}</span>
+                  <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+                    <Presence currentUsername={user.username} />
+                    <div className="h-5 w-px bg-line hidden sm:block" />
+                    <span className="text-sm text-muted truncate hidden md:inline">{user.username}</span>
                     {user.role === 'admin' && (
-                      <span className="bg-red-900 text-red-200 text-xs font-medium px-2.5 py-0.5 rounded">
+                      <span className="bg-danger/15 text-danger text-2xs font-semibold uppercase tracking-wide px-2 py-0.5 rounded border border-danger/30">
                         Admin
                       </span>
                     )}
                     <button
                       onClick={handleLogout}
-                      className="px-4 py-2 bg-gray-700 text-gray-300 rounded-md hover:bg-gray-600"
+                      className="px-3 py-1.5 text-sm bg-surface-2 text-muted border border-line rounded-md hover:bg-surface-3 hover:text-content transition-colors"
                     >
                       Logout
                     </button>

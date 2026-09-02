@@ -58,16 +58,17 @@ const encryptForS3 = async (req, res) => {
     // Create new filenames with .encrypted and .key before the extension
     const encryptedFileName = `${baseName}.encrypted${fileExt}`;
     const keyFileName = `${baseName}.key${fileExt}`;
-    
-    // Create output paths in the same directory as the source file
+
+    // Create output path in the same directory as the source file.
+    // The key material is NEVER written to disk — it is returned in the API
+    // response only, so it can't be fetched from the shared /exports dir or
+    // uploaded next to the ciphertext.
     const sourceDir = path.dirname(sourceFilePath);
     const encryptedFilePath = path.join(sourceDir, encryptedFileName);
-    const keyFilePath = path.join(sourceDir, keyFileName);
-    
+
     console.log('Using paths:', {
       sourceFilePath,
       encryptedFilePath,
-      keyFilePath,
       baseName,
       fileExt
     });
@@ -91,7 +92,7 @@ const encryptForS3 = async (req, res) => {
     fs.writeFileSync(encryptedFilePath, encryptedData);
     console.log(`Wrote ${encryptedData.length} bytes to encrypted file`);
     
-    // Create key file with metadata
+    // Key material with metadata — returned to the caller only, never persisted
     const keyData = {
       algorithm: 'aes-256-cbc',
       key: key.toString('hex'),
@@ -101,27 +102,25 @@ const encryptForS3 = async (req, res) => {
       encryptedAt: new Date().toISOString(),
       fileSize: fileData.length
     };
-    
-    // Write key file
-    fs.writeFileSync(keyFilePath, JSON.stringify(keyData, null, 2));
-    console.log('Key file written successfully');
-    
-    // Log the encryption
+
+    // Log the encryption (never log the key material itself)
     await eventLogger.logAuditEvent('encrypt_file_for_s3', req.user.username, {
       originalFile: sourceFileName,
       encryptedFile: encryptedFileName,
       keyFile: keyFileName,
+      keyDelivery: 'api-response',
       timestamp: new Date().toISOString()
     });
-    
-    // Return web paths for the frontend with filenames for status tracking
+
+    // Return web path for the encrypted file plus the key material for the
+    // operator to save locally (the frontend triggers a browser download)
     const webPathPrefix = '/exports/';
     res.json({
       encryptedFilePath: webPathPrefix + encryptedFileName,
-      keyFilePath: webPathPrefix + keyFileName,
       originalFileName: sourceFileName,
       encryptedFileName: encryptedFileName,
-      keyFileName: keyFileName
+      keyFileName: keyFileName,
+      keyData: keyData
     });
   } catch (error) {
     console.error('Error encrypting file for S3:', error);

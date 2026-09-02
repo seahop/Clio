@@ -44,10 +44,12 @@ const pool = new Pool({
   ssl: configureSsl(),
 });
 
-// Add event listeners for pool errors
+// Add event listeners for pool errors.
+// Don't exit the process here — an idle client losing its connection (e.g. a
+// network blip or Postgres restart) is recoverable; pg discards the broken
+// client and the pool creates a fresh one on the next query.
 pool.on('error', (err) => {
   console.error('Unexpected error on idle client', err);
-  process.exit(-1);
 });
 
 // Add event listeners for connection success

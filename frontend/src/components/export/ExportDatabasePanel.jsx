@@ -507,7 +507,7 @@ const ExportDatabasePanel = ({ csrfToken, isAdmin = false }) => {
     <div>
       <div className="flex items-center gap-2 mb-4">
         <Download className="text-blue-400" size={24} />
-        <h2 className="text-xl font-bold text-white">Export Database</h2>
+        <h2 className="text-xl font-bold text-content">Export Database</h2>
       </div>
 
       {/* Message/Error Banner */}

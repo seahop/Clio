@@ -40,7 +40,7 @@ async function initRelationTables() {
     await db.query(`
       CREATE TABLE IF NOT EXISTS file_status (
         id SERIAL PRIMARY KEY,
-        filename VARCHAR(100) NOT NULL,
+        filename VARCHAR(254) NOT NULL,
         status VARCHAR(50) NOT NULL,
         hostname VARCHAR(75),
         internal_ip VARCHAR(45),
@@ -87,7 +87,7 @@ async function initRelationTables() {
     await db.query(`
       CREATE TABLE IF NOT EXISTS file_status_history (
         id SERIAL PRIMARY KEY,
-        filename VARCHAR(100) NOT NULL,
+        filename VARCHAR(254) NOT NULL,
         status VARCHAR(50) NOT NULL,
         previous_status VARCHAR(50),
         hostname VARCHAR(75),

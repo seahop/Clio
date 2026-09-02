@@ -1,6 +1,7 @@
 // frontend/src/components/relations/relationUtils.js
 import React from 'react';
 import { Wifi, Server, Globe, Cpu, User, Network, Clock, Terminal, Shield } from 'lucide-react';
+import { formatUTC } from '../../utils/dateUtils';
 
 /**
  * Get icon component based on relation type
@@ -57,13 +58,13 @@ export const getEnrichedDetails = (relation, allRelations = []) => {
       
       details.push({
         label: "First seen",
-        value: firstSeen.toLocaleString(),
+        value: formatUTC(firstSeen),
         icon: <Clock className="w-4 h-4 text-blue-400" />
       });
-      
+
       details.push({
         label: "Last seen",
-        value: lastSeen.toLocaleString(),
+        value: formatUTC(lastSeen),
         icon: <Clock className="w-4 h-4 text-blue-400" />
       });
     }

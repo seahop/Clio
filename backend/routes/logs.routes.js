@@ -3,6 +3,8 @@ const express = require('express');
 const router = express.Router();
 const LogsModel = require('../models/logs');
 const OperationsModel = require('../models/operations');
+const db = require('../db');
+const eventBus = require('../lib/eventBus');
 const eventLogger = require('../lib/eventLogger');
 const { authenticateJwt, verifyAdmin } = require('../middleware/jwt.middleware');
 const { redactSensitiveData } = require('../utils/sanitize');
@@ -96,6 +98,8 @@ router.post('/', authenticateJwt, async (req, res, next) => {
     }, ['secrets']);
     
     await eventLogger.logDataEvent('create_log', req.user.username, logDataForEvents);
+
+    eventBus.publish({ type: 'logs:changed', action: 'create', id: newLog.id });
 
     // Return the log with actual secrets to the UI
     res.json(newLog);
@@ -281,6 +285,8 @@ router.put('/:id', authenticateJwt, async (req, res, next) => {
       timestamp: new Date().toISOString()
     });
     
+    eventBus.publish({ type: 'logs:changed', action: 'update', id: parseInt(id) });
+
     // Return the updated log with actual secrets
     res.json(updatedLog);
   } catch (error) {
@@ -331,6 +337,8 @@ router.delete('/:id', authenticateJwt, verifyAdmin, async (req, res, next) => {
       deletedData: safeDeletedLog,
       timestamp: new Date().toISOString()
     });
+
+    eventBus.publish({ type: 'logs:changed', action: 'delete', id });
 
     res.json({ message: 'Log deleted successfully' });
   } catch (error) {
@@ -426,6 +434,127 @@ router.post('/rotate', authenticateJwt, verifyAdmin, async (req, res, next) => {
   }
 });
 
+// Bulk status update across selected logs (before /:id). Respects locks: a
+// non-admin cannot change a log locked by someone else.
+router.post('/bulk-status', authenticateJwt, async (req, res, next) => {
+  try {
+    const { logIds, status } = req.body;
+    const VALID = ['ON_DISK', 'IN_MEMORY', 'ENCRYPTED', 'REMOVED', 'CLEANED', 'DORMANT', 'DETECTED', 'UNKNOWN'];
+    if (!Array.isArray(logIds) || logIds.length === 0) {
+      return res.status(400).json({ error: 'logIds must be a non-empty array' });
+    }
+    if (!VALID.includes(status)) {
+      return res.status(400).json({ error: 'Invalid status', valid: VALID });
+    }
+    const ids = logIds.map(Number).filter(Number.isInteger);
+    if (ids.length === 0) return res.status(400).json({ error: 'No valid log ids' });
+
+    const isAdmin = req.user.role === 'admin';
+    // Admins may change any; others skip logs locked by a different user.
+    const result = isAdmin
+      ? await db.query(
+          `UPDATE logs SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = ANY($2::int[]) RETURNING id`,
+          [status, ids])
+      : await db.query(
+          `UPDATE logs SET status = $1, updated_at = CURRENT_TIMESTAMP
+           WHERE id = ANY($2::int[]) AND (locked = false OR locked_by = $3) RETURNING id`,
+          [status, ids, req.user.username]);
+
+    await eventLogger.logDataEvent('bulk_status', req.user.username, {
+      status, updated: result.rows.length, requested: ids.length,
+    });
+    eventBus.publish({ type: 'logs:changed', action: 'bulk-status', ids: result.rows.map(r => r.id) });
+    scheduleRelationAnalysis();
+
+    res.json({ success: true, updated: result.rows.length, requested: ids.length });
+  } catch (error) {
+    console.error('Error in bulk status update:', error);
+    next(error);
+  }
+});
+
+// Dashboard aggregate stats, scoped to the viewer's operation (before /:id).
+router.get('/stats', authenticateJwt, async (req, res, next) => {
+  try {
+    const stats = await LogsModel.getStats(req.user.username, req.user.role === 'admin');
+    res.json(stats);
+  } catch (error) {
+    console.error('Error computing stats:', error);
+    next(error);
+  }
+});
+
+// ── Untagged-log triage (admin) ──────────────────────────────────────────────
+// Surfaces logs that carry no operation tag — these produce relations with no
+// operation scope, so they can't be filtered by operation. Registered BEFORE
+// GET /:id so "untagged" is not swallowed by the id route.
+router.get('/untagged', authenticateJwt, verifyAdmin, async (req, res, next) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit) || 200, 1000);
+    const result = await db.query(
+      `SELECT l.* FROM logs l
+       WHERE NOT EXISTS (
+         SELECT 1 FROM log_tags lt
+         JOIN operations o ON o.tag_id = lt.tag_id
+         WHERE lt.log_id = l.id
+       )
+       ORDER BY l.timestamp DESC
+       LIMIT $1`,
+      [limit]
+    );
+    const countResult = await db.query(
+      `SELECT COUNT(*)::int AS n FROM logs l
+       WHERE NOT EXISTS (
+         SELECT 1 FROM log_tags lt
+         JOIN operations o ON o.tag_id = lt.tag_id
+         WHERE lt.log_id = l.id
+       )`
+    );
+    const logs = result.rows.map(r => LogsModel._processFromStorage(r));
+    res.json({ total: countResult.rows[0].n, returned: logs.length, logs });
+  } catch (error) {
+    console.error('Error fetching untagged logs:', error);
+    next(error);
+  }
+});
+
+// Assign an operation to a set of untagged (or any) logs, after the fact.
+router.post('/bulk-operation-tag', authenticateJwt, verifyAdmin, async (req, res, next) => {
+  try {
+    const { logIds, operationId } = req.body;
+    if (!Array.isArray(logIds) || logIds.length === 0) {
+      return res.status(400).json({ error: 'logIds must be a non-empty array' });
+    }
+    const ids = logIds.map(Number).filter(Number.isInteger);
+    if (ids.length === 0) return res.status(400).json({ error: 'No valid log ids' });
+
+    const op = await OperationsModel.getOperationById(parseInt(operationId));
+    if (!op || !op.tag_id) {
+      return res.status(400).json({ error: 'Operation not found or has no tag' });
+    }
+
+    const result = await db.query(
+      `INSERT INTO log_tags (log_id, tag_id, tagged_by)
+       SELECT id, $1, $2 FROM logs WHERE id = ANY($3::int[])
+       ON CONFLICT (log_id, tag_id) DO NOTHING
+       RETURNING log_id`,
+      [op.tag_id, req.user.username, ids]
+    );
+
+    await eventLogger.logDataEvent('bulk_operation_tag', req.user.username, {
+      operationId: op.id, operationName: op.name, tagged: result.rows.length, requested: ids.length
+    });
+
+    // Rebuild relations so the newly-tagged logs pick up their operation scope.
+    scheduleRelationAnalysis();
+
+    res.json({ success: true, tagged: result.rows.length, operation: op.name });
+  } catch (error) {
+    console.error('Error bulk-tagging logs with operation:', error);
+    next(error);
+  }
+});
+
 // Get single log by ID
 router.get('/:id', authenticateJwt, async (req, res, next) => {
   try {
@@ -460,8 +589,13 @@ router.post('/bulk-delete', authenticateJwt, verifyAdmin, async (req, res, next)
     
     const deletedIds = await LogsModel.bulkDelete(ids);
 
-    // Cascade delete relations referencing deleted logs
-    await cascadeDeleteRelations(deletedIds);
+    // Cascade delete relations referencing deleted logs (non-fatal: the logs are
+    // already gone, so a cascade error must not roll back the 200 response to a 500).
+    try {
+      await cascadeDeleteRelations(deletedIds);
+    } catch (cascadeErr) {
+      console.error('Cascade delete failed (non-fatal):', cascadeErr.message);
+    }
     
     // Log bulk deletion
     await eventLogger.logDataEvent('bulk_delete', req.user.username, {
@@ -469,8 +603,10 @@ router.post('/bulk-delete', authenticateJwt, verifyAdmin, async (req, res, next)
       deletedIds,
       timestamp: new Date().toISOString()
     });
-    
-    res.json({ 
+
+    eventBus.publish({ type: 'logs:changed', action: 'bulk-delete', ids: deletedIds });
+
+    res.json({
       message: `${deletedIds.length} logs deleted successfully`,
       deletedIds 
     });
@@ -516,6 +652,8 @@ router.post('/:id/lock', authenticateJwt, async (req, res, next) => {
       });
     }
     
+    eventBus.publish({ type: 'logs:changed', action: 'lock', id: parseInt(id) });
+
     res.json(result);
   } catch (error) {
     console.error('Error toggling lock:', error);

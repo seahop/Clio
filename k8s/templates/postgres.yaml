@@ -3,7 +3,7 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: {{ include "clio.fullname" . }}-postgres
-  namespace: {{ .Values.namespace }}
+  namespace: {{ include "clio.namespace" . }}
   labels:
     {{- include "clio.labels" . | nindent 4 }}
     app.kubernetes.io/component: postgres
@@ -49,21 +49,32 @@ spec:
                   name: clio-secrets
                   key: POSTGRES_DB
             - name: TZ
-              value: UTC
+              value: {{ .Values.config.timezone | quote }}
             - name: PGTZ
-              value: UTC
+              value: {{ .Values.config.timezone | quote }}
+            # Subdirectory of the volume so initdb tolerates block storage
+            # that ships a lost+found directory (see values.yaml for the
+            # 0.1.x upgrade note).
+            - name: PGDATA
+              value: {{ .Values.postgres.pgdata | quote }}
+          args:
+            - -c
+            - timezone={{ .Values.config.timezone }}
+            - -c
+            - log_timezone={{ .Values.config.timezone }}
           volumeMounts:
             - name: data
               mountPath: /var/lib/postgresql/data
+          # $(VAR) is NOT expanded in exec probes — go through a shell.
           readinessProbe:
             exec:
-              command: ["pg_isready", "-U", "$(POSTGRES_USER)", "-d", "$(POSTGRES_DB)"]
+              command: ["sh", "-c", "pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\""]
             initialDelaySeconds: 10
             periodSeconds: 10
             failureThreshold: 6
           livenessProbe:
             exec:
-              command: ["pg_isready", "-U", "$(POSTGRES_USER)"]
+              command: ["sh", "-c", "pg_isready -U \"$POSTGRES_USER\""]
             initialDelaySeconds: 30
             periodSeconds: 30
           resources:
@@ -84,7 +95,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: {{ include "clio.fullname" . }}-postgres
-  namespace: {{ .Values.namespace }}
+  namespace: {{ include "clio.namespace" . }}
   labels:
     {{- include "clio.labels" . | nindent 4 }}
     app.kubernetes.io/component: postgres

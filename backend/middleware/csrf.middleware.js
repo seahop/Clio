@@ -38,8 +38,8 @@ const csrfProtection = (options = {}) => {
   const { ignoreMethods = ['GET', 'HEAD', 'OPTIONS'] } = options;
   
   return (req, res, next) => {
-    // Skip CSRF check for API requests with the special header
-    if (req.headers['x-api-request'] === 'true' || req.path.startsWith('/api/ingest')) {
+    // Skip CSRF check for ingest API routes (API-key authenticated)
+    if (req.path.startsWith('/api/ingest')) {
       return next();
     }
     

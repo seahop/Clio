@@ -13,7 +13,7 @@ router.get('/active', operationsController.getActiveOperation);
 router.post('/set-active', operationsController.setActiveOperation);
 
 // Admin routes
-router.get('/', operationsController.getAllOperations);
+router.get('/', verifyAdmin, operationsController.getAllOperations);
 router.post('/', verifyAdmin, operationsController.createOperation);
 router.put('/:id', verifyAdmin, operationsController.updateOperation);
 router.delete('/:id', verifyAdmin, operationsController.deleteOperation);

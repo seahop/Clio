@@ -2,7 +2,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: clio-config
-  namespace: {{ .Values.namespace }}
+  namespace: {{ include "clio.namespace" . }}
   labels:
     {{- include "clio.labels" . | nindent 4 }}
 {{- $host := .Values.ingress.host }}
@@ -12,7 +12,6 @@ data:
   TZ:                {{ .Values.config.timezone | quote }}
   PGTZ:              {{ .Values.config.timezone | quote }}
   FRONTEND_URL:      {{ $frontendUrl | quote }}
-  EXTERNAL_HOSTNAME: {{ $host | quote }}
   # Backend connects to postgres and redis by K8s service name
   POSTGRES_HOST:     {{ printf "%s-postgres" (include "clio.fullname" .) | quote }}
   POSTGRES_PORT:     {{ .Values.postgres.port | quote }}
@@ -49,7 +48,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: clio-redis-config
-  namespace: {{ .Values.namespace }}
+  namespace: {{ include "clio.namespace" . }}
   labels:
     {{- include "clio.labels" . | nindent 4 }}
 data:

@@ -68,10 +68,10 @@ class MacAddressAnalyzer extends BaseAnalyzer {
       filter: log => log.mac_address && log.internal_ip,
       groupBy: log => {
         const normalizedMac = log.mac_address.toUpperCase().replace(/[:-]/g, '').match(/.{1,2}/g)?.join('-') || log.mac_address;
-        return `${normalizedMac}:${log.internal_ip}`;
+        return `${normalizedMac}§${log.internal_ip}`;
       },
       mapFn: (entries, key) => {
-        const parts = key.split(':');
+        const parts = key.split('§');
         if (parts.length < 2 || !parts[0] || !parts[1]) return null;
         const macAddress = parts[0];
         const ipAddress = parts[1];

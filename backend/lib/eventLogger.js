@@ -25,6 +25,20 @@ class EventLogger {
       system: [],
       audit: []
     };
+
+    // Per-file promise chains so concurrent read-modify-write cycles
+    // on the same log file serialize instead of losing events
+    this.writeQueues = new Map();
+  }
+
+  // Serialize file writes per log type by chaining onto the previous write.
+  // The task's own result (or error) is returned to the caller; the stored
+  // chain never rejects so one failed write cannot poison later ones.
+  _enqueueWrite(logType, task) {
+    const previous = this.writeQueues.get(logType) || Promise.resolve();
+    const run = previous.then(task, task);
+    this.writeQueues.set(logType, run.catch(() => {}));
+    return run;
   }
 
   async initializeLogger(logType, filePath) {
@@ -76,51 +90,55 @@ class EventLogger {
       
       return enrichedEvent;
     }
-  
-    try {
-      const filePath = this.loggers.get(logType);
-      let logs = [];
-      
-      // Try to read and parse the log file with proper error handling
+
+    // Serialize the read-parse-push-write cycle per log file so
+    // concurrent logEvent calls cannot lose each other's events
+    return this._enqueueWrite(logType, async () => {
       try {
-        const fileContent = await fs.readFile(filePath, 'utf8');
-        
+        const filePath = this.loggers.get(logType);
+        let logs = [];
+
+        // Try to read and parse the log file with proper error handling
         try {
-          logs = JSON.parse(fileContent);
-        } catch (parseError) {
-          console.error(`Error parsing log file ${logType}: ${parseError.message}`);
-          // Create a new log file if the current one is corrupted
-          console.log(`Creating new log file for ${logType}`);
+          const fileContent = await fs.readFile(filePath, 'utf8');
+
+          try {
+            logs = JSON.parse(fileContent);
+          } catch (parseError) {
+            console.error(`Error parsing log file ${logType}: ${parseError.message}`);
+            // Create a new log file if the current one is corrupted
+            console.log(`Creating new log file for ${logType}`);
+            logs = [];
+
+            // Backup the corrupted file for inspection
+            const backupPath = `${filePath}.corrupted.${Date.now()}`;
+            await fs.writeFile(backupPath, fileContent);
+            console.log(`Corrupted log file backed up to ${backupPath}`);
+          }
+        } catch (readError) {
+          console.error(`Error reading log file ${logType}: ${readError.message}`);
+          // If file doesn't exist or can't be read, start with empty logs
           logs = [];
-          
-          // Backup the corrupted file for inspection
-          const backupPath = `${filePath}.corrupted.${Date.now()}`;
-          await fs.writeFile(backupPath, fileContent);
-          console.log(`Corrupted log file backed up to ${backupPath}`);
         }
-      } catch (readError) {
-        console.error(`Error reading log file ${logType}: ${readError.message}`);
-        // If file doesn't exist or can't be read, start with empty logs
-        logs = [];
+
+        logs.push(enrichedEvent);
+
+        // Keep only last 10000 logs per file
+        const trimmedLogs = logs.slice(-10000);
+
+        await fs.writeFile(filePath, JSON.stringify(trimmedLogs, null, 2));
+
+        // If this is a critical event, also log to console
+        if (event.severity === 'high' || event.type?.startsWith('security_')) {
+          console.error('\x1b[31m%s\x1b[0m', `CRITICAL EVENT: ${JSON.stringify(enrichedEvent)}`);
+        }
+
+        return enrichedEvent;
+      } catch (error) {
+        console.error(`Failed to log ${logType} event:`, error);
+        return null; // Return null instead of throwing to prevent app crashes
       }
-  
-      logs.push(enrichedEvent);
-  
-      // Keep only last 10000 logs per file
-      const trimmedLogs = logs.slice(-10000);
-  
-      await fs.writeFile(filePath, JSON.stringify(trimmedLogs, null, 2));
-  
-      // If this is a critical event, also log to console
-      if (event.severity === 'high' || event.type?.startsWith('security_')) {
-        console.error('\x1b[31m%s\x1b[0m', `CRITICAL EVENT: ${JSON.stringify(enrichedEvent)}`);
-      }
-  
-      return enrichedEvent;
-    } catch (error) {
-      console.error(`Failed to log ${logType} event:`, error);
-      return null; // Return null instead of throwing to prevent app crashes
-    }
+    });
   }
 
   // New method: Set rotation lock for a log type
@@ -148,41 +166,45 @@ class EventLogger {
     }
     
     console.log(`Processing ${this.pendingLogs[logType].length} pending logs for ${logType}`);
-    
-    try {
-      const filePath = this.loggers.get(logType);
-      let logs = [];
-      
-      // Read the freshly rotated log file (should be an empty array)
+
+    // Run through the same per-file write queue as logEvent so the flush
+    // cannot interleave with a queued write that started before the lock
+    return this._enqueueWrite(logType, async () => {
       try {
-        const fileContent = await fs.readFile(filePath, 'utf8');
-        logs = JSON.parse(fileContent);
-        
-        if (!Array.isArray(logs)) {
-          console.warn(`Expected array in ${logType} log file after rotation, got ${typeof logs}. Resetting.`);
+        const filePath = this.loggers.get(logType);
+        let logs = [];
+
+        // Read the freshly rotated log file (should be an empty array)
+        try {
+          const fileContent = await fs.readFile(filePath, 'utf8');
+          logs = JSON.parse(fileContent);
+
+          if (!Array.isArray(logs)) {
+            console.warn(`Expected array in ${logType} log file after rotation, got ${typeof logs}. Resetting.`);
+            logs = [];
+          }
+        } catch (error) {
+          console.error(`Error reading log file ${logType} after rotation: ${error.message}`);
           logs = [];
         }
+
+        // Add all pending logs
+        logs = [...logs, ...this.pendingLogs[logType]];
+
+        // Keep only last 10000 logs per file
+        const trimmedLogs = logs.slice(-10000);
+
+        // Write the combined logs back to the file
+        await fs.writeFile(filePath, JSON.stringify(trimmedLogs, null, 2));
+
+        console.log(`Successfully processed ${this.pendingLogs[logType].length} pending logs for ${logType}`);
+
+        // Clear the pending logs
+        this.pendingLogs[logType] = [];
       } catch (error) {
-        console.error(`Error reading log file ${logType} after rotation: ${error.message}`);
-        logs = [];
+        console.error(`Failed to process pending logs for ${logType}:`, error);
       }
-      
-      // Add all pending logs
-      logs = [...logs, ...this.pendingLogs[logType]];
-      
-      // Keep only last 10000 logs per file
-      const trimmedLogs = logs.slice(-10000);
-      
-      // Write the combined logs back to the file
-      await fs.writeFile(filePath, JSON.stringify(trimmedLogs, null, 2));
-      
-      console.log(`Successfully processed ${this.pendingLogs[logType].length} pending logs for ${logType}`);
-      
-      // Clear the pending logs
-      this.pendingLogs[logType] = [];
-    } catch (error) {
-      console.error(`Failed to process pending logs for ${logType}:`, error);
-    }
+    });
   }
 
   // Security Events

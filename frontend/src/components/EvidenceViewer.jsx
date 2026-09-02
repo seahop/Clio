@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { FileText, Download, Trash2, ExternalLink, RefreshCw, AlertCircle } from 'lucide-react';
 import { useEvidenceApi } from '../hooks/useEvidenceApi';
+import { formatUTC } from '../utils/dateUtils';
 
 const EvidenceViewer = ({ logId, csrfToken, isAdmin, currentUser }) => {
   const [evidenceFiles, setEvidenceFiles] = useState([]);
@@ -57,9 +58,7 @@ const EvidenceViewer = ({ logId, csrfToken, isAdmin, currentUser }) => {
     return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
   };
 
-  const formatDate = (dateString) => {
-    return new Date(dateString).toLocaleString();
-  };
+  const formatDate = (dateString) => formatUTC(dateString);
 
   // Determine if file is an image that can be previewed
   const isPreviewable = (file) => {

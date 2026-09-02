@@ -1,8 +1,10 @@
 // frontend/src/components/UserCommandsViewer.jsx
 import React, { useState, useEffect } from 'react';
 import { User, Terminal, ChevronDown, ChevronRight, Clock } from 'lucide-react';
+import { formatUTC } from '../utils/dateUtils';
+import { Skeleton, EmptyState } from './common/ui';
 
-const UserCommandsViewer = () => {
+const UserCommandsViewer = ({ opQuery = '' }) => {
   const [userCommands, setUserCommands] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -14,7 +16,7 @@ const UserCommandsViewer = () => {
         setLoading(true);
         // Use proxy instead of direct service URL
         const response = await fetch(
-          `/relation-service/api/relations/user`,
+          `/relation-service/api/relations/user${opQuery ? `?${opQuery}` : ''}`,
           {
             credentials: 'include',
             headers: {
@@ -72,7 +74,7 @@ const UserCommandsViewer = () => {
     fetchUserCommands();
     const interval = setInterval(fetchUserCommands, 30000);
     return () => clearInterval(interval);
-  }, []);
+  }, [opQuery]);
 
   const toggleUserExpand = (username) => {
     const newExpanded = new Set(expandedUsers);
@@ -86,15 +88,17 @@ const UserCommandsViewer = () => {
 
   if (loading) {
     return (
-      <div className="min-h-[200px] flex items-center justify-center">
-        <div className="text-gray-400">Loading user command history...</div>
+      <div className="space-y-3">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <Skeleton key={i} className="h-12 rounded-card" />
+        ))}
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="bg-red-900/50 text-red-200 p-4 rounded-md">
+      <div className="bg-danger/15 text-danger p-4 rounded-card">
         <h3 className="font-medium">Error loading user commands:</h3>
         <p className="mt-1">{error}</p>
       </div>
@@ -102,9 +106,9 @@ const UserCommandsViewer = () => {
   }
 
   return (
-    <div className="bg-gray-800 rounded-lg shadow-lg">
-      <div className="p-4 border-b border-gray-700">
-        <h2 className="text-lg font-medium text-white flex items-center gap-2">
+    <div className="bg-surface border border-line rounded-card shadow-card">
+      <div className="p-4 border-b border-line">
+        <h2 className="text-lg font-medium text-content flex items-center gap-2">
           <User className="w-5 h-5" />
           User Command History
         </h2>
@@ -112,49 +116,50 @@ const UserCommandsViewer = () => {
 
       <div className="p-4">
         {Object.entries(userCommands).length === 0 ? (
-          <div className="text-center text-gray-400 py-8">
-            <p>No user command history found.</p>
-            <p className="text-sm mt-2">Command history will appear here as users perform actions.</p>
-          </div>
+          <EmptyState
+            icon={Terminal}
+            title="No user command history found."
+            message="Command history will appear here as users perform actions."
+          />
         ) : (
           <div className="space-y-4">
             {Object.entries(userCommands).map(([username, commands]) => (
-              <div key={username} className="bg-gray-700/50 rounded-lg overflow-hidden">
+              <div key={username} className="bg-surface-2/50 rounded-card overflow-hidden">
                 <button
                   onClick={() => toggleUserExpand(username)}
-                  className="w-full px-4 py-3 flex items-center justify-between hover:bg-gray-600/50 transition-colors"
+                  className="w-full px-4 py-3 flex items-center justify-between hover:bg-surface-3/50 transition-colors"
                 >
                   <div className="flex items-center gap-3">
-                    <User className="w-5 h-5 text-blue-400" />
-                    <span className="text-white font-medium">{username}</span>
-                    <span className="text-sm text-gray-400">
+                    <User className="w-5 h-5 text-accent" />
+                    <span className="text-content font-medium">{username}</span>
+                    <span className="text-sm text-muted">
                       ({commands.length} command{commands.length !== 1 ? 's' : ''})
                     </span>
                   </div>
                   {expandedUsers.has(username) ? (
-                    <ChevronDown className="w-5 h-5 text-gray-400" />
+                    <ChevronDown className="w-5 h-5 text-muted" />
                   ) : (
-                    <ChevronRight className="w-5 h-5 text-gray-400" />
+                    <ChevronRight className="w-5 h-5 text-muted" />
                   )}
                 </button>
 
                 {expandedUsers.has(username) && (
-                  <div className="border-t border-gray-600">
+                  <div className="border-t border-line">
                     {commands.map((cmd) => (
                       <div
                         key={cmd.id}
-                        className="px-4 py-3 flex flex-col gap-2 border-b border-gray-600/50 last:border-0 hover:bg-gray-600/25"
+                        className="px-4 py-3 flex flex-col gap-2 border-b border-line/50 last:border-0 hover:bg-surface-3/25"
                       >
                         <div className="flex items-start gap-3">
-                          <Terminal className="w-4 h-4 text-green-400 mt-1 flex-shrink-0" />
-                          <div className="flex-1 font-mono text-sm text-gray-200 break-all whitespace-pre-wrap">
+                          <Terminal className="w-4 h-4 text-success mt-1 flex-shrink-0" />
+                          <div className="flex-1 font-mono text-sm text-content break-all whitespace-pre-wrap">
                             {cmd.command}
                           </div>
                         </div>
-                        <div className="flex items-center gap-4 ml-7 text-xs text-gray-400">
+                        <div className="flex items-center gap-4 ml-7 text-xs text-muted">
                           <div className="flex items-center gap-1">
                             <Clock className="w-3 h-3" />
-                            {new Date(cmd.timestamp).toLocaleString()}
+                            {formatUTC(cmd.timestamp)}
                           </div>
                         </div>
                       </div>

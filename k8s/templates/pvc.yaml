@@ -1,17 +1,63 @@
-{{- $storageClass := .Values.backend.evidenceStorage.storageClass -}}
+{{- /*
+  Backend storage. All three are ReadWriteOnce — the backend Deployment uses
+  strategy Recreate so upgrades never need a second concurrent attachment.
+  helm.sh/resource-policy: keep matches the postgres/redis
+  volumeClaimTemplates, which also survive uninstall — evidence, exports, and
+  logs are operator data and must not vanish with the release.
+*/ -}}
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: clio-evidence
-  namespace: {{ .Values.namespace }}
+  namespace: {{ include "clio.namespace" . }}
   labels:
     {{- include "clio.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/resource-policy: keep
 spec:
   accessModes:
     - ReadWriteOnce
   resources:
     requests:
       storage: {{ .Values.backend.evidenceStorage.size }}
-  {{- if $storageClass }}
-  storageClassName: {{ $storageClass }}
+  {{- with .Values.backend.evidenceStorage.storageClass }}
+  storageClassName: {{ . }}
+  {{- end }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: clio-exports
+  namespace: {{ include "clio.namespace" . }}
+  labels:
+    {{- include "clio.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/resource-policy: keep
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.backend.exportsStorage.size }}
+  {{- with .Values.backend.exportsStorage.storageClass }}
+  storageClassName: {{ . }}
+  {{- end }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: clio-data
+  namespace: {{ include "clio.namespace" . }}
+  labels:
+    {{- include "clio.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/resource-policy: keep
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.backend.dataStorage.size }}
+  {{- with .Values.backend.dataStorage.storageClass }}
+  storageClassName: {{ . }}
   {{- end }}

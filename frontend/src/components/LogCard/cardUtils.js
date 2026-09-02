@@ -1,36 +1,20 @@
 // frontend/src/components/LogCard/cardUtils.js
+import { statusMeta } from '../common/ui';
 
 /**
- * Format timestamp for display
- * @param {string} timestamp - ISO timestamp
- * @returns {string} - Formatted date string
+ * Format timestamp for display (UTC with a Z suffix).
  */
 export const formatDate = (timestamp) => {
     if (!timestamp) return '';
-    
-    // Create a date object from the timestamp
     const date = new Date(timestamp);
-    
-    // Format the date to show in a consistent way with Zulu/UTC indicator
+    // An unparseable timestamp (e.g. a mid-edit value) must not throw during render
+    if (isNaN(date.getTime())) return String(timestamp);
     // Format: YYYY-MM-DD HH:MM:SS Z
     return date.toISOString().replace('T', ' ').replace(/\.\d+Z$/, 'Z');
   };
-  
-  /**
-   * Get the CSS color class for different status values
-   * @param {string} status - Status value
-   * @returns {string} - CSS class for the status color
-   */
-  export const getStatusColorClass = (status) => {
-    const statusColors = {
-      'ON_DISK': 'text-yellow-300',
-      'IN_MEMORY': 'text-blue-300',
-      'ENCRYPTED': 'text-purple-300',
-      'REMOVED': 'text-red-300',
-      'CLEANED': 'text-green-300',
-      'DORMANT': 'text-gray-300',
-      'DETECTED': 'text-orange-300',
-      'UNKNOWN': 'text-gray-400'
-    };
-    return statusColors[status] || 'text-gray-400';
-  };
+
+// Status color helpers now delegate to the single source of truth in
+// common/ui/statusMeta.js so the card, file-status view, and legend never drift.
+export const getStatusColorClass = (status) => statusMeta(status).text;
+export const getStatusChipClass = (status) => statusMeta(status).chip;
+export const getStatusAccentClass = (status) => statusMeta(status).stripe;

@@ -73,9 +73,9 @@ const useApiKeys = (csrfToken) => {
       
       // Set success message
       setMessage('API key created successfully. Be sure to save the key, as it won\'t be shown again!');
-      
+
       // Refresh the API key list
-      fetchApiKeys();
+      await fetchApiKeys();
       
       return data;
     } catch (err) {
@@ -110,9 +110,9 @@ const useApiKeys = (csrfToken) => {
 
       // Show success message
       setMessage(`API key "${name}" has been revoked successfully`);
-      
+
       // Refresh the API key list
-      fetchApiKeys();
+      await fetchApiKeys();
     } catch (err) {
       console.error('Error revoking API key:', err);
       setError(err.message);
@@ -142,9 +142,9 @@ const useApiKeys = (csrfToken) => {
 
       // Show success message
       setMessage(`API key "${name}" has been deleted successfully`);
-      
+
       // Refresh the API key list
-      fetchApiKeys();
+      await fetchApiKeys();
     } catch (err) {
       console.error('Error deleting API key:', err);
       setError(err.message);

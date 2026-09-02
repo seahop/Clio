@@ -4,6 +4,42 @@ const db = require('../db');
 const RELATIONS_CACHE_TTL = 30000;
 let relationsCache = new Map();
 
+// ── Operation-tag filtering ──────────────────────────────────────────────────
+// The query methods below accept an `opFilter` argument that can be:
+//   - null / undefined  → no filter (see all operations; used for admin "All")
+//   - a number          → a single operation tag id (legacy callers)
+//   - number[]          → several tag ids, matched with ANY (union)
+//   - { tagIds, mode }  → tag ids matched with mode 'any' (union, overlap &&)
+//                         or 'all' (intersection, contains @>)
+// ANY  → relation appears in at least one selected op  (operation_tags && [...])
+// ALL  → relation appears in every selected op         (operation_tags @> [...])
+function normalizeOpFilter(opFilter) {
+  if (opFilter === null || opFilter === undefined) return null;
+  if (typeof opFilter === 'number') return { tagIds: [opFilter], mode: 'any' };
+  if (Array.isArray(opFilter)) {
+    return opFilter.length ? { tagIds: opFilter, mode: 'any' } : null;
+  }
+  if (typeof opFilter === 'object' && Array.isArray(opFilter.tagIds)) {
+    return opFilter.tagIds.length
+      ? { tagIds: opFilter.tagIds, mode: opFilter.mode === 'all' ? 'all' : 'any' }
+      : null;
+  }
+  return null;
+}
+
+// SQL fragment + bind param for a normalized filter, at the next positional
+// index. The whole tag set is passed as one INTEGER[] param.
+function opFilterSql(filter, nextIndex) {
+  const operator = filter.mode === 'all' ? '@>' : '&&';
+  return { clause: ` AND operation_tags ${operator} $${nextIndex}::INTEGER[]`, param: filter.tagIds };
+}
+
+// Stable cache-key fragment so distinct filters cache separately.
+function opFilterKey(filter) {
+  if (!filter) return 'all';
+  return `${filter.mode}:${[...filter.tagIds].sort((a, b) => a - b).join('-')}`;
+}
+
 class RelationsModel {
   static async upsertRelation(sourceType, sourceValue, targetType, targetValue, metadata = {}, operationTags = [], logId = null) {
     try {
@@ -69,9 +105,10 @@ class RelationsModel {
     }
   }
 
-  static async getMacAddressRelations(limit = 100, operationTagId = null, isAdmin = false) {
+  static async getMacAddressRelations(limit = 100, opFilter = null, isAdmin = false) {
     try {
-      const cacheKey = `mac_address_${limit}_${operationTagId || 'all'}_${isAdmin}`;
+      const filter = normalizeOpFilter(opFilter);
+      const cacheKey = `mac_address_${limit}_${opFilterKey(filter)}_${isAdmin}`;
       const cachedData = this._getCachedData(cacheKey);
       if (cachedData) return cachedData;
 
@@ -86,9 +123,10 @@ class RelationsModel {
         WHERE source_type = 'mac_address'
           AND target_type IN ('ip', 'hostname')`;
 
-      if (operationTagId) {
-        query += ` AND operation_tags @> ARRAY[$2]::INTEGER[]`;
-        params.push(operationTagId);
+      if (filter) {
+        const { clause, param } = opFilterSql(filter, params.length + 1);
+        query += clause;
+        params.push(param);
       }
 
       query += ` ORDER BY last_seen DESC LIMIT $1`;
@@ -170,9 +208,10 @@ class RelationsModel {
     }
   }
 
-  static async getRelations(type, limit = 100, operationTagId = null, isAdmin = false) {
+  static async getRelations(type, limit = 100, opFilter = null, isAdmin = false) {
     try {
-      const cacheKey = `${type}_${limit}_${operationTagId || 'all'}_${isAdmin}`;
+      const filter = normalizeOpFilter(opFilter);
+      const cacheKey = `${type}_${limit}_${opFilterKey(filter)}_${isAdmin}`;
       const cachedData = this._getCachedData(cacheKey);
       if (cachedData) return cachedData;
 
@@ -185,9 +224,10 @@ class RelationsModel {
           WHERE (source_type = $1 OR target_type = $1)`;
       const params = [type, limit];
 
-      if (operationTagId) {
-        query += ` AND operation_tags @> ARRAY[$3]::INTEGER[]`;
-        params.push(operationTagId);
+      if (filter) {
+        const { clause, param } = opFilterSql(filter, params.length + 1);
+        query += clause;
+        params.push(param);
       }
 
       query += `) SELECT * FROM ranked_relations WHERE row_num <= $2 ORDER BY last_seen DESC`;
@@ -202,9 +242,10 @@ class RelationsModel {
     }
   }
 
-  static async getRelationsByMetadataType(metaType, limit = 100, operationTagId = null, isAdmin = false) {
+  static async getRelationsByMetadataType(metaType, limit = 100, opFilter = null, isAdmin = false) {
     try {
-      const cacheKey = `meta_${metaType}_${limit}_${operationTagId || 'all'}_${isAdmin}`;
+      const filter = normalizeOpFilter(opFilter);
+      const cacheKey = `meta_${metaType}_${limit}_${opFilterKey(filter)}_${isAdmin}`;
       const cachedData = this._getCachedData(cacheKey);
       if (cachedData) return cachedData;
 
@@ -217,9 +258,10 @@ class RelationsModel {
           WHERE metadata->>'type' = $1`;
       const params = [metaType, limit];
 
-      if (operationTagId) {
-        query += ` AND operation_tags @> ARRAY[$3]::INTEGER[]`;
-        params.push(operationTagId);
+      if (filter) {
+        const { clause, param } = opFilterSql(filter, params.length + 1);
+        query += clause;
+        params.push(param);
       }
 
       query += `) SELECT * FROM ranked_relations WHERE row_num <= $2 ORDER BY last_seen DESC`;
@@ -234,9 +276,10 @@ class RelationsModel {
     }
   }
 
-  static async getUserCommands(operationTagId = null, isAdmin = false) {
+  static async getUserCommands(opFilter = null, isAdmin = false) {
     try {
-      const cacheKey = `user_commands_${operationTagId || 'all'}_${isAdmin}`;
+      const filter = normalizeOpFilter(opFilter);
+      const cacheKey = `user_commands_${opFilterKey(filter)}_${isAdmin}`;
       const cachedData = this._getCachedData(cacheKey);
       if (cachedData) return cachedData;
 
@@ -246,9 +289,10 @@ class RelationsModel {
         WHERE source_type = 'username' AND target_type = 'command'`;
       const params = [];
 
-      if (operationTagId) {
-        query += ` AND operation_tags @> ARRAY[$1]::INTEGER[]`;
-        params.push(operationTagId);
+      if (filter) {
+        const { clause, param } = opFilterSql(filter, params.length + 1);
+        query += clause;
+        params.push(param);
       }
       query += ` ORDER BY last_seen DESC`;
 
@@ -279,15 +323,20 @@ class RelationsModel {
     }
   }
 
-  static async getRelationsByValue(type, value, operationTagId = null, isAdmin = false) {
+  static async getRelationsByValue(type, value, opFilter = null, isAdmin = false) {
     try {
+      const filter = normalizeOpFilter(opFilter);
       let query = `
         SELECT source_type, source_value, target_type, target_value,
           strength, connection_count, first_seen, last_seen, metadata
         FROM relations
         WHERE ((source_type = $1 AND source_value = $2) OR (target_type = $1 AND target_value = $2))`;
       const params = [type, value];
-      if (operationTagId) { query += ` AND operation_tags @> ARRAY[$3]::INTEGER[]`; params.push(operationTagId); }
+      if (filter) {
+        const { clause, param } = opFilterSql(filter, params.length + 1);
+        query += clause;
+        params.push(param);
+      }
       query += ` ORDER BY last_seen DESC`;
       const result = await db.query(query, params);
       return this.formatRelations(result.rows);
@@ -437,8 +486,16 @@ class RelationsModel {
   }
 
   static _invalidateCache(relationType) {
+    const metaTypesByRelationType = {
+      hostname: ['hostname_ip'],
+      ip: ['hostname_ip'],
+      username: ['user_mac', 'user_domain'],
+      mac_address: ['user_mac'],
+      domain: ['user_domain']
+    };
+    const metaPrefixes = (metaTypesByRelationType[relationType] || []).map(metaType => `meta_${metaType}_`);
     for (const key of relationsCache.keys()) {
-      if (key.startsWith(relationType)) relationsCache.delete(key);
+      if (key.startsWith(relationType) || metaPrefixes.some(prefix => key.startsWith(prefix))) relationsCache.delete(key);
     }
   }
 

@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import S3ConfigPanel from './S3ConfigPanel';
 import S3UploadModal from './S3UploadModal';
+import { formatUTC } from '../utils/dateUtils';
 
 const LogManagement = ({ csrfToken }) => {
   const [loading, setLoading] = useState(true);
@@ -269,14 +270,14 @@ const LogManagement = ({ csrfToken }) => {
   // Format date for display
   const formatDate = (dateString) => {
     if (!dateString) return 'Unknown date';
-    return new Date(dateString).toLocaleString();
+    return formatUTC(dateString);
   };
 
   if (loading && !refreshing) {
     return (
       <div className="flex justify-center items-center py-8">
         <RefreshCw className="animate-spin text-blue-400 mr-2" size={20} />
-        <span className="text-gray-300">Loading log status...</span>
+        <span className="text-muted">Loading log status...</span>
       </div>
     );
   }
@@ -285,7 +286,7 @@ const LogManagement = ({ csrfToken }) => {
     <div className="w-full">
       <div className="flex items-center gap-2 mb-4">
         <HardDrive className="text-blue-400" size={24} />
-        <h2 className="text-xl font-bold text-white">Log Management</h2>
+        <h2 className="text-xl font-bold text-content">Log Management</h2>
       </div>
 
       {/* Error and success messages */}
@@ -300,23 +301,23 @@ const LogManagement = ({ csrfToken }) => {
 
       {/* Actions and info */}
       <div className="grid md:grid-cols-3 gap-4 mb-6">
-        <div className="bg-gray-800 p-4 rounded-lg border border-gray-700">
-          <h3 className="text-lg font-medium text-white mb-2 flex items-center gap-2">
+        <div className="bg-surface p-4 rounded-lg border border-line">
+          <h3 className="text-lg font-medium text-content mb-2 flex items-center gap-2">
             <RotateCw className="text-blue-400" size={18} />
             Log Rotation
           </h3>
-          <p className="text-gray-300 text-sm mb-4">
+          <p className="text-muted text-sm mb-4">
             Logs are automatically rotated daily and when they reach capacity. You can also trigger rotation manually.
           </p>
           {logStatus?.logRotation && (
-            <div className="text-sm text-gray-400 mb-4">
+            <div className="text-sm text-muted mb-4">
               <div className="flex justify-between">
                 <span>Rotation interval:</span>
-                <span className="text-gray-300">{logStatus.logRotation.rotationIntervalFormatted}</span>
+                <span className="text-muted">{logStatus.logRotation.rotationIntervalFormatted}</span>
               </div>
               <div className="flex justify-between">
                 <span>Maximum logs per file:</span>
-                <span className="text-gray-300">{logStatus.logRotation.maxLogsPerFile.toLocaleString()}</span>
+                <span className="text-muted">{logStatus.logRotation.maxLogsPerFile.toLocaleString()}</span>
               </div>
               <div className="flex justify-between">
                 <span>Status:</span>
@@ -338,7 +339,7 @@ const LogManagement = ({ csrfToken }) => {
               <button
                 onClick={() => triggerRotation(true)}
                 disabled={rotationInProgress}
-                className="w-full px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors duration-200 flex items-center justify-center gap-2 disabled:opacity-50"
+                className="w-full px-4 py-2 bg-accent text-content rounded-md hover:bg-accent-hover transition-colors duration-200 flex items-center justify-center gap-2 disabled:opacity-50"
               >
                 {rotationInProgress ? (
                   <>
@@ -356,7 +357,7 @@ const LogManagement = ({ csrfToken }) => {
               <button
                 onClick={() => triggerRotation(false)}
                 disabled={rotationInProgress}
-                className="w-full px-4 py-2 bg-gray-700 text-gray-300 rounded-md hover:bg-gray-600 transition-colors duration-200 flex items-center justify-center gap-2 disabled:opacity-50"
+                className="w-full px-4 py-2 bg-surface-2 text-muted rounded-md hover:bg-surface-3 transition-colors duration-200 flex items-center justify-center gap-2 disabled:opacity-50"
               >
                 {rotationInProgress ? (
                   <>
@@ -375,7 +376,7 @@ const LogManagement = ({ csrfToken }) => {
             <button
               onClick={() => triggerRotation()}
               disabled={rotationInProgress}
-              className="w-full px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors duration-200 flex items-center justify-center gap-2 disabled:opacity-50"
+              className="w-full px-4 py-2 bg-accent text-content rounded-md hover:bg-accent-hover transition-colors duration-200 flex items-center justify-center gap-2 disabled:opacity-50"
             >
               {rotationInProgress ? (
                 <>
@@ -392,61 +393,61 @@ const LogManagement = ({ csrfToken }) => {
           )}
         </div>
 
-        <div className="bg-gray-800 p-4 rounded-lg border border-gray-700">
-          <h3 className="text-lg font-medium text-white mb-2 flex items-center gap-2">
+        <div className="bg-surface p-4 rounded-lg border border-line">
+          <h3 className="text-lg font-medium text-content mb-2 flex items-center gap-2">
             <Archive className="text-purple-400" size={18} />
             Archives
           </h3>
           {logStatus?.archives ? (
             <>
-              <p className="text-gray-300 text-sm mb-2">
+              <p className="text-muted text-sm mb-2">
                 {logStatus.totalArchives} archived log file{logStatus.totalArchives !== 1 ? 's' : ''} available
               </p>
-              <div className="flex justify-between text-sm text-gray-400">
+              <div className="flex justify-between text-sm text-muted">
                 <span>Recent archives:</span>
-                <span className="text-gray-300">{logStatus.archives.length}</span>
+                <span className="text-muted">{logStatus.archives.length}</span>
               </div>
-              <div className="flex justify-between text-sm text-gray-400">
+              <div className="flex justify-between text-sm text-muted">
                 <span>Location:</span>
-                <span className="text-gray-300">backend/data/archives</span>
+                <span className="text-muted">backend/data/archives</span>
               </div>
               {s3Enabled && (
-                <div className="flex justify-between text-sm text-gray-400 mt-1">
+                <div className="flex justify-between text-sm text-muted mt-1">
                   <span>S3 Backup:</span>
                   <span className="text-green-300">Enabled</span>
                 </div>
               )}
-              <div className="mt-4 text-xs text-gray-500">
+              <div className="mt-4 text-xs text-faint">
                 View the full list in the Export panel.
               </div>
             </>
           ) : (
-            <p className="text-gray-300 text-sm">No archive information available</p>
+            <p className="text-muted text-sm">No archive information available</p>
           )}
         </div>
 
-        <div className="bg-gray-800 p-4 rounded-lg border border-gray-700">
-          <h3 className="text-lg font-medium text-white mb-2 flex items-center gap-2">
+        <div className="bg-surface p-4 rounded-lg border border-line">
+          <h3 className="text-lg font-medium text-content mb-2 flex items-center gap-2">
             <Clock className="text-yellow-400" size={18} />
             Status
           </h3>
           {logStatus ? (
             <>
-              <div className="flex justify-between text-sm text-gray-400">
+              <div className="flex justify-between text-sm text-muted">
                 <span>Last check:</span>
-                <span className="text-gray-300">{formatDate(logStatus.timestamp)}</span>
+                <span className="text-muted">{formatDate(logStatus.timestamp)}</span>
               </div>
               <button
                 onClick={fetchLogStatus}
                 disabled={refreshing}
-                className="mt-4 px-3 py-1.5 w-full bg-gray-700 text-gray-300 rounded-md text-sm flex items-center justify-center gap-1 hover:bg-gray-600 disabled:opacity-50"
+                className="mt-4 px-3 py-1.5 w-full bg-surface-2 text-muted rounded-md text-sm flex items-center justify-center gap-1 hover:bg-surface-3 disabled:opacity-50"
               >
                 <RefreshCw size={16} className={refreshing ? "animate-spin" : ""} />
                 {refreshing ? 'Refreshing...' : 'Refresh Status'}
               </button>
             </>
           ) : (
-            <p className="text-gray-300 text-sm">No status information available</p>
+            <p className="text-muted text-sm">No status information available</p>
           )}
         </div>
       </div>
@@ -455,11 +456,11 @@ const LogManagement = ({ csrfToken }) => {
       <div className="mb-6">
         <button
           onClick={() => setShowS3Config(!showS3Config)}
-          className="w-full p-4 bg-gray-800 rounded-lg border border-gray-700 flex items-center justify-between"
+          className="w-full p-4 bg-surface rounded-lg border border-line flex items-center justify-between"
         >
           <div className="flex items-center gap-2">
             <Cloud className="text-blue-400" size={18} />
-            <h3 className="text-lg font-medium text-white">S3 Export Configuration</h3>
+            <h3 className="text-lg font-medium text-content">S3 Export Configuration</h3>
             {s3Enabled && (
               <span className="bg-green-900/50 text-green-300 text-xs px-2 py-0.5 rounded">
                 Enabled
@@ -480,13 +481,13 @@ const LogManagement = ({ csrfToken }) => {
       </div>
 
       {/* Log files status */}
-      <div className="bg-gray-800 p-4 rounded-lg mb-6">
+      <div className="bg-surface p-4 rounded-lg mb-6">
         <div className="flex justify-between items-center mb-4">
-          <h3 className="text-lg font-medium text-white flex items-center gap-2">
+          <h3 className="text-lg font-medium text-content flex items-center gap-2">
             <FileText size={18} />
             Active Log Files
           </h3>
-          <div className="text-sm text-gray-400">
+          <div className="text-sm text-muted">
             {refreshing && (
               <div className="flex items-center">
                 <RefreshCw size={14} className="animate-spin mr-2" />
@@ -498,8 +499,8 @@ const LogManagement = ({ csrfToken }) => {
 
         {logStatus?.logs ? (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm text-left text-gray-300">
-              <thead className="text-xs text-gray-400 uppercase bg-gray-700/50">
+            <table className="w-full text-sm text-left text-muted">
+              <thead className="text-xs text-muted uppercase bg-surface-2/50">
                 <tr>
                   <th className="px-3 py-2">Log File</th>
                   <th className="px-3 py-2">Status</th>
@@ -513,9 +514,9 @@ const LogManagement = ({ csrfToken }) => {
                 {logStatus.logs.map((log, index) => (
                   <tr 
                     key={log.file} 
-                    className={`${index % 2 === 0 ? 'bg-gray-800/30' : ''} border-b border-gray-700`}
+                    className={`${index % 2 === 0 ? 'bg-surface/30' : ''} border-b border-line`}
                   >
-                    <td className="px-3 py-2 font-medium text-white">
+                    <td className="px-3 py-2 font-medium text-content">
                       {log.file}
                     </td>
                     <td className="px-3 py-2">
@@ -545,7 +546,7 @@ const LogManagement = ({ csrfToken }) => {
                     <td className="px-3 py-2">
                       {typeof log.percentFull === 'number' && (
                         <div className="flex items-center gap-2">
-                          <div className="w-24 bg-gray-700 rounded-full h-2.5">
+                          <div className="w-24 bg-surface-2 rounded-full h-2.5">
                             <div 
                               className={`h-2.5 rounded-full ${
                                 log.percentFull > 90 ? 'bg-red-600' : 
@@ -568,12 +569,12 @@ const LogManagement = ({ csrfToken }) => {
             </table>
           </div>
         ) : (
-          <div className="text-center py-8 text-gray-400">
+          <div className="text-center py-8 text-muted">
             <FileWarning size={40} className="mx-auto mb-4 opacity-50" />
             <p className="text-lg">No log status information available</p>
             <button
               onClick={fetchLogStatus}
-              className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+              className="mt-4 px-4 py-2 bg-accent text-content rounded-md hover:bg-accent-hover transition-colors"
             >
               Refresh Status
             </button>
@@ -583,15 +584,15 @@ const LogManagement = ({ csrfToken }) => {
 
       {/* Recent archives */}
       {logStatus?.archives && logStatus.archives.length > 0 && (
-        <div className="bg-gray-800 p-4 rounded-lg">
-          <h3 className="text-lg font-medium text-white mb-4 flex items-center gap-2">
+        <div className="bg-surface p-4 rounded-lg">
+          <h3 className="text-lg font-medium text-content mb-4 flex items-center gap-2">
             <Archive size={18} />
             Recent Archives
           </h3>
           
           <div className="overflow-x-auto">
-            <table className="w-full text-sm text-left text-gray-300">
-              <thead className="text-xs text-gray-400 uppercase bg-gray-700/50">
+            <table className="w-full text-sm text-left text-muted">
+              <thead className="text-xs text-muted uppercase bg-surface-2/50">
                 <tr>
                   <th className="px-3 py-2">Filename</th>
                   <th className="px-3 py-2">Size</th>
@@ -603,9 +604,9 @@ const LogManagement = ({ csrfToken }) => {
                 {logStatus.archives.map((archive, index) => (
                   <tr 
                     key={archive.file} 
-                    className={`${index % 2 === 0 ? 'bg-gray-800/30' : ''} border-b border-gray-700`}
+                    className={`${index % 2 === 0 ? 'bg-surface/30' : ''} border-b border-line`}
                   >
-                    <td className="px-3 py-2 font-medium text-white flex items-center gap-2">
+                    <td className="px-3 py-2 font-medium text-content flex items-center gap-2">
                       <Archive size={14} className="text-purple-400" />
                       {archive.file}
                     </td>
@@ -632,7 +633,7 @@ const LogManagement = ({ csrfToken }) => {
                           Pending
                         </span>
                       ) : (
-                        <span className="text-gray-400">Not configured</span>
+                        <span className="text-muted">Not configured</span>
                       )}
                     </td>
                   </tr>
@@ -642,7 +643,7 @@ const LogManagement = ({ csrfToken }) => {
           </div>
           
           <div className="mt-4 text-center">
-            <p className="text-gray-400 text-sm">
+            <p className="text-muted text-sm">
               Archives are stored on the server. Use the export feature to manage archives.
             </p>
           </div>

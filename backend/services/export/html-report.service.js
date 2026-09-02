@@ -4,6 +4,34 @@ const path = require('path');
 const { formatFileSize } = require('../../utils/export/formatter');
 
 /**
+ * Escape a value for safe interpolation into HTML (element content and
+ * double-quoted attribute values). Applied to every user-controllable value.
+ * @param {*} value - Value to escape
+ * @returns {String} HTML-escaped string
+ */
+const escapeHtml = (value) => {
+  if (value === undefined || value === null) return '';
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+};
+
+/**
+ * Format a date as `YYYY-MM-DD HH:MM:SS Z` in UTC (all timestamps in Clio are
+ * UTC; never depend on the server locale/timezone).
+ * @param {*} value - Date, ISO string, or timestamp
+ * @returns {String} Formatted UTC date string
+ */
+const formatUtcDate = (value) => {
+  const date = value instanceof Date ? value : new Date(value);
+  if (isNaN(date.getTime())) return 'Unknown Date';
+  return `${date.toISOString().slice(0, 19).replace('T', ' ')} Z`;
+};
+
+/**
  * Creates an HTML report for the exported data
  * @param {String} exportDir - Export directory path
  * @param {Array} logs - Logs data
@@ -414,7 +442,7 @@ const createHtmlReport = async (exportDir, logs, evidenceManifest, selectedColum
     <body>
       <div class="header">
         <h1>Clio Logging Export</h1>
-        <p>Generated: ${new Date().toLocaleString()}</p>
+        <p>Generated: ${formatUtcDate(new Date())}</p>
       </div>
       
       <div class="export-info">
@@ -448,18 +476,18 @@ const createHtmlReport = async (exportDir, logs, evidenceManifest, selectedColum
       const hasEvidence = evidenceByLogId[log.id] && evidenceByLogId[log.id].length > 0;
       const evidenceCount = hasEvidence ? evidenceByLogId[log.id].length : 0;
       
-      const logDate = log.timestamp ? new Date(log.timestamp).toLocaleString() : 'Unknown Date';
+      const logDate = log.timestamp ? formatUtcDate(log.timestamp) : 'Unknown Date';
       let statusClass = 'status-unknown';
-      
+
       if (log.status) {
         statusClass = `status-${log.status.toLowerCase().replace('_', '-')}`;
       }
-      
+
       htmlContent += `
-        <div class="log-entry" id="log-${log.id}">
+        <div class="log-entry" id="log-${escapeHtml(log.id)}">
           <div class="log-header">
-            <h3>Log #${log.id} - ${logDate}</h3>
-            ${log.status ? `<span class="status-indicator ${statusClass}">${log.status}</span>` : ''}
+            <h3>Log #${escapeHtml(log.id)} - ${logDate}</h3>
+            ${log.status ? `<span class="status-indicator ${escapeHtml(statusClass)}">${escapeHtml(log.status)}</span>` : ''}
             ${hasEvidence ? `<span style="float: right;">${evidenceCount} Evidence Files</span>` : ''}
           </div>
           
@@ -473,18 +501,18 @@ const createHtmlReport = async (exportDir, logs, evidenceManifest, selectedColum
           
           // Format timestamp
           if (column === 'timestamp' && displayValue) {
-            displayValue = new Date(displayValue).toLocaleString();
+            displayValue = formatUtcDate(displayValue);
           }
-          
+
           // Skip hash fields here as we'll display them in a separate section
           if ((column === 'hash_algorithm' || column === 'hash_value') && includeHashes) {
             return;
           }
-          
+
           htmlContent += `
             <div class="log-field">
-              <div class="field-name">${column}:</div>
-              <div class="field-value">${displayValue}</div>
+              <div class="field-name">${escapeHtml(column)}:</div>
+              <div class="field-value">${escapeHtml(displayValue)}</div>
             </div>
           `;
         }
@@ -500,8 +528,8 @@ const createHtmlReport = async (exportDir, logs, evidenceManifest, selectedColum
           <div class="hash-info">
             <div class="field-name">Hash Information:</div>
             <div class="hash-container">
-              ${log.hash_algorithm ? `<div class="hash-algorithm">Algorithm: ${log.hash_algorithm}</div>` : ''}
-              ${log.hash_value ? `<div class="hash-value">${log.hash_value}</div>` : ''}
+              ${log.hash_algorithm ? `<div class="hash-algorithm">Algorithm: ${escapeHtml(log.hash_algorithm)}</div>` : ''}
+              ${log.hash_value ? `<div class="hash-value">${escapeHtml(log.hash_value)}</div>` : ''}
             </div>
           </div>
         `;
@@ -525,29 +553,29 @@ const createHtmlReport = async (exportDir, logs, evidenceManifest, selectedColum
           
           if (isImage) {
             htmlContent += `
-              <img src="evidence/${evidence.export_filename}" alt="${evidence.original_filename}">
+              <img src="evidence/${escapeHtml(evidence.export_filename)}" alt="${escapeHtml(evidence.original_filename)}">
             `;
           } else {
             // For non-images, show a placeholder with file extension
             const fileExt = path.extname(evidence.original_filename).toUpperCase().substring(1);
             htmlContent += `
               <div class="thumbnail-placeholder">
-                ${fileExt || 'FILE'}
+                ${escapeHtml(fileExt) || 'FILE'}
               </div>
             `;
           }
-          
+
           htmlContent += `
               </div>
-              <div>${evidence.original_filename}</div>
+              <div>${escapeHtml(evidence.original_filename)}</div>
               <div class="evidence-meta">
-                ${evidence.file_type || 'Unknown Type'} - ${formatFileSize(evidence.file_size)}
+                ${escapeHtml(evidence.file_type || 'Unknown Type')} - ${escapeHtml(formatFileSize(evidence.file_size))}
               </div>
               <div class="evidence-meta">
-                Uploaded by ${evidence.uploaded_by} on ${new Date(evidence.upload_date).toLocaleString()}
+                Uploaded by ${escapeHtml(evidence.uploaded_by)} on ${formatUtcDate(evidence.upload_date)}
               </div>
-              ${evidence.description ? `<div class="evidence-meta">${evidence.description}</div>` : ''}
-              <a href="evidence/${evidence.export_filename}" class="btn btn-view" target="_blank">View File</a>
+              ${evidence.description ? `<div class="evidence-meta">${escapeHtml(evidence.description)}</div>` : ''}
+              <a href="evidence/${escapeHtml(evidence.export_filename)}" class="btn btn-view" target="_blank">View File</a>
             </div>
           `;
         });
@@ -573,7 +601,7 @@ const createHtmlReport = async (exportDir, logs, evidenceManifest, selectedColum
             <thead>
               <tr>
                 <th>ID</th>
-                ${selectedColumns.filter(col => col !== 'hash_algorithm' && col !== 'hash_value' || !includeHashes).map(col => `<th>${col}</th>`).join('')}
+                ${selectedColumns.filter(col => col !== 'hash_algorithm' && col !== 'hash_value' || !includeHashes).map(col => `<th>${escapeHtml(col)}</th>`).join('')}
                 ${includeHashes ? '<th>Hash Information</th>' : ''}
                 <th>Evidence</th>
               </tr>
@@ -587,29 +615,30 @@ const createHtmlReport = async (exportDir, logs, evidenceManifest, selectedColum
       
       htmlContent += `
         <tr>
-          <td><a href="#log-${log.id}">${log.id}</a></td>
+          <td><a href="#log-${escapeHtml(log.id)}">${escapeHtml(log.id)}</a></td>
       `;
-      
+
       selectedColumns.forEach(column => {
         // Skip hash columns if they'll be displayed in their own column
         if ((column === 'hash_algorithm' || column === 'hash_value') && includeHashes) {
           return;
         }
-        
+
         let displayValue = log[column] !== undefined && log[column] !== null ? log[column] : '';
-        
+
         // Format timestamp
         if (column === 'timestamp' && displayValue) {
-          displayValue = new Date(displayValue).toLocaleString();
+          displayValue = formatUtcDate(displayValue);
         }
-        
-        // Add status indicator
+
+        // Escape the value, then wrap status values in their indicator markup
+        let cellHtml = escapeHtml(displayValue);
         if (column === 'status' && displayValue) {
           const statusClass = `status-${displayValue.toLowerCase().replace('_', '-')}`;
-          displayValue = `<span class="status-indicator ${statusClass}">${displayValue}</span>`;
+          cellHtml = `<span class="status-indicator ${escapeHtml(statusClass)}">${escapeHtml(displayValue)}</span>`;
         }
-        
-        htmlContent += `<td>${displayValue}</td>`;
+
+        htmlContent += `<td>${cellHtml}</td>`;
       });
       
       // Add hash information column if requested
@@ -618,8 +647,8 @@ const createHtmlReport = async (exportDir, logs, evidenceManifest, selectedColum
           <td>
             ${log.hash_algorithm || log.hash_value ? `
               <div>
-                ${log.hash_algorithm ? `<div style="font-weight:bold;color:#9b59b6">${log.hash_algorithm}</div>` : ''}
-                ${log.hash_value ? `<div style="font-family:monospace;font-size:11px;word-break:break-all">${log.hash_value}</div>` : ''}
+                ${log.hash_algorithm ? `<div style="font-weight:bold;color:#9b59b6">${escapeHtml(log.hash_algorithm)}</div>` : ''}
+                ${log.hash_value ? `<div style="font-family:monospace;font-size:11px;word-break:break-all">${escapeHtml(log.hash_value)}</div>` : ''}
               </div>
             ` : '-'}
           </td>
@@ -627,7 +656,7 @@ const createHtmlReport = async (exportDir, logs, evidenceManifest, selectedColum
       }
       
       htmlContent += `
-          <td>${evidenceCount > 0 ? `<a href="#log-${log.id}">${evidenceCount} files</a>` : 'None'}</td>
+          <td>${evidenceCount > 0 ? `<a href="#log-${escapeHtml(log.id)}">${evidenceCount} files</a>` : 'None'}</td>
         </tr>
       `;
     });
@@ -654,32 +683,32 @@ const createHtmlReport = async (exportDir, logs, evidenceManifest, selectedColum
       
       if (isImage) {
         htmlContent += `
-          <img src="evidence/${evidence.export_filename}" alt="${evidence.original_filename}">
+          <img src="evidence/${escapeHtml(evidence.export_filename)}" alt="${escapeHtml(evidence.original_filename)}">
         `;
       } else {
         // For non-images, show a placeholder with file extension
         const fileExt = path.extname(evidence.original_filename).toUpperCase().substring(1);
         htmlContent += `
           <div class="thumbnail-placeholder">
-            ${fileExt || 'FILE'}
+            ${escapeHtml(fileExt) || 'FILE'}
           </div>
         `;
       }
-      
+
       htmlContent += `
           </div>
-          <div>${evidence.original_filename}</div>
+          <div>${escapeHtml(evidence.original_filename)}</div>
           <div class="evidence-meta">
-            For Log <a href="#log-${evidence.log_id}">#${evidence.log_id}</a>
+            For Log <a href="#log-${escapeHtml(evidence.log_id)}">#${escapeHtml(evidence.log_id)}</a>
           </div>
           <div class="evidence-meta">
-            ${evidence.file_type || 'Unknown Type'} - ${formatFileSize(evidence.file_size)}
+            ${escapeHtml(evidence.file_type || 'Unknown Type')} - ${escapeHtml(formatFileSize(evidence.file_size))}
           </div>
           <div class="evidence-meta">
-            Uploaded by ${evidence.uploaded_by} on ${new Date(evidence.upload_date).toLocaleString()}
+            Uploaded by ${escapeHtml(evidence.uploaded_by)} on ${formatUtcDate(evidence.upload_date)}
           </div>
-          ${evidence.description ? `<div class="evidence-meta">${evidence.description}</div>` : ''}
-          <a href="evidence/${evidence.export_filename}" class="btn btn-view" target="_blank">View File</a>
+          ${evidence.description ? `<div class="evidence-meta">${escapeHtml(evidence.description)}</div>` : ''}
+          <a href="evidence/${escapeHtml(evidence.export_filename)}" class="btn btn-view" target="_blank">View File</a>
         </div>
       `;
     });
@@ -724,20 +753,20 @@ const createHtmlReport = async (exportDir, logs, evidenceManifest, selectedColum
         `;
       } else {
         logsWithHashes.forEach(log => {
-          const logDate = log.timestamp ? new Date(log.timestamp).toLocaleString() : 'Unknown Date';
+          const logDate = log.timestamp ? formatUtcDate(log.timestamp) : 'Unknown Date';
           let statusClass = 'status-unknown';
-          
+
           if (log.status) {
             statusClass = `status-${log.status.toLowerCase().replace('_', '-')}`;
           }
-          
+
           htmlContent += `
             <tr>
-              <td><a href="#log-${log.id}">${log.id}</a></td>
-              <td>${log.filename || '-'}</td>
-              <td>${log.hash_algorithm || '-'}</td>
-              <td style="font-family:monospace;word-break:break-all">${log.hash_value || '-'}</td>
-              <td>${log.status ? `<span class="status-indicator ${statusClass}">${log.status}</span>` : '-'}</td>
+              <td><a href="#log-${escapeHtml(log.id)}">${escapeHtml(log.id)}</a></td>
+              <td>${escapeHtml(log.filename || '-')}</td>
+              <td>${escapeHtml(log.hash_algorithm || '-')}</td>
+              <td style="font-family:monospace;word-break:break-all">${escapeHtml(log.hash_value || '-')}</td>
+              <td>${log.status ? `<span class="status-indicator ${escapeHtml(statusClass)}">${escapeHtml(log.status)}</span>` : '-'}</td>
               <td>${logDate}</td>
             </tr>
           `;
@@ -774,7 +803,7 @@ const createHtmlReport = async (exportDir, logs, evidenceManifest, selectedColum
             <div class="relation-container relation-ip">
               <div class="relation-header">
                 <div class="relation-icon">IP</div>
-                <div>${relation.source} <span class="relation-count">${relation.related.length} connections</span></div>
+                <div>${escapeHtml(relation.source)} <span class="relation-count">${relation.related.length} connections</span></div>
               </div>
               
               <div class="relation-connections">
@@ -783,8 +812,8 @@ const createHtmlReport = async (exportDir, logs, evidenceManifest, selectedColum
           relation.related.forEach(connection => {
             htmlContent += `
               <div class="relation-connection">
-                <div class="relation-target">${connection.target}</div>
-                <div class="relation-metadata">Last seen: ${new Date(connection.lastSeen).toLocaleString()}</div>
+                <div class="relation-target">${escapeHtml(connection.target)}</div>
+                <div class="relation-metadata">Last seen: ${formatUtcDate(connection.lastSeen)}</div>
                 <div class="relation-strength">${Math.round(connection.strength || 0)}</div>
               </div>
             `;
@@ -813,7 +842,7 @@ const createHtmlReport = async (exportDir, logs, evidenceManifest, selectedColum
             <div class="relation-container relation-hostname">
               <div class="relation-header">
                 <div class="relation-icon">H</div>
-                <div>${relation.source} <span class="relation-count">${relation.related.length} connections</span></div>
+                <div>${escapeHtml(relation.source)} <span class="relation-count">${relation.related.length} connections</span></div>
               </div>
               
               <div class="relation-connections">
@@ -822,8 +851,8 @@ const createHtmlReport = async (exportDir, logs, evidenceManifest, selectedColum
           relation.related.forEach(connection => {
             htmlContent += `
               <div class="relation-connection">
-                <div class="relation-target">${connection.target}</div>
-                <div class="relation-metadata">Last seen: ${new Date(connection.lastSeen).toLocaleString()}</div>
+                <div class="relation-target">${escapeHtml(connection.target)}</div>
+                <div class="relation-metadata">Last seen: ${formatUtcDate(connection.lastSeen)}</div>
                 <div class="relation-strength">${Math.round(connection.strength || 0)}</div>
               </div>
             `;
@@ -852,7 +881,7 @@ const createHtmlReport = async (exportDir, logs, evidenceManifest, selectedColum
             <div class="relation-container relation-domain">
               <div class="relation-header">
                 <div class="relation-icon">D</div>
-                <div>${relation.source} <span class="relation-count">${relation.related.length} connections</span></div>
+                <div>${escapeHtml(relation.source)} <span class="relation-count">${relation.related.length} connections</span></div>
               </div>
               
               <div class="relation-connections">
@@ -861,8 +890,8 @@ const createHtmlReport = async (exportDir, logs, evidenceManifest, selectedColum
           relation.related.forEach(connection => {
             htmlContent += `
               <div class="relation-connection">
-                <div class="relation-target">${connection.target}</div>
-                <div class="relation-metadata">Last seen: ${new Date(connection.lastSeen).toLocaleString()}</div>
+                <div class="relation-target">${escapeHtml(connection.target)}</div>
+                <div class="relation-metadata">Last seen: ${formatUtcDate(connection.lastSeen)}</div>
                 <div class="relation-strength">${Math.round(connection.strength || 0)}</div>
               </div>
             `;
@@ -924,7 +953,7 @@ const createHtmlReport = async (exportDir, logs, evidenceManifest, selectedColum
           htmlContent += `
             <div class="user-command-group">
               <div class="user-command-header">
-                <div>${username}</div>
+                <div>${escapeHtml(username)}</div>
                 <div class="relation-count">${commands.length} commands</div>
               </div>
               
@@ -934,9 +963,9 @@ const createHtmlReport = async (exportDir, logs, evidenceManifest, selectedColum
           commands.forEach(cmd => {
             htmlContent += `
               <div class="user-command-item">
-                <code class="user-command-code">${cmd.command}</code>
+                <code class="user-command-code">${escapeHtml(cmd.command)}</code>
                 <div class="user-command-time">
-                    ${cmd.last_seen ? new Date(cmd.last_seen).toLocaleString() : (cmd.first_seen ? new Date(cmd.first_seen).toLocaleString() : 'Unknown time')}
+                    ${cmd.last_seen ? formatUtcDate(cmd.last_seen) : (cmd.first_seen ? formatUtcDate(cmd.first_seen) : 'Unknown time')}
                 </div>
               </div>
             `;

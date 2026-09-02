@@ -102,16 +102,12 @@ class UserCommandAnalyzer extends BaseAnalyzer {
     };
 
     const staleChunks = _.chunk(staleCommands, this.CHUNK_SIZE);
-    await Promise.all(
-      staleChunks.map(chunk => {
-        return new Promise(resolve => {
-          batchService.addToBatch('staleCommands', chunk, async (batchData) => {
-            await deleteBatchProcessor(_.flatten(batchData));
-            resolve();
-          });
-        });
-      })
-    );
+    staleChunks.forEach(chunk => {
+      batchService.addToBatch('staleCommands', chunk, async (batchData) => {
+        await deleteBatchProcessor(_.flatten(batchData));
+      });
+    });
+    await batchService.flushBatch('staleCommands');
   }
 }
 

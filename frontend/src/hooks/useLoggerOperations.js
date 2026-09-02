@@ -1,11 +1,16 @@
 // frontend/src/hooks/useLoggerOperations.js - Updated with operations support
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useLoggerApi } from './useLoggerApi';
 import { COLUMNS } from '../utils/constants';
 
 export const useLoggerOperations = (currentUser, csrfToken) => {
   // Get user role from both localStorage and props
-  const storedUser = JSON.parse(localStorage.getItem('user') || '{}');
+  let storedUser = {};
+  try {
+    storedUser = JSON.parse(localStorage.getItem('user') || '{}') || {};
+  } catch (e) {
+    console.error('Error parsing stored user data:', e);
+  }
   const isAdmin = storedUser.role === 'admin' || currentUser?.role === 'admin';
 
   // State
@@ -15,6 +20,12 @@ export const useLoggerOperations = (currentUser, csrfToken) => {
   const [loading, setLoading] = useState(true);
   const [expandedCell, setExpandedCell] = useState(null);
   const [activeOperation, setActiveOperation] = useState(null); // NEW: Add active operation state
+
+  // Guards against stale poll responses clobbering fresh local state:
+  // only the latest in-flight request may apply, and polls are skipped mid-edit
+  const fetchSeqRef = useRef(0);
+  const editingCellRef = useRef(null);
+  editingCellRef.current = editingCell;
 
   const {
     error,
@@ -37,7 +48,14 @@ export const useLoggerOperations = (currentUser, csrfToken) => {
   // Fetch logs
   useEffect(() => {
     const loadLogs = async () => {
+      const seq = ++fetchSeqRef.current;
       const data = await fetchLogs();
+      // Ignore this response if a newer request/edit has superseded it,
+      // or if a cell edit is in flight (its optimistic update would be reverted)
+      if (seq !== fetchSeqRef.current || editingCellRef.current) {
+        setLoading(false);
+        return;
+      }
       if (data) {
         // NEW: Handle new response format with operations
         if (data.logs && data.activeOperation !== undefined) {
@@ -57,8 +75,30 @@ export const useLoggerOperations = (currentUser, csrfToken) => {
     };
 
     loadLogs();
-    const interval = setInterval(loadLogs, 3000);
-    return () => clearInterval(interval);
+
+    // Live updates: the backend pushes lightweight "logs:changed" events over
+    // SSE, so we refresh on demand instead of hammering a 3s poll. A slow 30s
+    // fallback poll still runs to cover a dropped stream or a missed event.
+    let debounce = null;
+    const requestReload = () => {
+      if (editingCellRef.current) return; // don't clobber an in-flight edit
+      clearTimeout(debounce);
+      debounce = setTimeout(loadLogs, 250);
+    };
+
+    let es = null;
+    try {
+      es = new EventSource('/api/events/stream', { withCredentials: true });
+      es.addEventListener('logs:changed', requestReload);
+      // onerror: the browser auto-reconnects; the fallback poll covers any gap.
+    } catch (_) { /* SSE unsupported — fallback poll still runs */ }
+
+    const interval = setInterval(loadLogs, 30000);
+    return () => {
+      clearInterval(interval);
+      clearTimeout(debounce);
+      if (es) es.close();
+    };
   }, [csrfToken]); // Removed fetchLogs from the dependency array to prevent infinite loops
 
   // Cell editing handlers
@@ -121,18 +161,22 @@ export const useLoggerOperations = (currentUser, csrfToken) => {
         
         // Send the value to the server
         const result = await updateLog(rowId, { [field]: valueToSend });
-        
+
+        // Invalidate any poll response that was already in flight before the save
+        fetchSeqRef.current++;
+
         // Update the local logs state with the exact same value
-        setLogs(prevLogs => sortLogs(prevLogs.map(log => 
+        setLogs(prevLogs => sortLogs(prevLogs.map(log =>
           log.id === rowId ? { ...log, [field]: valueToSend } : log
         )));
-        
+
         console.log('Update result:', result);
       }
       setEditingCell(null);
       setEditingValue('');
     } catch (err) {
       console.error('Error updating cell:', err);
+      setError(err.message || 'Failed to update cell');
       setEditingCell(null);
       setEditingValue('');
     }
@@ -185,8 +229,11 @@ export const useLoggerOperations = (currentUser, csrfToken) => {
           console.log(`Tab updating ${currentField} with value:`, valueToSend);
           
           await updateLog(currentRowId, { [currentField]: valueToSend });
-          
-          setLogs(prevLogs => sortLogs(prevLogs.map(log => 
+
+          // Invalidate any poll response that was already in flight before the save
+          fetchSeqRef.current++;
+
+          setLogs(prevLogs => sortLogs(prevLogs.map(log =>
             log.id === currentRowId ? { ...log, [currentField]: valueToSend } : log
           )));
         }
@@ -245,32 +292,7 @@ export const useLoggerOperations = (currentUser, csrfToken) => {
 
       if (newLog) {
         setLogs(prevLogs => sortLogs([newLog, ...prevLogs]));
-        
-        // Notify relation service about new row with timeout
-        try {
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 10000); // 10-second timeout
-          
-          await fetch('/relation-service/api/relations/analyze', {
-            method: 'POST',
-            credentials: 'include',
-            headers: {
-              'Content-Type': 'application/json',
-              'CSRF-Token': csrfToken
-            },
-            body: JSON.stringify({ logId: newLog.id }),
-            signal: controller.signal
-          });
-          
-          clearTimeout(timeoutId);
-          console.log('Analysis triggered for new row');
-        } catch (analyzeError) {
-          if (analyzeError.name === 'AbortError') {
-            console.log('Analysis request timed out, but processing continues on server');
-          } else {
-            console.error('Error triggering analysis:', analyzeError);
-          }
-        }
+        // Relation analysis is scheduled server-side on every log write
       }
     } catch (err) {
       console.error('Error adding new row:', err);
@@ -294,34 +316,9 @@ export const useLoggerOperations = (currentUser, csrfToken) => {
 
       if (newLog) {
         setLogs(prevLogs => sortLogs([newLog, ...prevLogs]));
-        
-        // Notify relation service about new row with timeout
-        try {
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 10000); // 10-second timeout
-          
-          await fetch('/relation-service/api/relations/analyze', {
-            method: 'POST',
-            credentials: 'include',
-            headers: {
-              'Content-Type': 'application/json',
-              'CSRF-Token': csrfToken
-            },
-            body: JSON.stringify({ logId: newLog.id }),
-            signal: controller.signal
-          });
-          
-          clearTimeout(timeoutId);
-          console.log('Analysis triggered for new row from template');
-        } catch (analyzeError) {
-          if (analyzeError.name === 'AbortError') {
-            console.log('Analysis request timed out, but processing continues on server');
-          } else {
-            console.error('Error triggering analysis:', analyzeError);
-          }
-        }
+        // Relation analysis is scheduled server-side on every log write
       }
-      
+
       return newLog;
     } catch (err) {
       console.error('Error adding new row with template:', err);
@@ -330,7 +327,9 @@ export const useLoggerOperations = (currentUser, csrfToken) => {
     }
   };
 
-  const handleUpdateRowWithTemplate = async (templateData, rowId) => {
+  // Note: callers pass (rowId, templateData) — keep this order in sync with
+  // LoggerCardView.handleTemplateAction.
+  const handleUpdateRowWithTemplate = async (rowId, templateData) => {
     try {
       // Clean up template data before sending
       const cleanTemplateData = { ...templateData };
@@ -341,13 +340,14 @@ export const useLoggerOperations = (currentUser, csrfToken) => {
       delete cleanTemplateData.analyst;
       delete cleanTemplateData.locked;
       delete cleanTemplateData.locked_by;
-      
+
       // Update the row with template data
       const updatedRow = await updateLog(rowId, cleanTemplateData);
-      
-      // Update local state
-      setLogs(prevLogs => sortLogs(prevLogs.map(log => 
-        log.id === rowId ? { ...log, ...templateData } : log
+
+      // Update local state with the SAME cleaned fields we persisted (never the
+      // raw template, which could carry id/timestamp/analyst and corrupt the row)
+      setLogs(prevLogs => sortLogs(prevLogs.map(log =>
+        log.id === rowId ? { ...log, ...cleanTemplateData } : log
       )));
       
       console.log('Successfully updated log with template data', updatedRow);

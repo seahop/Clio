@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Settings, X, RotateCcw } from 'lucide-react';
 import { COLUMNS } from '../utils/constants';
+import { Button } from './common/ui';
 
 // Fields that can potentially be shown in the card header
 const HEADER_FIELDS = [
@@ -137,25 +138,27 @@ const CardFieldSettings = ({ currentUser, onSettingsChange }) => {
 
   return (
     <div className="relative" style={{ zIndex: 9998 }}>
-      <button
+      <Button
         ref={buttonRef}
+        variant="secondary"
+        size="sm"
+        className="!px-3 !py-1.5 !text-sm !gap-2"
+        icon={Settings}
         onClick={() => setIsOpen(!isOpen)}
-        className="px-3 py-1.5 rounded-md flex items-center gap-2 transition-colors duration-200 bg-gray-700 text-gray-300 hover:bg-gray-600"
         title="Card Field Settings"
       >
-        <Settings size={16} />
         <span className="hidden sm:inline">Card Fields</span>
-      </button>
+      </Button>
 
       {isOpen && (
         // Using fixed positioning instead of absolute to ensure it's not limited by parent containers
-        <div 
+        <div
           ref={dropdownRef}
-          className="fixed shadow-lg rounded-lg"
-          style={{ 
+          className="fixed shadow-pop rounded-card"
+          style={{
             zIndex: 9999,
-            backgroundColor: '#1f2937', // bg-gray-800
-            border: '1px solid #374151', // border-gray-700
+            backgroundColor: 'rgb(var(--c-surface))',
+            border: '1px solid rgb(var(--c-line))',
             padding: '1rem',
             width: '280px',
             top: buttonRef.current ? buttonRef.current.getBoundingClientRect().bottom + 5 : 0,
@@ -165,23 +168,23 @@ const CardFieldSettings = ({ currentUser, onSettingsChange }) => {
           }}
         >
           <div className="flex justify-between items-center mb-3">
-            <h3 className="text-sm font-medium text-white">Card Header Fields</h3>
+            <h3 className="text-sm font-medium text-content">Card Header Fields</h3>
             <button
               onClick={() => setIsOpen(false)}
-              className="text-gray-400 hover:text-white"
+              className="text-muted hover:text-content"
             >
               <X size={16} />
             </button>
           </div>
-          
-          <p className="text-xs text-gray-400 mb-3">
+
+          <p className="text-xs text-muted mb-3">
             Select which fields to display in the card header summary.
           </p>
-          
+
           <div className="space-y-2 mb-4">
             {HEADER_FIELDS.map(field => {
               const column = COLUMNS.find(col => col.field === field);
-              
+
               return (
                 <div key={field} className="flex items-center">
                   <input
@@ -189,11 +192,11 @@ const CardFieldSettings = ({ currentUser, onSettingsChange }) => {
                     type="checkbox"
                     checked={!!selectedFields[field]}
                     onChange={() => handleToggleField(field)}
-                    className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-blue-600"
+                    className="w-4 h-4 rounded border-line bg-surface-2 text-accent"
                   />
                   <label
                     htmlFor={`field-${field}`}
-                    className="ml-2 text-sm text-gray-300 cursor-pointer"
+                    className="ml-2 text-sm text-muted cursor-pointer"
                   >
                     {column?.header || field}
                   </label>
@@ -201,15 +204,16 @@ const CardFieldSettings = ({ currentUser, onSettingsChange }) => {
               );
             })}
           </div>
-          
-          <div className="mt-4 flex justify-end border-t border-gray-700 pt-3">
-            <button
+
+          <div className="mt-4 flex justify-end border-t border-line pt-3">
+            <Button
+              variant="secondary"
+              size="sm"
+              icon={RotateCcw}
               onClick={resetToDefaults}
-              className="px-3 py-1.5 bg-gray-700 text-gray-300 rounded text-sm flex items-center gap-1 hover:bg-gray-600"
             >
-              <RotateCcw size={14} />
-              <span>Reset to Default</span>
-            </button>
+              Reset to Default
+            </Button>
           </div>
         </div>
       )}

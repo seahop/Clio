@@ -102,7 +102,24 @@ module.exports = function(app) {
       pathRewrite: path => path
     })
   );
-  
+
+  // Archived log files (served by the backend from data/archives, admin-only)
+  app.use(
+    '/archives',
+    createProxyMiddleware({
+      target: 'https://backend:3001',
+      secure: false,
+      changeOrigin: true,
+      logProvider,
+      logLevel: debug ? 'debug' : 'error',
+      headers: {
+        'Origin': process.env.FRONTEND_URL || 'https://localhost:3000'
+      },
+      // Don't modify the path
+      pathRewrite: path => path
+    })
+  );
+
   // Proxy requests to the relation-service API
   app.use(
     '/relation-service',

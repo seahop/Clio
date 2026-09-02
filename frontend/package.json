@@ -6,16 +6,17 @@
     "@testing-library/jest-dom": "6.6.3",
     "@testing-library/react": "16.2.0",
     "@testing-library/user-event": "14.6.1",
+    "ajv": "8.20.0",
+    "autoprefixer": "^10.4.17",
+    "aws-sdk": "^2.1550.0",
+    "http-proxy-middleware": "^2.0.6",
+    "jsonwebtoken": "^9.0.2",
     "lucide-react": "0.475.0",
+    "postcss": "^8.4.31",
     "react": "19.0.0",
     "react-dom": "19.0.0",
     "react-scripts": "5.0.1",
-    "tailwindcss": "3.3.0",
-    "postcss": "^8.4.31",
-    "autoprefixer": "^10.4.17",
-    "jsonwebtoken": "^9.0.2",
-    "http-proxy-middleware": "^2.0.6",
-    "aws-sdk": "^2.1550.0"
+    "tailwindcss": "3.3.0"
   },
   "devDependencies": {
     "@babel/plugin-proposal-private-property-in-object": "^7.21.11"

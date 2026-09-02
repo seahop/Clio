@@ -1,4 +1,5 @@
 // frontend/src/components/api-keys/apiKeyUtils.js
+import { formatUTC } from '../../utils/dateUtils';
 
 /**
  * Format date for display
@@ -7,7 +8,7 @@
  */
 export const formatDate = (dateString) => {
     if (!dateString) return 'Never';
-    return new Date(dateString).toLocaleString();
+    return formatUTC(dateString);
   };
   
   /**

@@ -1,21 +1,19 @@
 // frontend/src/components/RelationFilters.jsx
 import React from 'react';
+import { Button } from '../common/ui';
 
 const RelationFilters = ({ filterTypes, selectedFilter, onFilterChange }) => {
   return (
     <>
       {filterTypes.map(filter => (
-        <button
+        <Button
           key={filter.id}
           onClick={() => onFilterChange(filter.id)}
-          className={`px-3 py-1 rounded-md text-sm ${
-            selectedFilter === filter.id
-              ? 'bg-blue-600 text-white'
-              : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-          }`}
+          variant={selectedFilter === filter.id ? 'primary' : 'secondary'}
+          size="sm"
         >
           {filter.label}
-        </button>
+        </Button>
       ))}
     </>
   );

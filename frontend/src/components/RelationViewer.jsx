@@ -5,6 +5,17 @@ import UserCommandsViewer from './UserCommandsViewer';
 import MacAddressViewer from './MacAddressViewer';
 import RelationFilters from './relations/RelationFilters';
 import RelationList from './relations/RelationList';
+import OperationScopeFilter from './relations/OperationScopeFilter';
+import { Button, Skeleton } from './common/ui';
+
+// Build the ?operations=&opMatch= query fragment (without leading ?).
+// Returns '' when the selection is "everything, union" so the backend applies
+// its default (admin: all operations; user: all of their operations).
+const buildOpQuery = (allOps, selectedIds, matchMode) => {
+  const allSelected = allOps.length > 0 && selectedIds.length === allOps.length;
+  if (allSelected && matchMode === 'any') return '';
+  return `operations=${selectedIds.join(',')}&opMatch=${matchMode}`;
+};
 
 // Filters backed by dedicated sub-viewers (they fetch their own data)
 const DELEGATED_FILTERS = new Set(['user', 'mac_address']);
@@ -54,6 +65,68 @@ const RelationViewer = () => {
   // Bump this to force-remount delegated sub-viewers on Refresh
   const [refreshKey, setRefreshKey] = useState(0);
 
+  // Operation scoping
+  const [availableOps, setAvailableOps] = useState([]);   // active ops
+  const [archivedOps, setArchivedOps] = useState([]);     // inactive/archived ops (lazy)
+  const [selectedOpIds, setSelectedOpIds] = useState([]);
+  const [opMatch, setOpMatch] = useState('any');
+  const [includeArchived, setIncludeArchived] = useState(false);
+
+  const mapOps = (data) => (data.operations || [])
+    .map(o => ({ id: o.operation_id, name: o.operation_name, isActive: o.is_active !== false }))
+    .filter(o => o.id != null);
+
+  // Load the active operations this user can filter by (all active ops for
+  // admins, assigned ops for regular users); default to all of them selected.
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch('/api/operations/my-operations', {
+          credentials: 'include',
+          headers: { 'Accept': 'application/json' }
+        });
+        if (!res.ok) return;
+        const list = mapOps(await res.json()).filter(o => o.isActive);
+        setAvailableOps(list);
+        setSelectedOpIds(list.map(o => o.id));
+      } catch (err) {
+        console.error('Failed to load operations for relation scope:', err);
+      }
+    })();
+  }, []);
+
+  // Toggle archived operations into the pick-list. Fetched once on first
+  // enable; newly revealed archived ops start selected so their relations
+  // appear immediately (the user can then deselect any).
+  const handleIncludeArchived = async (next) => {
+    setIncludeArchived(next);
+    if (next && archivedOps.length === 0) {
+      try {
+        const res = await fetch('/api/operations/my-operations?includeInactive=true', {
+          credentials: 'include',
+          headers: { 'Accept': 'application/json' }
+        });
+        if (res.ok) {
+          const inactive = mapOps(await res.json()).filter(o => !o.isActive);
+          setArchivedOps(inactive);
+          setSelectedOpIds(prev => [...new Set([...prev, ...inactive.map(o => o.id)])]);
+        }
+      } catch (err) {
+        console.error('Failed to load archived operations:', err);
+      }
+    } else if (next && archivedOps.length > 0) {
+      setSelectedOpIds(prev => [...new Set([...prev, ...archivedOps.map(o => o.id)])]);
+    } else {
+      // Hiding archived — drop them from the selection too
+      const archivedIds = new Set(archivedOps.map(o => o.id));
+      setSelectedOpIds(prev => prev.filter(id => !archivedIds.has(id)));
+    }
+  };
+
+  const listedOps = includeArchived ? [...availableOps, ...archivedOps] : availableOps;
+
+  const opQuery = buildOpQuery(listedOps, selectedOpIds, opMatch);
+
   const fetchRelations = useCallback(async () => {
     if (DELEGATED_FILTERS.has(selectedFilter)) {
       setRefreshKey(k => k + 1);
@@ -63,9 +136,10 @@ const RelationViewer = () => {
     try {
       setLoading(true);
       setError(null);
-      const apiUrl = `/relation-service/api/relations${
+      const base = `/relation-service/api/relations${
         selectedFilter !== 'all' ? `/${selectedFilter}` : ''
       }`;
+      const apiUrl = opQuery ? `${base}?${opQuery}` : base;
 
       const response = await fetch(apiUrl, {
         credentials: 'include',
@@ -105,11 +179,16 @@ const RelationViewer = () => {
     } finally {
       setLoading(false);
     }
-  }, [selectedFilter]);
+  }, [selectedFilter, opQuery]);
 
   useEffect(() => {
     fetchRelations();
   }, [fetchRelations]);
+
+  // Changing the operation scope should also refresh delegated sub-viewers.
+  useEffect(() => {
+    if (DELEGATED_FILTERS.has(selectedFilter)) setRefreshKey(k => k + 1);
+  }, [opQuery, selectedFilter]);
 
   const toggleExpand = (id) => {
     setExpandedItems(prev => {
@@ -127,18 +206,24 @@ const RelationViewer = () => {
   const renderContent = () => {
     if (error) {
       return (
-        <div className="bg-red-900/50 text-red-200 p-4 rounded-md">
+        <div className="bg-danger/15 text-danger p-4 rounded-card">
           <h3 className="font-medium">Error loading data:</h3>
           <p className="mt-1">{error}</p>
         </div>
       );
     }
 
-    if (selectedFilter === 'user')        return <UserCommandsViewer key={refreshKey} />;
-    if (selectedFilter === 'mac_address') return <MacAddressViewer   key={refreshKey} />;
+    if (selectedFilter === 'user')        return <UserCommandsViewer key={refreshKey} opQuery={opQuery} />;
+    if (selectedFilter === 'mac_address') return <MacAddressViewer   key={refreshKey} opQuery={opQuery} />;
 
     if (loading) {
-      return <div className="text-center text-gray-400 py-8"><p>Loading relationships...</p></div>;
+      return (
+        <div className="space-y-3">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Skeleton key={i} className="h-14 rounded-card" />
+          ))}
+        </div>
+      );
     }
 
     return (
@@ -154,21 +239,31 @@ const RelationViewer = () => {
   const titleLabel = FILTER_TITLES[selectedFilter] || 'Log Relations';
 
   return (
-    <div className="bg-gray-800 rounded-lg shadow-lg w-full">
-      <div className="p-4 border-b border-gray-700 flex flex-row items-center justify-between flex-wrap gap-2">
-        <h2 className="text-lg font-medium text-white flex items-center gap-2">
+    <div className="bg-surface border border-line rounded-card shadow-card w-full">
+      <div className="p-4 border-b border-line flex flex-row items-center justify-between flex-wrap gap-2">
+        <h2 className="text-lg font-medium text-content flex items-center gap-2">
           {titleIcon}
           {titleLabel}
         </h2>
         <div className="flex flex-wrap gap-2 items-center">
-          <button
+          <Button
+            variant="secondary"
+            size="sm"
             onClick={fetchRelations}
             disabled={loading}
-            className="px-3 py-1 bg-gray-700 text-gray-300 rounded-md text-sm flex items-center gap-1 hover:bg-gray-600 disabled:opacity-50"
+            loading={loading}
+            icon={RefreshCw}
           >
-            <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
             {loading ? 'Loading...' : 'Refresh'}
-          </button>
+          </Button>
+          <OperationScopeFilter
+            operations={listedOps}
+            selectedIds={selectedOpIds}
+            matchMode={opMatch}
+            includeArchived={includeArchived}
+            onIncludeArchivedChange={handleIncludeArchived}
+            onChange={({ selectedIds, matchMode }) => { setSelectedOpIds(selectedIds); setOpMatch(matchMode); }}
+          />
           <RelationFilters
             filterTypes={FILTER_TYPES}
             selectedFilter={selectedFilter}

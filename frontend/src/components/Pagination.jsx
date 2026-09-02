@@ -9,17 +9,21 @@ const Pagination = ({
   totalPages, 
   rowsPerPage, 
   totalRows,
-  onPageChange, 
-  onRowsPerPageChange 
+  onPageChange,
+  onRowsPerPageChange
 }) => {
+  // Treat an empty result set (totalPages < 1) as a single page so the label
+  // reads "1 / 1" and navigation stays disabled
+  const displayTotalPages = Math.max(totalPages, 1);
+
   return (
-    <div className="flex flex-col sm:flex-row items-center justify-between p-2 sm:px-4 sm:py-3 bg-gray-800 border-t border-gray-700">
-      <div className="flex items-center text-sm text-gray-400 mb-2 sm:mb-0">
+    <div className="flex flex-col sm:flex-row items-center justify-between p-2 sm:px-4 sm:py-3 bg-surface border-t border-line">
+      <div className="flex items-center text-sm text-muted mb-2 sm:mb-0">
         <span className="mr-2 sm:mr-4">Rows per page:</span>
         <select
           value={rowsPerPage}
           onChange={(e) => onRowsPerPageChange(Number(e.target.value))}
-          className="bg-gray-700 border border-gray-600 text-white px-2 py-1 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="bg-surface-2 border border-line text-content px-2 py-1 rounded focus:outline-none focus:ring-2 focus:ring-accent"
         >
           {rowsPerPageOptions.map(option => (
             <option key={option} value={option}>{option}</option>
@@ -34,7 +38,7 @@ const Pagination = ({
         <button
           onClick={() => onPageChange(1)}
           disabled={currentPage === 1}
-          className="p-1 rounded disabled:opacity-50 disabled:cursor-not-allowed text-gray-400 hover:bg-gray-700"
+          className="p-1 rounded disabled:opacity-50 disabled:cursor-not-allowed text-muted hover:bg-surface-2"
           title="First Page"
         >
           <ChevronsLeft size={18} />
@@ -42,28 +46,28 @@ const Pagination = ({
         <button
           onClick={() => onPageChange(currentPage - 1)}
           disabled={currentPage === 1}
-          className="p-1 rounded disabled:opacity-50 disabled:cursor-not-allowed text-gray-400 hover:bg-gray-700"
+          className="p-1 rounded disabled:opacity-50 disabled:cursor-not-allowed text-muted hover:bg-surface-2"
           title="Previous Page"
         >
           <ChevronLeft size={18} />
         </button>
-        
-        <span className="text-gray-400 px-1">
-          {currentPage} / {totalPages}
+
+        <span className="text-muted px-1">
+          {currentPage} / {displayTotalPages}
         </span>
 
         <button
           onClick={() => onPageChange(currentPage + 1)}
-          disabled={currentPage === totalPages}
-          className="p-1 rounded disabled:opacity-50 disabled:cursor-not-allowed text-gray-400 hover:bg-gray-700"
+          disabled={currentPage >= displayTotalPages}
+          className="p-1 rounded disabled:opacity-50 disabled:cursor-not-allowed text-muted hover:bg-surface-2"
           title="Next Page"
         >
           <ChevronRight size={18} />
         </button>
         <button
-          onClick={() => onPageChange(totalPages)}
-          disabled={currentPage === totalPages}
-          className="p-1 rounded disabled:opacity-50 disabled:cursor-not-allowed text-gray-400 hover:bg-gray-700"
+          onClick={() => onPageChange(displayTotalPages)}
+          disabled={currentPage >= displayTotalPages}
+          className="p-1 rounded disabled:opacity-50 disabled:cursor-not-allowed text-muted hover:bg-surface-2"
           title="Last Page"
         >
           <ChevronsRight size={18} />

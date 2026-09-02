@@ -221,6 +221,22 @@ OIDC_PROVIDER_NAME=Keycloak
 
 ---
 
+### Option C — Kubernetes (Helm chart)
+
+For cluster deployments there is a full Helm chart in [k8s/](./k8s/) with
+auto-generated secrets, a pre-upgrade DB migration job, NetworkPolicies,
+optional Linkerd mTLS, and cert-manager TLS support:
+
+```bash
+helm install clio ./k8s -n clio --create-namespace \
+  --set ingress.host=clio.example.com
+```
+
+See the [Kubernetes Deployment Guide](./docs/kubernetes.md) for the full
+walkthrough (ingress controllers, TLS options, SSO, upgrades, backups).
+
+---
+
 ## Documentation
 
 - [Architecture Overview](./docs/architecture.md)
@@ -229,6 +245,7 @@ OIDC_PROVIDER_NAME=Keycloak
 - [API Documentation](./docs/api-guide.md)
 - [Using Log Forwarders](./log_exporter/README.md)
 - [SSO Integration (Google + Generic OIDC)](./docs/sso-integration.md)
+- [Kubernetes Deployment Guide](./docs/kubernetes.md)
 
 ## License
 

@@ -144,9 +144,14 @@ class BatchService {
     FileStatusModel.clearCache();
   }
 
-  shutdown() {
+  async shutdown() {
     for (const timer of this.timers.values()) clearTimeout(timer);
     this.timers.clear();
+    try {
+      await this.flushAllBatches();
+    } catch (error) {
+      console.error('Error flushing batches during shutdown:', error);
+    }
     console.log('BatchService shutdown. Final metrics:', this.getMetrics());
   }
 }

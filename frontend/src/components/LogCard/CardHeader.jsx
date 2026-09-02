@@ -2,7 +2,16 @@
 import React from 'react';
 import { ChevronRight, ChevronDown, Lock, Unlock, FileText } from 'lucide-react';
 import { formatMacAddress } from '../../utils/macAddressUtils';
-import { formatDate, getStatusColorClass } from './cardUtils';
+import { formatDate, getStatusChipClass } from './cardUtils';
+
+// One quiet chip style for every field; technical values get a mono face.
+// Only the status pill carries color, so it reads at a glance.
+const HeaderChip = ({ label, value, mono = false, className = '' }) => (
+  <div className={`flex-shrink-0 inline-flex items-baseline gap-1.5 px-2 py-0.5 rounded border border-gray-700/70 bg-gray-900/50 ${className}`}>
+    <span className="text-[10px] uppercase tracking-wider text-gray-500">{label}</span>
+    <span className={`text-xs text-gray-200 whitespace-nowrap ${mono ? 'font-mono' : ''}`}>{value}</span>
+  </div>
+);
 
 const CardHeader = ({
   row,
@@ -16,108 +25,80 @@ const CardHeader = ({
     <div className="flex items-center gap-x-3 overflow-hidden">
       {/* Expand/Collapse Icon */}
       {isExpanded ? (
-        <ChevronDown className="flex-shrink-0 w-5 h-5 text-white" />
+        <ChevronDown className="flex-shrink-0 w-4 h-4 text-gray-400" />
       ) : (
-        <ChevronRight className="flex-shrink-0 w-5 h-5 text-white" />
+        <ChevronRight className="flex-shrink-0 w-4 h-4 text-gray-400" />
       )}
-      
+
       {/* Lock/Unlock button */}
       <button
         onClick={onToggleLock}
         className="flex-shrink-0 p-1 rounded hover:bg-gray-600 transition-colors"
         title={row.locked ? `Locked by ${row.locked_by}` : 'Unlocked'}
       >
-        {row.locked ? 
-          <Lock size={16} className="text-red-400" /> : 
-          <Unlock size={16} className="text-green-400" />
+        {row.locked ?
+          <Lock size={15} className="text-red-400" /> :
+          <Unlock size={15} className="text-gray-500 hover:text-gray-300" />
         }
       </button>
-      
+
       {/* Evidence button */}
       <button
         onClick={onToggleEvidence}
         className={`flex-shrink-0 p-1 rounded hover:bg-gray-600 transition-colors ${
-          showEvidenceTab ? 'text-blue-400' : 'text-gray-400'
+          showEvidenceTab ? 'text-blue-400' : 'text-gray-500'
         }`}
         title="Toggle evidence"
       >
-        <FileText size={16} />
+        <FileText size={15} />
       </button>
-      
+
       {/* Primary Info - Timestamp is always shown */}
-      <div className="flex-shrink-0 text-sm text-blue-200 font-medium">
+      <div className="flex-shrink-0 text-[13px] text-gray-300 font-mono tabular-nums">
         {formatDate(row.timestamp)}
       </div>
-      
+
       {/* Customizable Fields in Card Header */}
-      <div className="flex items-center ml-4 gap-x-4 overflow-hidden flex-wrap gap-y-2">
-        {/* Internal IP - Shown only if enabled in visibleFields */}
+      <div className="flex items-center ml-2 gap-x-2 overflow-hidden flex-wrap gap-y-1.5">
         {row.internal_ip && visibleFields.internal_ip && (
-          <div className="flex-shrink-0 px-2 py-1 bg-gray-700 rounded text-xs text-blue-300 whitespace-nowrap font-medium">
-            IP: {row.internal_ip}
-          </div>
+          <HeaderChip label="IP" value={row.internal_ip} mono />
         )}
-        
-        {/* External IP - Shown only if enabled in visibleFields */}
+
         {row.external_ip && visibleFields.external_ip && (
-          <div className="flex-shrink-0 px-2 py-1 bg-gray-700 rounded text-xs text-blue-300 whitespace-nowrap font-medium">
-            Ext IP: {row.external_ip}
-          </div>
+          <HeaderChip label="Ext" value={row.external_ip} mono />
         )}
-        
-        {/* MAC Address - Shown only if enabled in visibleFields */}
+
         {row.mac_address && visibleFields.mac_address && (
-          <div className="flex-shrink-0 px-2 py-1 bg-gray-700 rounded text-xs text-cyan-300 whitespace-nowrap font-medium">
-            MAC: {formatMacAddress(row.mac_address)}
-          </div>
+          <HeaderChip label="MAC" value={formatMacAddress(row.mac_address)} mono />
         )}
-        
-        {/* PID - Shown only if enabled in visibleFields */}
+
         {row.pid && visibleFields.pid && (
-          <div className="flex-shrink-0 px-2 py-1 bg-gray-700 rounded text-xs text-cyan-300 whitespace-nowrap font-medium">
-            PID: {row.pid}
-          </div>
+          <HeaderChip label="PID" value={row.pid} mono />
         )}
-        
-        {/* Hostname - Shown only if enabled in visibleFields */}
+
         {row.hostname && visibleFields.hostname && (
-          <div className="flex-shrink-0 px-2 py-1 bg-gray-700 rounded text-xs text-white whitespace-nowrap font-medium">
-            Host: {row.hostname}
-          </div>
+          <HeaderChip label="Host" value={row.hostname} />
         )}
-        
-        {/* Domain - Shown only if enabled in visibleFields */}
+
         {row.domain && visibleFields.domain && (
-          <div className="flex-shrink-0 px-2 py-1 bg-gray-700 rounded text-xs text-white whitespace-nowrap font-medium">
-            Domain: {row.domain}
-          </div>
+          <HeaderChip label="Domain" value={row.domain} />
         )}
-        
-        {/* Username - Shown only if enabled in visibleFields */}
+
         {row.username && visibleFields.username && (
-          <div className="flex-shrink-0 px-2 py-1 bg-gray-700 rounded text-xs text-green-300 whitespace-nowrap font-medium">
-            User: {row.username}
-          </div>
+          <HeaderChip label="User" value={row.username} />
         )}
-        
-        {/* Filename - Shown only if enabled in visibleFields */}
+
         {row.filename && visibleFields.filename && (
-          <div className="flex-shrink-0 px-2 py-1 bg-gray-700 rounded text-xs text-purple-300 whitespace-nowrap font-medium">
-            File: {row.filename}
-          </div>
+          <HeaderChip label="File" value={row.filename} mono className="max-w-[16rem] [&>span:last-child]:overflow-hidden [&>span:last-child]:text-ellipsis" />
         )}
-        
-        {/* Command - Shown only if enabled in visibleFields */}
+
         {row.command && visibleFields.command && (
-          <div className="flex-shrink-0 px-2 py-1 max-w-xs bg-gray-700 rounded text-xs text-yellow-300 whitespace-nowrap overflow-hidden text-ellipsis font-medium">
-            Cmd: {row.command}
-          </div>
+          <HeaderChip label="Cmd" value={row.command} mono className="max-w-xs [&>span:last-child]:overflow-hidden [&>span:last-child]:text-ellipsis" />
         )}
-        
-        {/* Status - Shown only if enabled in visibleFields */}
+
         {row.status && visibleFields.status && (
-          <div className="flex-shrink-0 px-2 py-1 bg-gray-700 rounded text-xs whitespace-nowrap font-bold">
-            <span className={`${getStatusColorClass(row.status)}`}>{row.status}</span>
+          <div className={`flex-shrink-0 px-2 py-0.5 rounded-full border text-[11px] font-semibold tracking-wide whitespace-nowrap ${getStatusChipClass(row.status)}`}>
+            {row.status}
           </div>
         )}
       </div>

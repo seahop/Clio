@@ -210,49 +210,23 @@ export const tokenizeQuery = (query) => {
     if (!conditions || conditions.length === 0) {
       return true; // No conditions means match everything
     }
-    
-    // Create separate stacks for AND and OR groups
-    let result = true; // Start assuming everything matches for AND conditions
-    let orGroupResult = false; // Start assuming nothing matches for OR conditions
-    let isProcessingOrGroup = false;
-    
+
+    // Evaluate as OR-of-AND groups so AND binds tighter than OR (the standard,
+    // intuitive precedence): "a AND b OR c" == "(a AND b) OR c". Each
+    // condition's `operator` is the connector to the previous condition.
+    let orResult = false;   // accumulated result across OR-separated groups
+    let andResult = true;   // result of the current AND group
     for (let i = 0; i < conditions.length; i++) {
-      const condition = conditions[i];
-      const matches = evaluateSingleCondition(log, condition);
-      
-      // Check if we're starting a new operator group
-      if (i > 0 && condition.operator !== conditions[i-1].operator) {
-        if (condition.operator === 'OR') {
-          // Starting an OR group after AND conditions
-          isProcessingOrGroup = true;
-          orGroupResult = matches;
-        } else if (condition.operator === 'AND') {
-          // Starting an AND group after OR conditions
-          // Combine previous OR results with the overall result
-          if (isProcessingOrGroup) {
-            result = result && orGroupResult;
-            isProcessingOrGroup = false;
-          }
-          // Reset for new AND conditions
-          result = result && matches;
-        }
+      const matches = evaluateSingleCondition(log, conditions[i]);
+      const op = i === 0 ? 'AND' : conditions[i].operator;
+      if (op === 'OR') {
+        orResult = orResult || andResult; // close the current AND group
+        andResult = matches;              // start a new AND group
       } else {
-        // Continue with same operator
-        if (isProcessingOrGroup || condition.operator === 'OR') {
-          isProcessingOrGroup = true;
-          orGroupResult = orGroupResult || matches;
-        } else {
-          result = result && matches;
-        }
+        andResult = i === 0 ? matches : (andResult && matches);
       }
     }
-    
-    // Make sure to combine any final OR group with the overall result
-    if (isProcessingOrGroup) {
-      result = result && orGroupResult;
-    }
-    
-    return result;
+    return orResult || andResult;
   };
   
   /**
@@ -306,16 +280,11 @@ export const tokenizeQuery = (query) => {
       return negate ? true : false; // If field doesn't exist, it's a non-match
     }
     
-    // Handle exact matches for quoted values vs. partial matches
-    let matches;
-    if (condition.quoted) {
-      // For quoted values, require exact match (case-insensitive)
-      matches = String(fieldValue).toLowerCase() === value.toLowerCase();
-    } else {
-      // For regular terms, check if the field contains the value (case-insensitive)
-      matches = String(fieldValue).toLowerCase().includes(value.toLowerCase());
-    }
-    
+    // Contains match, case-insensitive. Quoting a value only preserves spaces so
+    // a multi-word phrase can be matched as a substring (per the search help:
+    // "match exact phrase in a field") — matching is always "contains".
+    const matches = String(fieldValue).toLowerCase().includes(value.toLowerCase());
+
     // Apply negation if needed
     return negate ? !matches : matches;
   };

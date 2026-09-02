@@ -149,10 +149,16 @@ app.use(helmet({
   xssFilter: true
 }));
 
+// Lightweight health endpoint for container/k8s probes — no auth, no CSRF,
+// no session work. Registered before the CSRF middleware on purpose.
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok' });
+});
+
 // Modified CSRF protection to skip ingest API routes
 app.use((req, res, next) => {
-  // Skip CSRF protection for ingest API routes
-  if (req.path.startsWith('/api/ingest') || req.headers['x-api-request'] === 'true') {
+  // Skip CSRF protection for ingest API routes (API-key authenticated)
+  if (req.path.startsWith('/api/ingest')) {
     return next();
   }
   
@@ -245,6 +251,9 @@ app.get('/api/debug/exports', authenticateJwt, verifyAdmin, async (req, res) => 
 });
 
 app.use('/api/auth', authRoutes);
+// Must be mounted before /api/logs — the logs router's GET /:id would
+// otherwise match /api/logs/s3-config and shadow this route
+app.use('/api/logs/s3-config', require('./routes/s3-config.routes'));
 app.use('/api/logs', logsRoutes);
 app.use('/api/tags', tagsRoutes); // NEW: Tags API routes
 app.use('/api/log-access', require('./routes/logs-access.routes'));
@@ -254,113 +263,21 @@ app.use('/api/evidence', evidenceRoutes);
 app.use('/api/api-keys', apiKeyRoutes);
 app.use('/api/ingest', ingestRoutes);
 app.use('/api/operations', operationsRoutes);
-app.use('/api/logs/s3-config', require('./routes/s3-config.routes'));
 app.use('/api/health/logs', require('./routes/logs-health.routes'));
 app.use('/api/templates', templatesRoutes);
 app.use('/api/certificates', require('./routes/certificates.routes'));
 app.use('/api/relations', relationsRoutes);
 app.use('/api/file-status', fileStatusRoutes);
 app.use('/api/updates', updatesRoutes);
+app.use('/api/audit', require('./routes/audit.routes'));
+app.use('/api/events', require('./routes/events.routes'));
+app.use('/api/mitre', require('./routes/mitre.routes'));
 
-// Important change: Serve exports WITHOUT authentication
-app.use('/exports', express.static(path.join(__dirname, 'exports')));
+// Export archives contain full operation logs — require a valid session
+app.use('/exports', authenticateJwt, express.static(path.join(__dirname, 'exports')));
 
-// Health check endpoint with log status
-app.get('/api/health/logs', async (req, res) => {
-  try {
-    // Get log file statuses
-    const logFiles = ['security_logs.json', 'data_logs.json', 'system_logs.json', 'audit_logs.json'];
-    const logStatuses = await Promise.all(logFiles.map(async (fileName) => {
-      const filePath = path.join(__dirname, 'data', fileName);
-      
-      try {
-        const stats = await fs.promises.stat(filePath);
-        const fileContent = await fs.promises.readFile(filePath, 'utf8');
-        let logs = [];
-        
-        try {
-          logs = JSON.parse(fileContent);
-        } catch (error) {
-          return {
-            file: fileName,
-            status: 'corrupted',
-            error: error.message,
-            size: stats.size,
-            lastModified: stats.mtime
-          };
-        }
-        
-        return {
-          file: fileName,
-          status: 'ok',
-          size: stats.size,
-          sizeFormatted: formatFileSize(stats.size),
-          lastModified: stats.mtime,
-          logCount: Array.isArray(logs) ? logs.length : 'invalid',
-          percentFull: Array.isArray(logs) ? Math.round((logs.length / logRotationManager.maxLogsPerFile) * 100) : 0
-        };
-      } catch (error) {
-        return {
-          file: fileName,
-          status: 'error',
-          error: error.message
-        };
-      }
-    }));
-    
-    // Get archive information
-    const archiveDir = path.join(__dirname, 'data', 'archives');
-    let archives = [];
-    
-    try {
-      await fs.promises.access(archiveDir);
-      const archiveFiles = await fs.promises.readdir(archiveDir);
-      
-      // Get stats for zip files only
-      const archiveStats = await Promise.all(
-        archiveFiles
-          .filter(file => file.endsWith('.zip'))
-          .map(async (file) => {
-            const filePath = path.join(archiveDir, file);
-            const stats = await fs.promises.stat(filePath);
-            return {
-              file,
-              size: stats.size,
-              sizeFormatted: formatFileSize(stats.size),
-              created: stats.mtime
-            };
-          })
-      );
-      
-      archives = archiveStats.sort((a, b) => b.created - a.created);
-    } catch (error) {
-      console.error('Error reading archives:', error);
-    }
-    
-    // Get log rotation information
-    const logRotationInfo = {
-      isInitialized: logRotationManager.isInitialized,
-      rotationInterval: logRotationManager.rotationInterval,
-      rotationIntervalFormatted: formatDuration(logRotationManager.rotationInterval),
-      maxLogsPerFile: logRotationManager.maxLogsPerFile
-    };
-    
-    res.json({
-      status: 'ok',
-      timestamp: new Date().toISOString(),
-      logs: logStatuses,
-      archives: archives.slice(0, 10), // Show only the 10 most recent archives
-      totalArchives: archives.length,
-      logRotation: logRotationInfo,
-      features: {
-        tags: true // NEW: Indicate tags support
-      }
-    });
-  } catch (error) {
-    console.error('Error getting log status:', error);
-    res.status(500).json({ error: 'Failed to get log status' });
-  }
-});
+// Rotated log archives (Log Management is admin-only, and so are these)
+app.use('/archives', authenticateJwt, verifyAdmin, express.static(path.join(__dirname, 'data', 'archives')));
 
 // Route to manually trigger log rotation (admin only)
 app.post('/api/logs/rotate', authenticateJwt, verifyAdmin, async (req, res) => {
@@ -421,7 +338,7 @@ app.use(notFoundMiddleware);
 async function waitForRedis(maxRetries = 30, interval = 1000) {
   for (let i = 0; i < maxRetries; i++) {
     try {
-      if (!redisClient.isReady) {
+      if (!redisClient.isConnected) {
         await connectRedis();
       }
       
@@ -623,7 +540,7 @@ async function initialize() {
     // Handle server shutdown
     process.on('SIGTERM', async () => {
       logRotationManager.stop();
-      batchService.shutdown();
+      await batchService.shutdown();
 
       await eventLogger.logSystemEvent('server_shutdown', {
         reason: 'SIGTERM',
@@ -635,7 +552,8 @@ async function initialize() {
     process.on('SIGINT', async () => {
       // Stop log rotation
       logRotationManager.stop();
-      
+      await batchService.shutdown();
+
       await eventLogger.logSystemEvent('server_shutdown', {
         reason: 'SIGINT',
         serverInstanceId: security.SERVER_INSTANCE_ID
@@ -667,16 +585,15 @@ process.on('uncaughtException', async (error) => {
   process.exit(1);
 });
 
-// Handle unhandled promise rejections
+// Handle unhandled promise rejections — log but keep serving; a stray
+// rejection in a fire-and-forget call must not drop every active session
 process.on('unhandledRejection', async (reason, promise) => {
   console.error('Unhandled Promise Rejection:', reason);
-  
+
   await eventLogger.logSystemEvent('unhandled_rejection', {
     error: reason?.message || 'Unknown reason',
     stack: reason?.stack
   });
-
-  process.exit(1);
 });
 
 // Start the application

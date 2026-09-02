@@ -1,25 +1,36 @@
 // backend/controllers/export/evidence.controller.js - Modified with encryption support
 const fs = require('fs').promises;
 const path = require('path');
+const crypto = require('crypto');
 const { createWriteStream } = require('fs');
 const archiver = require('archiver');
 const { promisify } = require('util');
 const stream = require('stream');
 const pipeline = promisify(stream.pipeline);
-const https = require('https');
-const fetch = require('node-fetch');
 
 const db = require('../../db');
 const LogsModel = require('../../models/logs'); // Import for decryption
 const EvidenceModel = require('../../models/evidence');
+const RelationsModel = require('../../models/relations');
+const OperationsModel = require('../../models/operations');
 const eventLogger = require('../../lib/eventLogger');
 const evidenceService = require('../../services/export/evidence.service');
 const htmlReportService = require('../../services/export/html-report.service');
 
-// Create HTTPS agent that allows self-signed certificates
-const httpsAgent = new https.Agent({
-  rejectUnauthorized: false
-});
+// Format relations the same way GET /api/relations/:type does, so exported
+// JSON matches what the API serves
+const formatRelationsForExport = (relations) => relations.map(relation => ({
+  source: relation.source,
+  type: relation.type,
+  connections: relation.related.length,
+  related: relation.related.map(r => ({
+    target: r.target,
+    type: r.type,
+    strength: Math.round((r.strength / (r.connection_count || 1)) * 100),
+    lastSeen: r.lastSeen,
+    metadata: r.metadata
+  }))
+}));
 
 // Export logs with evidence
 const exportEvidence = async (req, res) => {
@@ -36,6 +47,18 @@ const exportEvidence = async (req, res) => {
       return res.status(400).json({ error: 'No columns selected for export' });
     }
 
+    // Only real logs columns may reach the SQL below
+    const EXPORTABLE_COLUMNS = new Set([
+      'timestamp', 'internal_ip', 'external_ip', 'mac_address', 'hostname',
+      'domain', 'username', 'command', 'notes', 'filename', 'status',
+      'secrets', 'hash_algorithm', 'hash_value', 'pid', 'analyst',
+      'locked', 'locked_by', 'created_at', 'updated_at'
+    ]);
+    const validColumns = selectedColumns.filter(c => EXPORTABLE_COLUMNS.has(c));
+    if (!validColumns.length) {
+      return res.status(400).json({ error: 'No valid columns selected for export' });
+    }
+
     // Generate a unique export ID and timestamp
     const exportId = new Date().getTime().toString(36) + Math.random().toString(36).substring(2, 5);
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
@@ -45,7 +68,7 @@ const exportEvidence = async (req, res) => {
     const exportPackageDir = path.join(exportDir, `evidence_export_${exportId}`);
     const evidenceDir = path.join(exportPackageDir, 'evidence');
     const relationsDir = path.join(exportPackageDir, 'relations');
-    const zipFilename = `evidence_export_${timestamp}.zip`;
+    const zipFilename = `evidence_export_${timestamp}_${crypto.randomBytes(8).toString('hex')}.zip`;
     const zipFilePath = path.join(exportDir, zipFilename);
     
     // Create directories
@@ -58,7 +81,7 @@ const exportEvidence = async (req, res) => {
     }
 
     // Make sure hash columns are included if requested
-    let columnsToExport = [...selectedColumns];
+    let columnsToExport = [...validColumns];
     if (includeHashes) {
       // Add hash columns if they're not already selected
       if (!columnsToExport.includes('hash_algorithm')) {
@@ -142,80 +165,41 @@ const exportEvidence = async (req, res) => {
     
     if (includeRelations) {
       try {
-        // Get the auth token from request cookies
-        const token = req.cookies?.auth_token;
-        
+        // Relation data is fetched in-process — the relation-service has been
+        // consolidated into this backend. Exports are admin-only; respect the
+        // admin's operation view filter if one is set (null = all operations).
+        const operationTagId = await OperationsModel.getAdminViewFilter(req.user.username).catch(() => null);
+        const isAdmin = true;
+
         // Fetch IP relations
-        const ipRelationsResponse = await fetch('https://relation-service:3002/api/relations/ip', {
-          headers: {
-            'Cookie': `auth_token=${token}`,
-            'Accept': 'application/json'
-          },
-          agent: httpsAgent
-        });
-        
-        if (!ipRelationsResponse.ok) {
-          throw new Error(`Failed to fetch IP relations: ${ipRelationsResponse.status}`);
-        }
-        
-        const ipRelations = await ipRelationsResponse.json();
+        const ipRelations = formatRelationsForExport(
+          await RelationsModel.getRelations('ip', 100, operationTagId, isAdmin)
+        );
         await fs.writeFile(
           path.join(relationsDir, 'ip_relations.json'),
           JSON.stringify(ipRelations, null, 2)
         );
-        
+
         // Fetch hostname relations
-        const hostnameRelationsResponse = await fetch('https://relation-service:3002/api/relations/hostname', {
-          headers: {
-            'Cookie': `auth_token=${token}`,
-            'Accept': 'application/json'
-          },
-          agent: httpsAgent
-        });
-        
-        if (!hostnameRelationsResponse.ok) {
-          throw new Error(`Failed to fetch hostname relations: ${hostnameRelationsResponse.status}`);
-        }
-        
-        const hostnameRelations = await hostnameRelationsResponse.json();
+        const hostnameRelations = formatRelationsForExport(
+          await RelationsModel.getRelations('hostname', 100, operationTagId, isAdmin)
+        );
         await fs.writeFile(
           path.join(relationsDir, 'hostname_relations.json'),
           JSON.stringify(hostnameRelations, null, 2)
         );
-        
+
         // Fetch domain relations
-        const domainRelationsResponse = await fetch('https://relation-service:3002/api/relations/domain', {
-          headers: {
-            'Cookie': `auth_token=${token}`,
-            'Accept': 'application/json'
-          },
-          agent: httpsAgent
-        });
-        
-        if (!domainRelationsResponse.ok) {
-          throw new Error(`Failed to fetch domain relations: ${domainRelationsResponse.status}`);
-        }
-        
-        const domainRelations = await domainRelationsResponse.json();
+        const domainRelations = formatRelationsForExport(
+          await RelationsModel.getRelations('domain', 100, operationTagId, isAdmin)
+        );
         await fs.writeFile(
           path.join(relationsDir, 'domain_relations.json'),
           JSON.stringify(domainRelations, null, 2)
         );
-        
+
         // Fetch user command relations
-        const userCommandsResponse = await fetch('https://relation-service:3002/api/relations/user', {
-          headers: {
-            'Cookie': `auth_token=${token}`,
-            'Accept': 'application/json'
-          },
-          agent: httpsAgent
-        });
-        
-        if (!userCommandsResponse.ok) {
-          throw new Error(`Failed to fetch user commands: ${userCommandsResponse.status}`);
-        }
-        
-        userCommandData = await userCommandsResponse.json();
+        userCommandData = await RelationsModel.getUserCommands(operationTagId, isAdmin);
         await fs.writeFile(
           path.join(relationsDir, 'user_commands.json'),
           JSON.stringify(userCommandData, null, 2)

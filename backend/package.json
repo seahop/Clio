@@ -29,6 +29,7 @@
   },
   "scripts": {
     "start": "node server.js",
+    "test": "node --test --test-force-exit 'tests/*.test.js'",
     "rotate-logs": "node lib/logRotation.js --force"
   }
 }

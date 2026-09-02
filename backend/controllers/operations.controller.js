@@ -183,9 +183,11 @@ const operationsController = {
     try {
       const isAdmin = req.user.role === 'admin';
       const username = req.user.username;
+      // Opt-in: also include archived (soft-deleted, is_active=false) operations
+      const includeInactive = req.query.includeInactive === 'true';
 
       if (isAdmin) {
-        const allOps = await OperationsModel.getAllOperations(false);
+        const allOps = await OperationsModel.getAllOperations(includeInactive);
         // Reshape to match the user_operations join shape the frontend expects
         const operations = allOps.map(op => ({
           operation_id: op.id,
@@ -194,6 +196,7 @@ const operationsController = {
           tag_id: op.tag_id,
           tag_name: op.tag_name,
           tag_color: op.tag_color,
+          is_active: op.is_active,
           is_primary: false,
         }));
 
@@ -205,7 +208,9 @@ const operationsController = {
         });
       }
 
-      const operations = await OperationsModel.getUserOperations(username);
+      // Regular users only ever see active operations they belong to.
+      const operations = (await OperationsModel.getUserOperations(username))
+        .map(op => ({ ...op, is_active: true }));
       const activeOp = await OperationsModel.getUserActiveOperation(username);
       res.json({
         operations,

@@ -93,19 +93,24 @@ const S3UploadModal = ({ show, onClose, archivePath, onSuccess }) => {
     return successful;
   };
 
-  const startUpload = async () => {
+  // Accepts explicit overrides so retries can change method immediately —
+  // state setters don't update the values this closure reads in the same tick.
+  const startUpload = async (overrides = {}) => {
+    const encryptionEnabled = overrides.encryption !== undefined ? overrides.encryption : useEncryption;
+    const presignedEnabled = overrides.presigned !== undefined ? overrides.presigned : usePresignedUrl;
+
     try {
       setUploadStatus('preparing');
       setProgress(0);
       setError(null);
-      
+
       // Extract file name from path for status tracking
       const archiveFileName = archivePath.split('/').pop();
-      
+
       console.log('Starting upload for archive:', {
         originalPath: archivePath,
         fileName: archiveFileName,
-        withEncryption: useEncryption
+        withEncryption: encryptionEnabled
       });
       
       // Process the archive path to ensure it's in the correct format
@@ -151,14 +156,14 @@ const S3UploadModal = ({ show, onClose, archivePath, onSuccess }) => {
       
       // Choose upload method based on encryption and URL preferences
       let result;
-      if (useEncryption) {
+      if (encryptionEnabled) {
         // Use encryption with presigned URL (recommended approach)
         console.log('Using encrypted upload with presigned URL');
         result = await s3UploadService.uploadEncryptedToS3UsingPresignedUrl(
           processedPath,
           handleProgress
         );
-      } else if (usePresignedUrl) {
+      } else if (presignedEnabled) {
         // Use pre-signed URL approach without encryption
         console.log('Using standard upload with presigned URL');
         result = await s3UploadService.uploadToS3UsingPresignedUrl(
@@ -166,7 +171,15 @@ const S3UploadModal = ({ show, onClose, archivePath, onSuccess }) => {
           handleProgress
         );
       } else {
-        // Use direct SDK approach without encryption
+        // Use direct SDK approach without encryption. The config endpoint only
+        // returns a redacted secret, so this path can't sign requests — fail
+        // with a clear message instead of a cryptic SignatureDoesNotMatch.
+        if (s3UploadService.isRedactedSecret(config.secretAccessKey)) {
+          throw new Error(
+            'Direct SDK upload is unavailable: the S3 secret key is not exposed to the browser. ' +
+            'Use pre-signed URL uploads instead, or re-enter your credentials in the S3 settings.'
+          );
+        }
         console.log('Using direct SDK upload without encryption');
         result = await s3UploadService.uploadToS3(
           processedPath,
@@ -260,7 +273,7 @@ const S3UploadModal = ({ show, onClose, archivePath, onSuccess }) => {
                   </div>
                 </label>
                 <p className="text-xs text-gray-400 mt-1 ml-6">
-                  Encrypts the archive with a unique key stored in a separate file in the same bucket
+                  Encrypts the archive with a unique key that is downloaded to your browser — the key is never uploaded to S3
                 </p>
               </div>
               
@@ -346,7 +359,7 @@ const S3UploadModal = ({ show, onClose, archivePath, onSuccess }) => {
                 </div>
                 {uploadResult?.encrypted && (
                   <div className="flex justify-between">
-                    <span>Key File:</span>
+                    <span>Key File{uploadResult?.keyDownloadedLocally ? ' (downloaded locally)' : ''}:</span>
                     <span className="text-white break-all">{uploadResult?.keyFile || 'Unknown'}</span>
                   </div>
                 )}
@@ -390,26 +403,34 @@ const S3UploadModal = ({ show, onClose, archivePath, onSuccess }) => {
                   onClick={async () => {
                     // Refresh token before retry
                     await refreshCsrfToken();
-                    
-                    // Toggle options on retry
+
+                    // The direct SDK path can't work with a redacted secret,
+                    // so skip that rung of the retry ladder when it applies
+                    const directSdkAvailable = !s3UploadService.isRedactedSecret(s3Config?.secretAccessKey);
+
+                    // Toggle options on retry — pass explicit overrides to
+                    // startUpload because the state setters won't be visible
+                    // to it in the same tick
                     if (useEncryption) {
                       // If encryption failed, try without it
                       setUseEncryption(false);
-                    } else if (usePresignedUrl) {
+                      startUpload({ encryption: false, presigned: usePresignedUrl });
+                    } else if (usePresignedUrl && directSdkAvailable) {
                       // If presigned URL failed, try direct SDK
                       setUsePresignedUrl(false);
+                      startUpload({ encryption: false, presigned: false });
                     } else {
                       // If all failed, try with encryption again
                       setUseEncryption(true);
                       setUsePresignedUrl(true);
+                      startUpload({ encryption: true, presigned: true });
                     }
-                    startUpload();
                   }}
                   className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
                 >
                   Retry with {
-                    useEncryption ? "No Encryption" : 
-                    usePresignedUrl ? "Direct SDK" : 
+                    useEncryption ? "No Encryption" :
+                    (usePresignedUrl && !s3UploadService.isRedactedSecret(s3Config?.secretAccessKey)) ? "Direct SDK" :
                     "Encryption & Presigned URL"
                   }
                 </button>

@@ -1,6 +1,8 @@
 // frontend/src/components/CertificateManager.jsx
 import React, { useState, useEffect } from 'react';
-import { RefreshCw, Shield, AlertTriangle, Check, Clock } from 'lucide-react';
+import { RefreshCw, AlertTriangle, Check, Clock, ShieldOff } from 'lucide-react';
+import { formatUTC } from '../utils/dateUtils';
+import { Button, Badge, Skeleton, EmptyState } from './common/ui';
 
 const CertificateManager = ({ csrfToken }) => {
   const [certificates, setCertificates] = useState([]);
@@ -40,26 +42,22 @@ const CertificateManager = ({ csrfToken }) => {
 
   // Helper function to format date
   const formatDate = (dateString) => {
-    try {
-      const date = new Date(dateString);
-      return date.toLocaleString();
-    } catch (e) {
-      return dateString || 'Unknown';
-    }
+    if (!dateString) return 'Unknown';
+    return formatUTC(dateString);
   };
 
   // Get status indicator
   const getStatusIndicator = (status) => {
     switch (status) {
       case 'valid':
-        return <Check className="w-5 h-5 text-green-500" />;
+        return <Check className="w-5 h-5 text-success" />;
       case 'expiring-soon':
-        return <Clock className="w-5 h-5 text-yellow-500" />;
+        return <Clock className="w-5 h-5 text-warning" />;
       case 'expired':
-        return <AlertTriangle className="w-5 h-5 text-red-500" />;
+        return <AlertTriangle className="w-5 h-5 text-danger" />;
       case 'error':
       case 'missing':
-        return <AlertTriangle className="w-5 h-5 text-red-500" />;
+        return <AlertTriangle className="w-5 h-5 text-danger" />;
       default:
         return <div className="w-5 h-5" />;
     }
@@ -68,73 +66,77 @@ const CertificateManager = ({ csrfToken }) => {
   return (
     <div className="w-full space-y-6">
       <div className="flex justify-between items-center">
-        <h2 className="text-xl font-semibold text-white">Certificate Management</h2>
+        <h2 className="text-xl font-semibold text-content">Certificate Management</h2>
         <div className="flex space-x-2">
-          <button
+          <Button
+            variant="secondary"
+            icon={RefreshCw}
+            loading={loading}
             onClick={() => fetchCertificateStatus()}
-            disabled={loading}
-            className="px-3 py-2 bg-gray-700 text-white rounded-md flex items-center gap-2 hover:bg-gray-600 disabled:opacity-50"
           >
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
             Refresh
-          </button>
+          </Button>
         </div>
       </div>
-      
+
       {error && (
-        <div className="p-3 bg-red-900 text-red-200 rounded-md">
+        <div className="p-3 bg-danger/10 border border-danger/30 text-danger rounded-md">
           {error}
         </div>
       )}
-      
-      <div className="bg-gray-800 rounded-lg shadow-lg overflow-hidden">
+
+      <div className="bg-surface border border-line rounded-card shadow-card overflow-hidden">
         <div className="overflow-x-auto">
           <table className="min-w-full">
             <thead>
-              <tr className="bg-gray-700">
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+              <tr className="bg-surface-2">
+                <th className="px-4 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">
                   Status
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                <th className="px-4 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">
                   Certificate
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                <th className="px-4 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">
                   Type
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                <th className="px-4 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">
                   Service
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                <th className="px-4 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">
                   Valid From
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                <th className="px-4 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">
                   Valid To
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                <th className="px-4 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">
                   Days Left
                 </th>
               </tr>
             </thead>
-            <tbody className="bg-gray-800 divide-y divide-gray-700">
+            <tbody className="bg-surface divide-y divide-line">
               {loading ? (
                 <tr>
-                  <td colSpan="7" className="px-4 py-4 text-center text-gray-400">
-                    Loading certificate information...
+                  <td colSpan="7" className="px-4 py-4">
+                    <div className="space-y-2">
+                      {Array.from({ length: 3 }).map((_, i) => (
+                        <Skeleton key={i} className="h-6" />
+                      ))}
+                    </div>
                   </td>
                 </tr>
               ) : certificates.length === 0 ? (
                 <tr>
-                  <td colSpan="7" className="px-4 py-4 text-center text-gray-400">
-                    No certificates found
+                  <td colSpan="7" className="px-4 py-4">
+                    <EmptyState icon={ShieldOff} title="No certificates found" message="Certificate status will appear here once services report their certificates." />
                   </td>
                 </tr>
               ) : (
                 certificates.map((cert) => (
-                  <tr key={cert.name} className="hover:bg-gray-750">
+                  <tr key={cert.name} className="hover:bg-surface-3/40">
                     <td className="px-4 py-4 whitespace-nowrap">
                       <div className="flex items-center">
                         {getStatusIndicator(cert.status)}
-                        <span className="ml-2 text-sm text-gray-300">
+                        <span className="ml-2 text-sm text-muted">
                           {cert.status === 'valid' ? 'Valid' :
                            cert.status === 'expiring-soon' ? 'Expiring Soon' :
                            cert.status === 'expired' ? 'Expired' :
@@ -143,36 +145,31 @@ const CertificateManager = ({ csrfToken }) => {
                         </span>
                       </div>
                     </td>
-                    <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">
+                    <td className="px-4 py-4 whitespace-nowrap text-sm text-muted">
                       {cert.name}
                     </td>
-                    <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">
+                    <td className="px-4 py-4 whitespace-nowrap text-sm text-muted">
                       {cert.type === 'lets-encrypt' ? "Let's Encrypt" : "Self-Signed"}
                     </td>
-                    <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">
+                    <td className="px-4 py-4 whitespace-nowrap text-sm text-muted">
                       {cert.service}
                     </td>
-                    <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">
+                    <td className="px-4 py-4 whitespace-nowrap text-sm text-muted">
                       {cert.error ? 'N/A' : formatDate(cert.validFrom)}
                     </td>
-                    <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">
+                    <td className="px-4 py-4 whitespace-nowrap text-sm text-muted">
                       {cert.error ? 'N/A' : formatDate(cert.validTo)}
                     </td>
                     <td className="px-4 py-4 whitespace-nowrap text-sm">
                       {cert.error ? (
-                        <span className="px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full bg-red-900 text-red-200">
+                        <Badge tone="danger">
                           {cert.status === 'missing' ? 'Missing' : 'Error'}
-                        </span>
+                        </Badge>
                       ) : (
-                        <span className={`
-                          px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full
-                          ${cert.daysUntilExpiry <= 0 ? 'bg-red-900 text-red-200' : 
-                            cert.daysUntilExpiry <= 30 ? 'bg-yellow-900 text-yellow-200' : 
-                            'bg-green-900 text-green-200'}
-                        `}>
-                          {cert.daysUntilExpiry <= 0 ? 'Expired' : 
+                        <Badge tone={cert.daysUntilExpiry <= 0 ? 'danger' : cert.daysUntilExpiry <= 30 ? 'warning' : 'success'}>
+                          {cert.daysUntilExpiry <= 0 ? 'Expired' :
                            `${cert.daysUntilExpiry} days`}
-                        </span>
+                        </Badge>
                       )}
                     </td>
                   </tr>
@@ -183,8 +180,8 @@ const CertificateManager = ({ csrfToken }) => {
         </div>
       </div>
       
-      <div className="bg-gray-800 rounded-lg shadow-lg p-4 text-gray-300 text-sm space-y-3">
-        <h3 className="font-semibold">Certificate Information</h3>
+      <div className="bg-surface border border-line rounded-card shadow-card p-4 text-muted text-sm space-y-3">
+        <h3 className="font-semibold text-content">Certificate Information</h3>
         <p>
           <strong>Self-signed certificates</strong> are used for internal service communication and typically have a 1-year validity.
         </p>
@@ -192,17 +189,17 @@ const CertificateManager = ({ csrfToken }) => {
           <strong>Let's Encrypt certificates</strong> are used for external connections and have a 90-day validity period.
         </p>
         <p>
-          To renew certificates, please run the renewal script directly on the host system. 
+          To renew certificates, please run the renewal script directly on the host system.
           After renewal, you'll need to restart all Docker services to apply the new certificates.
         </p>
-        
-        <div className="border-t border-gray-700 pt-3 mt-3">
-          <h4 className="font-semibold mb-2">Certificate Renewal Guide</h4>
-          <div className="p-3 bg-gray-900 rounded">
+
+        <div className="border-t border-line pt-3 mt-3">
+          <h4 className="font-semibold mb-2 text-content">Certificate Renewal Guide</h4>
+          <div className="p-3 bg-canvas rounded">
             <p className="mb-2">To renew certificates, run this command on the host system:</p>
-            <code className="block p-2 bg-gray-800 rounded font-mono text-blue-300">python3 renew-cert.py [domain-name]</code>
+            <code className="block p-2 bg-surface-2 rounded font-mono text-accent">python3 renew-cert.py [domain-name]</code>
             <p className="mt-2 mb-2">After renewal, apply the new certificates with:</p>
-            <code className="block p-2 bg-gray-800 rounded font-mono text-blue-300">docker-compose restart</code>
+            <code className="block p-2 bg-surface-2 rounded font-mono text-accent">docker-compose restart</code>
           </div>
         </div>
       </div>

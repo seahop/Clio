@@ -66,19 +66,29 @@ router.post('/', authenticateJwt, async (req, res, next) => {
   }
 });
 
-// Update a template
+// Update a template (admin or the template's creator only)
 router.put('/:id', authenticateJwt, async (req, res, next) => {
   try {
     const id = parseInt(req.params.id);
     const { name, data } = req.body;
-    
+
     // Validate input
     if (!name && !data) {
       return res.status(400).json({ error: 'No valid updates provided' });
     }
-    
+
+    const existingTemplate = await TemplatesModel.getTemplateById(id);
+
+    if (!existingTemplate) {
+      return res.status(404).json({ error: 'Template not found' });
+    }
+
+    if (req.user.role !== 'admin' && existingTemplate.created_by !== req.user.username) {
+      return res.status(403).json({ error: 'Only admins or the template creator can modify this template' });
+    }
+
     const updatedTemplate = await TemplatesModel.updateTemplate(id, { name, data });
-    
+
     if (!updatedTemplate) {
       return res.status(404).json({ error: 'Template not found' });
     }
@@ -102,13 +112,23 @@ router.put('/:id', authenticateJwt, async (req, res, next) => {
   }
 });
 
-// Delete a template
+// Delete a template (admin or the template's creator only)
 router.delete('/:id', authenticateJwt, async (req, res, next) => {
   try {
     const id = parseInt(req.params.id);
-    
+
+    const existingTemplate = await TemplatesModel.getTemplateById(id);
+
+    if (!existingTemplate) {
+      return res.status(404).json({ error: 'Template not found' });
+    }
+
+    if (req.user.role !== 'admin' && existingTemplate.created_by !== req.user.username) {
+      return res.status(403).json({ error: 'Only admins or the template creator can delete this template' });
+    }
+
     const deletedTemplate = await TemplatesModel.deleteTemplate(id);
-    
+
     if (!deletedTemplate) {
       return res.status(404).json({ error: 'Template not found' });
     }

@@ -1,9 +1,10 @@
 // frontend/src/components/auth/LoginForm.jsx
 import React, { useState, useEffect } from 'react';
-import { LogIn } from 'lucide-react';
+import { LogIn, AlertCircle } from 'lucide-react';
 import { validateLoginInput } from '../../utils/passwordValidation';
 import GoogleLoginButton from './GoogleLoginButton';
 import OIDCLoginButton from './OIDCLoginButton';
+import { BrandMark, Button } from '../common/ui';
 
 const LoginForm = ({ onLoginSuccess, csrfToken, initialError = '' }) => {
   const [username, setUsername] = useState('');
@@ -95,95 +96,77 @@ const LoginForm = ({ onLoginSuccess, csrfToken, initialError = '' }) => {
 
   const hasSSOProviders = providers.google || providers.oidc;
 
+  const inputClass = "block w-full px-3 py-2.5 rounded-md bg-surface-2 border border-line text-content " +
+    "placeholder-faint text-sm focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent transition-colors";
+
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-900 py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-md w-full space-y-8">
-        <div>
-          <h2 className="mt-6 text-center text-3xl font-extrabold text-white">
-            Clio Logging Platform
-          </h2>
-          <p className="mt-2 text-center text-sm text-gray-400">
-            Please sign in to continue
-          </p>
+    <div className="relative min-h-screen flex items-center justify-center bg-canvas py-12 px-4 overflow-hidden">
+      {/* Ambient background: faint accent glow + grid, restrained */}
+      <div aria-hidden className="pointer-events-none absolute inset-0">
+        <div className="absolute left-1/2 top-[-10%] h-[420px] w-[820px] -translate-x-1/2 rounded-full opacity-[0.14]"
+             style={{ background: 'radial-gradient(closest-side, rgb(var(--c-accent)), transparent)' }} />
+        <div className="absolute inset-0 opacity-[0.035]"
+             style={{ backgroundImage: 'linear-gradient(rgb(255 255 255) 1px, transparent 1px), linear-gradient(90deg, rgb(255 255 255) 1px, transparent 1px)', backgroundSize: '38px 38px' }} />
+      </div>
+
+      <div className="relative w-full max-w-sm animate-fade-in-up">
+        {/* Brand */}
+        <div className="flex flex-col items-center text-center mb-8">
+          <BrandMark size={52} />
+          <h1 className="mt-4 text-2xl font-bold tracking-tight text-content">Clio</h1>
+          <p className="mt-1 text-sm text-muted">Red-team operations logging &amp; relation analysis</p>
         </div>
-        <form className="mt-8 space-y-6" onSubmit={handleLogin}>
-          <div className="rounded-md shadow-sm -space-y-px">
-            <div>
-              <label htmlFor="username" className="sr-only">Username</label>
-              <input
-                id="username"
-                name="username"
-                type="text"
-                required
-                autoComplete="username"
-                className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-600 placeholder-gray-400 text-white rounded-t-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm bg-gray-700"
-                placeholder="Username"
-                value={username}
-                onChange={handleUsernameChange}
-                maxLength={50}
-              />
-            </div>
-            <div>
-              <label htmlFor="password" className="sr-only">Password</label>
-              <input
-                id="password"
-                name="password"
-                type="password"
-                required
-                autoComplete="current-password"
-                className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-600 placeholder-gray-400 text-white rounded-b-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm bg-gray-700"
-                placeholder="Password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                maxLength={128}
-              />
-            </div>
-          </div>
 
-          {error && (
-            <div className="text-red-400 text-sm text-center">
-              {error}
+        {/* Card */}
+        <div className="bg-surface border border-line rounded-card shadow-pop p-6">
+          <form className="space-y-4" onSubmit={handleLogin}>
+            <div className="space-y-3">
+              <div>
+                <label htmlFor="username" className="block text-2xs uppercase tracking-wider text-faint mb-1.5">Username</label>
+                <input
+                  id="username" name="username" type="text" required autoComplete="username"
+                  className={inputClass} placeholder="analyst" value={username}
+                  onChange={handleUsernameChange} maxLength={50}
+                />
+              </div>
+              <div>
+                <label htmlFor="password" className="block text-2xs uppercase tracking-wider text-faint mb-1.5">Password</label>
+                <input
+                  id="password" name="password" type="password" required autoComplete="current-password"
+                  className={inputClass} placeholder="••••••••" value={password}
+                  onChange={(e) => setPassword(e.target.value)} maxLength={128}
+                />
+              </div>
             </div>
-          )}
 
-          <div>
-            <button
-              type="submit"
-              disabled={loading || !csrfToken}
-              className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
-            >
-              <span className="absolute left-0 inset-y-0 flex items-center pl-3">
-                <LogIn className="h-5 w-5 text-blue-500 group-hover:text-blue-400" />
-              </span>
-              {loading ? 'Signing in...' :
-               !csrfToken ? 'Initializing security...' :
-               'Sign in'}
-            </button>
-            {!csrfToken && (
-              <p className="mt-2 text-sm text-center text-gray-400">
-                Please wait while security is initialized...
-              </p>
+            {error && (
+              <div className="flex items-start gap-2 text-sm text-danger bg-danger/10 border border-danger/30 rounded-md px-3 py-2">
+                <AlertCircle size={16} className="flex-shrink-0 mt-0.5" />
+                <span className="whitespace-pre-line">{error}</span>
+              </div>
             )}
-          </div>
 
-          {hasSSOProviders && (
-            <>
-              <div className="mt-5 relative">
-                <div className="absolute inset-0 flex items-center">
-                  <div className="w-full border-t border-gray-600"></div>
-                </div>
-                <div className="relative flex justify-center text-sm">
-                  <span className="px-3 bg-gray-900 text-gray-400">Or continue with</span>
-                </div>
-              </div>
+            <Button type="submit" variant="primary" size="lg" icon={LogIn}
+              loading={loading} disabled={loading || !csrfToken} className="w-full">
+              {loading ? 'Signing in…' : !csrfToken ? 'Initializing security…' : 'Sign in'}
+            </Button>
 
-              <div className="mt-4 space-y-3">
-                {providers.google && <GoogleLoginButton />}
-                {providers.oidc   && <OIDCLoginButton providerName={providers.oidcProviderName} />}
-              </div>
-            </>
-          )}
-        </form>
+            {hasSSOProviders && (
+              <>
+                <div className="relative py-1">
+                  <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-line" /></div>
+                  <div className="relative flex justify-center"><span className="px-3 bg-surface text-2xs uppercase tracking-wider text-faint">Or continue with</span></div>
+                </div>
+                <div className="space-y-3">
+                  {providers.google && <GoogleLoginButton />}
+                  {providers.oidc   && <OIDCLoginButton providerName={providers.oidcProviderName} />}
+                </div>
+              </>
+            )}
+          </form>
+        </div>
+
+        <p className="mt-6 text-center text-2xs uppercase tracking-wider text-faint">Authorized use only</p>
       </div>
     </div>
   );

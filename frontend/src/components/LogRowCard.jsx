@@ -1,13 +1,16 @@
 // frontend/src/components/LogRowCard.jsx
 import React, { useState, useEffect } from 'react';
-import { ChevronRight, ChevronDown, Lock, Unlock, Trash2, Eye, EyeOff, FileText, Tag } from 'lucide-react';
+import { Trash2, Tag } from 'lucide-react';
 import CardHeader from './LogCard/CardHeader';
 import CardContent from './LogCard/CardContent';
 import EvidenceTab from './EvidenceTab';
 import TagDisplay from './Tags/TagDisplay';
 import TagInput from './Tags/TagInput';
+import MitreTechniquePicker from './MitreTechniquePicker';
 import { useCardNavigation } from '../hooks/useCardNavigation';
 import { useTagsApi } from '../hooks/useTagsApi';
+import { getStatusAccentClass } from './LogCard/cardUtils';
+import { parseTechniques, serializeTechniques } from '../utils/mitreData';
 
 const LogRowCard = ({
   row,
@@ -26,24 +29,44 @@ const LogRowCard = ({
   csrfToken,
   visibleFields = {},
   availableTags = [],
+  tags = [],
   onTagsUpdate
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [showSecrets, setShowSecrets] = useState(false);
   const [showEvidenceTab, setShowEvidenceTab] = useState(false);
   const [showTagInput, setShowTagInput] = useState(false);
-  const [tags, setTags] = useState([]);
-  const [isLoadingTags, setIsLoadingTags] = useState(false);
-  
-  // Use tags API hook
-  const { fetchLogTags, addTagsToLog, removeTagFromLog } = useTagsApi(csrfToken);
-  
+
+  // Tag state lives in the parent (LoggerCardView) which batch-fetches tags
+  // for the visible page — this component only mutates and notifies.
+  const { addTagsToLog, removeTagFromLog } = useTagsApi(csrfToken);
+
   // Row is only editable if it's not locked
   const canEdit = !row.locked;
 
   // Make sure expanded/collapsed state doesn't interfere with clicking cells
   const [isClickingCell, setIsClickingCell] = useState(false);
-  
+
+  // ATT&CK techniques for this log (seeded from the row; re-synced when the
+  // parent refreshes the row, e.g. via SSE).
+  const [techniques, setTechniques] = useState(parseTechniques(row.mitre_techniques));
+  useEffect(() => { setTechniques(parseTechniques(row.mitre_techniques)); }, [row.mitre_techniques]);
+
+  const handleTechniquesChange = async (next) => {
+    setTechniques(next); // optimistic
+    try {
+      await fetch(`/api/logs/${row.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'CSRF-Token': csrfToken },
+        credentials: 'include',
+        body: JSON.stringify({ mitre_techniques: serializeTechniques(next) }),
+      });
+      // The PUT publishes an SSE event → the list re-fetches and re-seeds us.
+    } catch (err) {
+      console.error('Failed to update ATT&CK techniques:', err);
+    }
+  };
+
   // Use the navigation hook
   const { moveToNextCell } = useCardNavigation({
     row,
@@ -51,23 +74,6 @@ const LogRowCard = ({
     onCellClick,
     onCellChange
   });
-
-  // Load tags when component mounts or row changes
-  useEffect(() => {
-    loadTags();
-  }, [row.id]);
-
-  const loadTags = async () => {
-    try {
-      setIsLoadingTags(true);
-      const logTags = await fetchLogTags(row.id);
-      setTags(logTags);
-    } catch (error) {
-      console.error('Failed to load tags:', error);
-    } finally {
-      setIsLoadingTags(false);
-    }
-  };
 
   // Helper to check if a field should be editable
   const isFieldEditable = (field) => {
@@ -87,6 +93,9 @@ const LogRowCard = ({
     e.stopPropagation();
     setIsClickingCell(true);
     setShowEvidenceTab(!showEvidenceTab);
+    if (!isExpanded) {
+      setIsExpanded(true);
+    }
   };
 
   // Handle lock toggle
@@ -150,9 +159,6 @@ const LogRowCard = ({
 
   // Handle tag click
   const handleTagClick = (tag) => {
-    // Could implement tag-based filtering here
-    console.log('Tag clicked:', tag);
-    // You could emit an event to filter by this tag
     if (window.onTagFilter) {
       window.onTagFilter(tag);
     }
@@ -164,25 +170,24 @@ const LogRowCard = ({
       // Separate new tags from existing ones
       const newTags = selectedTags.filter(t => t.isNew);
       const existingTags = selectedTags.filter(t => !t.isNew);
-      
+
       // Prepare tag data
       const tagNames = newTags.map(t => t.name);
       const tagIds = existingTags.map(t => t.id);
-      
+
       // Add tags to log (this will create new tags if needed and add all to the log)
       const updatedTags = await addTagsToLog(row.id, tagIds, tagNames);
-      setTags(updatedTags);
-      
+
       // Notify parent component to refresh available tags if new tags were created
       if (newTags.length > 0 && window.refreshAvailableTags) {
         window.refreshAvailableTags();
       }
-      
-      // Notify parent component about tag updates
+
+      // Parent owns tag state — it flows back down as the `tags` prop
       if (onTagsUpdate) {
         onTagsUpdate(row.id, updatedTags);
       }
-      
+
       setShowTagInput(false);
     } catch (error) {
       console.error('Failed to add tags:', error);
@@ -192,49 +197,43 @@ const LogRowCard = ({
   // Handle removing a tag - SMART PROTECTION for native operation tags only
   const handleRemoveTag = async (tagId) => {
     try {
-      // Find the tag to check what we're removing (for logging)
-      const tagToRemove = tags.find(t => t.id === tagId);
-      console.log('Attempting to remove tag:', tagToRemove);
-      
       // Attempt to remove the tag - let the backend decide if it's allowed
       await removeTagFromLog(row.id, tagId);
-      
-      // Only update the state if removal was successful
+
       const updatedTags = tags.filter(t => t.id !== tagId);
-      setTags(updatedTags);
-      
-      // Notify parent component
       if (onTagsUpdate) {
         onTagsUpdate(row.id, updatedTags);
       }
     } catch (error) {
-      console.error('Failed to remove tag - Full error:', error);
-      console.error('Error response:', error.response);
-      console.error('Error message:', error.message);
-      
+      console.error('Failed to remove tag:', error);
+
       // Check the actual error to determine what happened
       if (error.message?.includes('native operation tag')) {
         alert('This is the primary operation tag for this log and cannot be removed. You can remove other operation tags that were manually added.');
       } else if (error.response?.status === 403) {
-        // Check the error message from the response
         const errorMsg = error.response?.data?.message || error.response?.data?.error || 'This tag cannot be removed as it is protected.';
         alert(errorMsg);
       } else {
         alert('Failed to remove tag. Please try again.');
       }
-      
-      // Don't update the state if there was an error
-      // This prevents the UI from getting into a bad state
     }
   };
 
   return (
-    <div className={`mb-2 rounded-lg transition-colors ${row.locked ? 'bg-gray-900' : 'bg-gray-800'}`}>
+    <div
+      className={`mb-2 rounded-card border border-l-[3px] overflow-hidden transition-colors ${
+        getStatusAccentClass(row.status)
+      } ${
+        row.locked
+          ? 'bg-canvas/80 border-line'
+          : 'bg-surface border-line hover:border-line-strong'
+      }`}
+    >
       {/* Card Header - Always visible */}
       <div
-        className="px-4 py-3 flex items-center justify-between cursor-pointer hover:bg-gray-700 transition-colors"
+        className="px-4 py-2.5 flex items-center justify-between cursor-pointer hover:bg-surface-3/60 transition-colors"
         onClick={toggleExpansion}>
-        <CardHeader 
+        <CardHeader
           row={row}
           isExpanded={isExpanded}
           onToggleLock={handleToggleLock}
@@ -247,48 +246,50 @@ const LogRowCard = ({
         {isAdmin && (
           <button
             onClick={handleDelete}
-            className="flex-shrink-0 p-1 hover:bg-gray-600 rounded text-red-400 transition-colors"
+            className="flex-shrink-0 p-1 hover:bg-surface-3 rounded text-faint hover:text-danger transition-colors"
             title="Delete Row"
           >
-            <Trash2 size={16} />
+            <Trash2 size={15} />
           </button>
         )}
       </div>
-      
-      {/* Tags Section - Always visible */}
-      <div className="px-4 pb-2">
-        <div className="flex items-center gap-2">
-          <Tag size={14} className="text-gray-500" />
-          <TagDisplay
-            tags={tags}
-            onTagClick={handleTagClick}
-            onRemove={handleRemoveTag}
-            onAddTag={() => setShowTagInput(true)}
-            canEdit={canEdit}
-            maxVisible={isExpanded ? 20 : 5}
-            size="sm"
-          />
-        </div>
-        
-        {/* Tag Input Modal */}
-        {showTagInput && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-            <div className="max-w-2xl w-full">
-              <TagInput
-                existingTags={availableTags}
-                selectedTags={tags}
-                onAddTags={handleAddTags}
-                onClose={() => setShowTagInput(false)}
-                allowCreate={true}
-              />
-            </div>
+
+      {/* Tags Section - shown when the row has tags or can accept them */}
+      {(tags.length > 0 || canEdit) && (
+        <div className="px-4 pb-2">
+          <div className="flex items-center gap-2">
+            <Tag size={13} className="text-gray-600 flex-shrink-0" />
+            <TagDisplay
+              tags={tags}
+              onTagClick={handleTagClick}
+              onRemove={handleRemoveTag}
+              onAddTag={() => setShowTagInput(true)}
+              canEdit={canEdit}
+              maxVisible={isExpanded ? 20 : 5}
+              size="sm"
+            />
           </div>
-        )}
-      </div>
-      
+
+          {/* Tag Input Modal */}
+          {showTagInput && (
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+              <div className="max-w-2xl w-full">
+                <TagInput
+                  existingTags={availableTags}
+                  selectedTags={tags}
+                  onAddTags={handleAddTags}
+                  onClose={() => setShowTagInput(false)}
+                  allowCreate={true}
+                />
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Expanded Card Content */}
       {isExpanded && (
-        <CardContent 
+        <CardContent
           row={row}
           isAdmin={isAdmin}
           canEdit={canEdit}
@@ -305,10 +306,22 @@ const LogRowCard = ({
         />
       )}
 
+      {/* ATT&CK techniques */}
+      {isExpanded && (
+        <div className="px-4 pb-4">
+          <div className="text-2xs uppercase tracking-wider text-faint mb-2">ATT&amp;CK Techniques</div>
+          <MitreTechniquePicker
+            techniques={techniques}
+            onChange={handleTechniquesChange}
+            canEdit={canEdit}
+          />
+        </div>
+      )}
+
       {/* Evidence Tab */}
       {isExpanded && showEvidenceTab && (
         <div className="mt-4 pt-4 border-t border-gray-700">
-          <EvidenceTab 
+          <EvidenceTab
             logId={row.id}
             csrfToken={csrfToken}
             isAdmin={isAdmin}

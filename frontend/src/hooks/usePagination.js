@@ -16,7 +16,23 @@ export const usePagination = (items, currentUser = null) => {
 
   // State
   const [currentPage, setCurrentPage] = useState(1);
-  const [rowsPerPage, setRowsPerPage] = useState(getInitialRowsPerPage());
+  const [rowsPerPage, setRowsPerPage] = useState(() => getInitialRowsPerPage());
+
+  // The saved preference is keyed by username, which may not be available on
+  // first render — apply it once the user resolves
+  useEffect(() => {
+    try {
+      const username = currentUser?.username;
+      if (!username) return;
+      const savedPreference = localStorage.getItem(`${username}_rowsPerPage`);
+      const parsed = savedPreference ? parseInt(savedPreference, 10) : NaN;
+      if (!Number.isNaN(parsed)) {
+        setRowsPerPage(parsed);
+      }
+    } catch {
+      // Keep the current value if localStorage is unavailable
+    }
+  }, [currentUser?.username]);
 
   // Reset to page 1 if items length changes significantly
   useEffect(() => {

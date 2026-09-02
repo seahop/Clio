@@ -50,6 +50,35 @@ class S3UploadService {
   }
 
   /**
+   * Check whether an S3 secret is the redacted placeholder returned by
+   * GET /api/logs/s3-config (the backend never returns the real secret).
+   * Signing requests with it always fails with SignatureDoesNotMatch.
+   * @param {string} secretAccessKey - Secret to check
+   * @returns {boolean} True if the secret is redacted/unusable
+   */
+  isRedactedSecret(secretAccessKey) {
+    return typeof secretAccessKey === 'string' && secretAccessKey.includes('•');
+  }
+
+  /**
+   * Trigger a local browser download of the encryption key material so the
+   * operator keeps the key — it is never uploaded to S3 or stored in /exports.
+   * @param {Object} keyData - Key material and metadata from the server
+   * @param {string} keyFileName - Suggested filename for the download
+   */
+  downloadKeyFile(keyData, keyFileName) {
+    const keyBlob = new Blob([JSON.stringify(keyData, null, 2)], { type: 'application/json' });
+    const keyUrl = URL.createObjectURL(keyBlob);
+    const anchor = document.createElement('a');
+    anchor.href = keyUrl;
+    anchor.download = keyFileName || 'encryption-key.json';
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+    URL.revokeObjectURL(keyUrl);
+  }
+
+  /**
    * Upload a file to S3
    * @param {string} serverFilePath - Path to the file on the server
    * @param {Object} s3Config - S3 configuration
@@ -58,6 +87,15 @@ class S3UploadService {
    */
   async uploadToS3(serverFilePath, s3Config, onProgress = null) {
     try {
+      // The direct-SDK path needs real credentials; the config endpoint only
+      // returns a redacted placeholder secret, which can never sign requests.
+      if (this.isRedactedSecret(s3Config.secretAccessKey)) {
+        throw new Error(
+          'Direct SDK upload is unavailable: the stored S3 secret key is redacted on the client. ' +
+          'Use pre-signed URL uploads instead, or re-enter your credentials in the S3 settings.'
+        );
+      }
+
       // Ensure we have a valid CSRF token
       await this.refreshCsrfToken();
       
@@ -374,16 +412,24 @@ class S3UploadService {
         throw new Error(`Failed to encrypt file: ${errorDetail}`);
       }
       
-      const { encryptedFilePath, keyFilePath, originalFileName, encryptedFileName, keyFileName } = await encryptResponse.json();
-      
+      const { encryptedFilePath, originalFileName, encryptedFileName, keyFileName, keyData } = await encryptResponse.json();
+
       console.log('File encrypted successfully:', {
         encryptedFilePath,
-        keyFilePath,
         originalFileName,
         encryptedFileName, // New field for accurate tracking
         keyFileName        // New field for accurate tracking
       });
-      
+
+      // The key material is returned in the API response only — it is never
+      // written to /exports and never uploaded to S3. Hand it to the operator
+      // as a local browser download instead.
+      if (!keyData) {
+        throw new Error('Encryption succeeded but no key material was returned by the server');
+      }
+      this.downloadKeyFile(keyData, keyFileName);
+      console.log(`Key file ${keyFileName} downloaded locally (not uploaded to S3)`);
+
       // Update status to mark original file as "encrypted" rather than uploading directly
       try {
         await this.refreshCsrfToken();
@@ -391,15 +437,15 @@ class S3UploadService {
           encryptedFileName,
           keyFileName,
           encryptedAt: new Date().toISOString(),
-          note: 'This file was encrypted for upload and will not be uploaded directly'
+          note: 'This file was encrypted for upload; the key was downloaded locally by the operator'
         });
         console.log(`Updated status for original file ${originalFileName} to 'encrypted'`);
       } catch (statusError) {
         console.warn(`Failed to update status for original file: ${statusError.message}`);
         // Continue anyway, this is non-critical
       }
-      
-      // Set pending status for both encrypted files
+
+      // Set pending status for the encrypted file
       try {
         await this.refreshCsrfToken();
         await this.updateExportStatus(encryptedFileName, 'pending', {
@@ -408,138 +454,49 @@ class S3UploadService {
           uploadStartedAt: new Date().toISOString()
         });
         console.log(`Set status for encrypted file ${encryptedFileName} to 'pending'`);
-        
-        await this.refreshCsrfToken();
-        await this.updateExportStatus(keyFileName, 'pending', {
-          originalFileName,
-          isKeyFile: true,
-          uploadStartedAt: new Date().toISOString()
-        });
-        console.log(`Set status for key file ${keyFileName} to 'pending'`);
       } catch (statusError) {
-        console.warn(`Failed to set pending status for encrypted files: ${statusError.message}`);
+        console.warn(`Failed to set pending status for encrypted file: ${statusError.message}`);
         // Continue anyway, this is non-critical
       }
-      
+
       // Refresh token again before upload
       await this.refreshCsrfToken();
-      
-      // Step 2: Upload the encrypted file
-      if (onProgress) {
-        // Send 50% of progress updates for the main file
-        const mainFileProgress = (progress) => {
-          onProgress(Math.floor(progress * 0.5)); // First 50% for main file
-        };
-        
-        // Upload the encrypted file with progress tracking
-        const encryptedFileResult = await this.uploadToS3UsingPresignedUrl(
-          encryptedFilePath,
-          mainFileProgress
-        );
-        
-        // Update progress to 50% complete
-        onProgress(50);
-        
-        // Update status for encrypted file to success
-        try {
-          await this.refreshCsrfToken();
-          await this.updateExportStatus(encryptedFileName, 'success', {
-            originalFileName,
-            isEncrypted: true,
-            location: encryptedFileResult.location,
-            bucket: encryptedFileResult.bucket,
-            objectKey: encryptedFileResult.objectKey,
-            uploadedAt: new Date().toISOString()
-          });
-          console.log(`Updated status for encrypted file ${encryptedFileName} to 'success'`);
-        } catch (statusError) {
-          console.warn(`Failed to update status for encrypted file: ${statusError.message}`);
-        }
-        
-        // Refresh token before key file upload
+
+      // Step 2: Upload the encrypted file (the only file that goes to S3)
+      const encryptedFileResult = await this.uploadToS3UsingPresignedUrl(
+        encryptedFilePath,
+        onProgress
+      );
+
+      // Update status for encrypted file to success
+      try {
         await this.refreshCsrfToken();
-        
-        // Step 3: Upload the key file
-        const keyFileResult = await this.uploadToS3UsingPresignedUrl(keyFilePath);
-        
-        // Update status for key file to success
-        try {
-          await this.refreshCsrfToken();
-          await this.updateExportStatus(keyFileName, 'success', {
-            originalFileName,
-            isKeyFile: true,
-            location: keyFileResult.location,
-            bucket: keyFileResult.bucket,
-            objectKey: keyFileResult.objectKey,
-            uploadedAt: new Date().toISOString()
-          });
-          console.log(`Updated status for key file ${keyFileName} to 'success'`);
-        } catch (statusError) {
-          console.warn(`Failed to update status for key file: ${statusError.message}`);
-        }
-        
-        // Update progress to 100% when both files are uploaded
-        onProgress(100);
-        
-        // Return combined result
-        return {
-          ...encryptedFileResult,
-          keyFile: keyFileResult.objectKey,
-          encrypted: true,
+        await this.updateExportStatus(encryptedFileName, 'success', {
           originalFileName,
-          encryptedFileName,
-          keyFileName
-        };
-      } else {
-        // Upload both files without progress tracking
-        const encryptedFileResult = await this.uploadToS3UsingPresignedUrl(encryptedFilePath);
-        
-        // Update status for encrypted file to success
-        try {
-          await this.refreshCsrfToken();
-          await this.updateExportStatus(encryptedFileName, 'success', {
-            originalFileName,
-            isEncrypted: true,
-            location: encryptedFileResult.location,
-            bucket: encryptedFileResult.bucket,
-            objectKey: encryptedFileResult.objectKey,
-            uploadedAt: new Date().toISOString()
-          });
-          console.log(`Updated status for encrypted file ${encryptedFileName} to 'success'`);
-        } catch (statusError) {
-          console.warn(`Failed to update status for encrypted file: ${statusError.message}`);
-        }
-        
-        // Refresh token before key file upload
-        await this.refreshCsrfToken();
-        
-        const keyFileResult = await this.uploadToS3UsingPresignedUrl(keyFilePath);
-        
-        // Update status for key file to success
-        try {
-          await this.refreshCsrfToken();
-          await this.updateExportStatus(keyFileName, 'success', {
-            originalFileName,
-            isKeyFile: true,
-            location: keyFileResult.location,
-            bucket: keyFileResult.bucket,
-            objectKey: keyFileResult.objectKey,
-            uploadedAt: new Date().toISOString()
-          });
-          console.log(`Updated status for key file ${keyFileName} to 'success'`);
-        } catch (statusError) {
-          console.warn(`Failed to update status for key file: ${statusError.message}`);
-        }
-        
-        return {
-          ...encryptedFileResult,
-          keyFile: keyFileResult.objectKey,
-          encrypted: true,
-          originalFileName,
-          encryptedFileName,
-          keyFileName
-        };
+          isEncrypted: true,
+          location: encryptedFileResult.location,
+          bucket: encryptedFileResult.bucket,
+          objectKey: encryptedFileResult.objectKey,
+          uploadedAt: new Date().toISOString()
+        });
+        console.log(`Updated status for encrypted file ${encryptedFileName} to 'success'`);
+      } catch (statusError) {
+        console.warn(`Failed to update status for encrypted file: ${statusError.message}`);
       }
+
+      if (onProgress) {
+        onProgress(100);
+      }
+
+      return {
+        ...encryptedFileResult,
+        keyFile: keyFileName,
+        keyDownloadedLocally: true,
+        encrypted: true,
+        originalFileName,
+        encryptedFileName,
+        keyFileName
+      };
     } catch (error) {
       console.error('Encrypted S3 upload error:', error);
       

@@ -8,7 +8,7 @@ const constants = {
   FRONTEND_URL: process.env.FRONTEND_URL || 'http://localhost:3000',
   SESSION_OPTIONS: {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
+    secure: process.env.NODE_ENV === 'production' || process.env.HTTPS === 'true',
     sameSite: 'strict',
     maxAge: 9 * 60 * 60 * 1000, // 9 hours in milliseconds
     //maxAge: 60 * 1000, // 1 minute in milliseconds (for testing)

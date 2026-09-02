@@ -5,7 +5,52 @@ const TagsModel = require('../models/tags');
 const eventLogger = require('../lib/eventLogger');
 const { authenticateJwt, verifyAdmin } = require('../middleware/jwt.middleware');
 const { sanitizeRequestMiddleware } = require('../middleware/sanitize.middleware');
+const OperationsModel = require('../models/operations');
 const db = require('../db'); // Add this import for the protection check
+
+// Attach the effective operation tag filter to req before scoped tag handlers.
+// For admins, respect admin_view_filter (null = "All Operations").
+// For regular users, use their active operation.
+const attachActiveOp = async (req, res, next) => {
+  try {
+    const isAdmin = req.user.role === 'admin';
+    if (isAdmin) {
+      req.activeOperationTagId = await OperationsModel.getAdminViewFilter(req.user.username).catch(() => null);
+    } else {
+      const activeOp = await OperationsModel.getUserActiveOperation(req.user.username);
+      req.activeOperationTagId = activeOp?.tag_id || null;
+    }
+  } catch (err) {
+    console.error('Failed to load active operation for tags:', err);
+    req.activeOperationTagId = null;
+  }
+  next();
+};
+
+// Write access to a log's tags: admins always; others only when the log
+// carries their active operation's tag. Fails closed.
+const requireLogWriteAccess = async (req, res, next) => {
+  try {
+    if (req.user.role === 'admin') return next();
+
+    const activeOp = await OperationsModel.getUserActiveOperation(req.user.username);
+    if (!activeOp?.tag_id) {
+      return res.status(403).json({ error: 'No active operation assigned' });
+    }
+
+    const result = await db.query(
+      'SELECT 1 FROM log_tags WHERE log_id = $1 AND tag_id = $2',
+      [parseInt(req.params.logId), activeOp.tag_id]
+    );
+    if (result.rows.length === 0) {
+      return res.status(403).json({ error: 'Log is not part of your active operation' });
+    }
+    next();
+  } catch (err) {
+    console.error('Failed to check log write access for tags:', err);
+    res.status(403).json({ error: 'Access check failed' });
+  }
+};
 
 // Get all tags
 router.get('/', authenticateJwt, async (req, res, next) => {
@@ -62,15 +107,23 @@ router.get('/stats', authenticateJwt, async (req, res, next) => {
 });
 
 // Get tags for a specific log
-router.get('/log/:logId', authenticateJwt, async (req, res, next) => {
+router.get('/log/:logId', authenticateJwt, attachActiveOp, async (req, res, next) => {
   try {
     const logId = parseInt(req.params.logId);
-    
+
     if (isNaN(logId)) {
       return res.status(400).json({ error: 'Invalid log ID' });
     }
-    
-    const tags = await TagsModel.getLogTags(logId);
+
+    const isAdmin = req.user.role === 'admin';
+    const operationTagId = req.activeOperationTagId;
+
+    // Fail closed: non-admins with no active operation see nothing
+    if (!isAdmin && !operationTagId) {
+      return res.json([]);
+    }
+
+    const tags = await TagsModel.getLogTags(logId, operationTagId);
     res.json(tags);
   } catch (error) {
     console.error('Error getting log tags:', error);
@@ -79,15 +132,23 @@ router.get('/log/:logId', authenticateJwt, async (req, res, next) => {
 });
 
 // Get tags for multiple logs (batch)
-router.post('/logs/batch', authenticateJwt, async (req, res, next) => {
+router.post('/logs/batch', authenticateJwt, attachActiveOp, async (req, res, next) => {
   try {
     const { logIds } = req.body;
-    
+
     if (!Array.isArray(logIds)) {
       return res.status(400).json({ error: 'logIds must be an array' });
     }
-    
-    const tagsByLogId = await TagsModel.getTagsForLogs(logIds);
+
+    const isAdmin = req.user.role === 'admin';
+    const operationTagId = req.activeOperationTagId;
+
+    // Fail closed: non-admins with no active operation see nothing
+    if (!isAdmin && !operationTagId) {
+      return res.json({});
+    }
+
+    const tagsByLogId = await TagsModel.getTagsForLogs(logIds, operationTagId);
     res.json(tagsByLogId);
   } catch (error) {
     console.error('Error getting tags for multiple logs:', error);
@@ -149,7 +210,7 @@ router.post('/', authenticateJwt, sanitizeRequestMiddleware, async (req, res, ne
 });
 
 // Add tags to a log - FIXED VERSION
-router.post('/log/:logId', authenticateJwt, sanitizeRequestMiddleware, async (req, res, next) => {
+router.post('/log/:logId', authenticateJwt, requireLogWriteAccess, sanitizeRequestMiddleware, async (req, res, next) => {
   try {
     const logId = parseInt(req.params.logId);
     const { tagIds, tagNames } = req.body;
@@ -194,7 +255,7 @@ router.post('/log/:logId', authenticateJwt, sanitizeRequestMiddleware, async (re
 });
 
 // Remove a tag from a log - Let the model handle protection
-router.delete('/log/:logId/tag/:tagId', authenticateJwt, async (req, res, next) => {
+router.delete('/log/:logId/tag/:tagId', authenticateJwt, requireLogWriteAccess, async (req, res, next) => {
   try {
     const logId = parseInt(req.params.logId);
     const tagId = parseInt(req.params.tagId);
@@ -229,7 +290,7 @@ router.delete('/log/:logId/tag/:tagId', authenticateJwt, async (req, res, next) 
 });
 
 // Remove all tags from a log
-router.delete('/log/:logId/all', authenticateJwt, async (req, res, next) => {
+router.delete('/log/:logId/all', authenticateJwt, requireLogWriteAccess, async (req, res, next) => {
   try {
     const logId = parseInt(req.params.logId);
     
@@ -332,16 +393,24 @@ router.delete('/:tagId', authenticateJwt, verifyAdmin, async (req, res, next) =>
 });
 
 // Get logs by tag filter
-router.post('/filter', authenticateJwt, async (req, res, next) => {
+router.post('/filter', authenticateJwt, attachActiveOp, async (req, res, next) => {
   try {
     const { tagIds, tagNames } = req.body;
-    
+
+    const isAdmin = req.user.role === 'admin';
+    const operationTagId = req.activeOperationTagId;
+
+    // Fail closed: non-admins with no active operation see nothing
+    if (!isAdmin && !operationTagId) {
+      return res.json([]);
+    }
+
     let logs;
-    
+
     if (tagIds && Array.isArray(tagIds)) {
-      logs = await TagsModel.getLogsByTagIds(tagIds);
+      logs = await TagsModel.getLogsByTagIds(tagIds, operationTagId);
     } else if (tagNames && Array.isArray(tagNames)) {
-      logs = await TagsModel.getLogsByTagNames(tagNames);
+      logs = await TagsModel.getLogsByTagNames(tagNames, operationTagId);
     } else {
       return res.status(400).json({ error: 'Either tagIds or tagNames array is required' });
     }

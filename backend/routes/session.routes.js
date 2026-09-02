@@ -6,6 +6,13 @@ const { redisClient } = require('../lib/redis');
 const eventLogger = require('../lib/eventLogger');
 const jwt = require('jsonwebtoken');
 const security = require('../config/security');
+const { SESSION_OPTIONS } = require('../config/constants');
+
+// Same token resolution as authenticateJwt: primary cookie first, legacy fallback
+const getRequestJti = (req) => {
+  const token = req.cookies.token || req.cookies.auth_token;
+  return token ? jwt.decode(token)?.jti : undefined;
+};
 
 // Get all active sessions (admin only)
 router.get('/active', authenticateJwt, verifyAdmin, async (req, res) => {
@@ -43,10 +50,9 @@ router.get('/active', authenticateJwt, verifyAdmin, async (req, res) => {
               role: parsedData.role || 'user',
               issuedAt: new Date(parseInt(parsedData.issuedAt) * 1000).toISOString(),
               // Add "isCurrentSession" flag if this is the user's current session
-              isCurrentSession: req.user && 
-                               req.user.username === parsedData.username && 
-                               req.cookies.auth_token && 
-                               jwt.decode(req.cookies.auth_token).jti === tokenId
+              isCurrentSession: req.user &&
+                               req.user.username === parsedData.username &&
+                               getRequestJti(req) === tokenId
             });
           }
         }
@@ -84,10 +90,17 @@ router.post('/revoke', authenticateJwt, verifyAdmin, async (req, res) => {
     if (!sessionIds || !Array.isArray(sessionIds) || sessionIds.length === 0) {
       return res.status(400).json({ error: 'No session IDs provided' });
     }
-    
+
+    // Session IDs are jti hex strings (the UI sends 16-char prefixes; full jtis
+    // are 64-char hex). Reject anything else so wildcards or other pattern
+    // characters can never reach the Redis KEYS lookup below.
+    if (!sessionIds.every(id => typeof id === 'string' && /^[a-f0-9]{8,64}$/.test(id))) {
+      return res.status(400).json({ error: 'Invalid session ID format' });
+    }
+
     // Check if the admin is trying to revoke their own session
-    const currentTokenId = jwt.decode(req.cookies.auth_token).jti;
-    const isRevokingSelf = sessionIds.some(id => currentTokenId.startsWith(id));
+    const currentTokenId = getRequestJti(req);
+    const isRevokingSelf = !!currentTokenId && sessionIds.some(id => currentTokenId.startsWith(id));
     
     const results = [];
     // Process each session ID
@@ -162,7 +175,9 @@ router.post('/revoke', authenticateJwt, verifyAdmin, async (req, res) => {
     
     // If admin revoked their own session, they'll need to log back in
     if (isRevokingSelf) {
-      res.clearCookie('auth_token');
+      res.clearCookie('token', SESSION_OPTIONS);
+      res.clearCookie('auth_token', SESSION_OPTIONS);
+      res.clearCookie('_csrf');
       return res.json({ 
         message: 'Sessions revoked successfully. You revoked your own session and will need to log in again.',
         results,

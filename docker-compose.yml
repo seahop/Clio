@@ -24,6 +24,9 @@ services:
       - SSL_KEY_FILE=/app/certs/server.key
       - NODE_TLS_REJECT_UNAUTHORIZED=0
       - TZ=UTC
+      # Shown in the frontend startup banner so logs point at the real entry
+      # point (nginx), not the container-internal port 3000.
+      - CLIO_EXTERNAL_URL=https://localhost:${HTTPS_HOST_PORT:-443}
     networks:
       - frontend-network
     restart: unless-stopped
@@ -33,7 +36,7 @@ services:
         max-size: "10m"
         max-file: "3"
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "--no-check-certificate", "https://localhost:3000"]
+      test: ["CMD", "wget", "--spider", "-q", "--no-check-certificate", "https://127.0.0.1:3000"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -64,7 +67,6 @@ services:
       - PORT=3001
       - DATA_PATH=/app/data/logs.json
       - FRONTEND_URL=https://frontend:3000
-      - NODE_TLS_REJECT_UNAUTHORIZED=0
       - SSL_CRT_FILE=certs/server.crt
       - SSL_KEY_FILE=certs/server.key
       - TZ=UTC

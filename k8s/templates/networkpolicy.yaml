@@ -4,7 +4,7 @@ apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
   name: {{ include "clio.fullname" . }}-frontend
-  namespace: {{ .Values.namespace }}
+  namespace: {{ include "clio.namespace" . }}
   labels:
     {{- include "clio.labels" . | nindent 4 }}
     app.kubernetes.io/component: frontend
@@ -19,12 +19,12 @@ spec:
     - from:
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: kube-system
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.ingressController.namespace }}
           podSelector:
             matchLabels:
-              app.kubernetes.io/name: traefik
+              {{- toYaml .Values.networkPolicy.ingressController.podLabels | nindent 14 }}
       ports:
-        - port: 80
+        - port: {{ .Values.frontend.port }}
           protocol: TCP
   egress:
     - to:
@@ -51,7 +51,7 @@ apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
   name: {{ include "clio.fullname" . }}-backend
-  namespace: {{ .Values.namespace }}
+  namespace: {{ include "clio.namespace" . }}
   labels:
     {{- include "clio.labels" . | nindent 4 }}
     app.kubernetes.io/component: backend
@@ -90,6 +90,22 @@ spec:
           protocol: UDP
         - port: 53
           protocol: TCP
+{{- if or .Values.networkPolicy.allowBackendInternetEgress .Values.googleSso.enabled .Values.oidc.enabled }}
+    # OAuth/OIDC token + JWKS endpoints (and optionally S3) live outside the
+    # cluster; without this rule SSO silently fails under NetworkPolicy.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - port: 443
+          protocol: TCP
+        - port: 80
+          protocol: TCP
+{{- end }}
 {{- if .Values.linkerd.enabled }}
     - to:
         - namespaceSelector:
@@ -102,7 +118,7 @@ apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
   name: {{ include "clio.fullname" . }}-postgres
-  namespace: {{ .Values.namespace }}
+  namespace: {{ include "clio.namespace" . }}
   labels:
     {{- include "clio.labels" . | nindent 4 }}
     app.kubernetes.io/component: postgres
@@ -146,7 +162,7 @@ apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
   name: {{ include "clio.fullname" . }}-redis
-  namespace: {{ .Values.namespace }}
+  namespace: {{ include "clio.namespace" . }}
   labels:
     {{- include "clio.labels" . | nindent 4 }}
     app.kubernetes.io/component: redis

@@ -77,7 +77,7 @@ deployments** and is already included in the chart.
 | Kubernetes ≥ 1.24 | Any distribution: GKE, EKS, AKS, k3s, RKE2, Rancher, etc. |
 | Helm 3.x | `helm version` to confirm |
 | cert-manager | Recommended for automatic TLS. [Install guide](https://cert-manager.io/docs/installation/). Skip if you manage certs manually. |
-| Ingress controller | nginx-ingress is assumed. Change `ingress.className` for other controllers. |
+| Ingress controller | Defaults to Traefik — built into k3s / Rancher Desktop / RKE2, so no install step. Change `ingress.className` (and `networkPolicy.ingressController`) for other controllers. |
 | A `ReadWriteOnce` storage class | For postgres, redis, and evidence file PVCs |
 | A DNS record pointing to your Ingress | Required for Let's Encrypt validation |
 
@@ -169,7 +169,7 @@ spec:
     solvers:
       - http01:
           ingress:
-            class: nginx
+            class: traefik   # match your ingress controller (ingress.className)
 EOF
 ```
 
@@ -373,10 +373,9 @@ tracks exactly which migrations have been applied:
 
 ```
 backend/db/migrations/
-  001-initial-schema.sql          ← tables, indexes, triggers, seed data
-  002-relation-tables.sql         ← relation analysis tables
-  003-add-operation-to-api-keys.sql
-  004-your-next-change.sql        ← you add new files here
+  001-initial-schema.sql               ← tables, indexes, triggers, seed data
+  002-widen-file-status-filename.sql   ← file_status filename VARCHAR(254)
+  003-your-next-change.sql             ← you add new files here
 ```
 
 **Every time the backend starts** it calls the migration runner before serving
@@ -460,8 +459,8 @@ docker compose logs backend | grep -E "Applying|up to date"
 helm upgrade clio ./k8s \
   --namespace clio \
   --values my-clio-values.yaml \
-  --set backend.image.tag=v1.3.0 \
-  --set frontend.image.tag=v1.3.0
+  --set backend.image.tag=1.3.0 \
+  --set frontend.image.tag=1.3.0
 ```
 
 Watch the migration job and rollout:
@@ -526,8 +525,8 @@ helm upgrade clio ./k8s \
 helm upgrade clio ./k8s \
   --namespace clio \
   --values my-clio-values.yaml \
-  --set backend.image.tag=v1.2.3 \
-  --set frontend.image.tag=v1.2.3
+  --set backend.image.tag=1.2.3 \
+  --set frontend.image.tag=1.2.3
 ```
 
 Available image tags are listed on the
@@ -559,6 +558,21 @@ kubectl rollout restart deployment -n clio clio-backend
 
 > For JWT rotation: rotating `JWT_SECRET` invalidates all active sessions.
 > Users will be logged out and need to sign in again.
+
+> **Never rotate blindly:**
+> - `POSTGRES_PASSWORD` — the postgres image only reads it at `initdb`.
+>   Rotate with `ALTER ROLE clio WITH PASSWORD '...'` inside postgres FIRST,
+>   then patch the Secret to match, then restart the backend.
+> - `FIELD_ENCRYPTION_KEY` / `REDIS_ENCRYPTION_KEY` — rotating these makes
+>   already-encrypted data permanently unreadable. Do not rotate without a
+>   re-encryption plan.
+> - Deleting the entire `clio-secrets` Secret regenerates everything at the
+>   next upgrade, hitting both problems above at once.
+
+> **GitOps note:** the chart auto-generates secrets with Helm's `lookup()`,
+> which returns empty during `helm template`/`--dry-run` and ArgoCD/Flux
+> server-side rendering — every render would mint new passwords. GitOps users
+> must pre-create `clio-secrets` (see the External Secrets section).
 
 ---
 
@@ -687,8 +701,10 @@ is harmless — the resources are created but have no effect.
 
 ## Ingress controller
 
-The chart defaults to `ingress.className: nginx`. Change this to match your
-cluster's ingress controller:
+The chart defaults to `ingress.className: traefik` (the controller that ships
+built-in on k3s / Rancher Desktop / RKE2). Change this to match your cluster's
+ingress controller — and set `networkPolicy.ingressController` to match where it
+runs (see the NetworkPolicy section):
 
 | Controller | `ingress.className` value |
 |------------|--------------------------|
@@ -768,8 +784,24 @@ helm upgrade clio ./k8s -n clio -f k8s/local-values.yaml
 
 ```bash
 helm uninstall clio -n clio
-kubectl delete namespace clio
 ```
+
+`helm uninstall` keeps the data: the evidence/exports/data PVCs carry
+`helm.sh/resource-policy: keep`, and the postgres/redis volumes come from
+StatefulSet `volumeClaimTemplates`, which Helm never deletes. To destroy
+**everything including the database and evidence**:
+
+```bash
+kubectl delete namespace clio   # irreversible — all operation data is gone
+```
+
+> **Storage sizing note:** `postgres.storage.size` / `redis.storage.size`
+> live in StatefulSet `volumeClaimTemplates`, which are immutable — changing
+> them on an existing install fails. Expand the PVC directly
+> (`kubectl edit pvc data-clio-postgres-0`, needs a StorageClass with
+> `allowVolumeExpansion: true`), and keep the values in sync for future
+> installs. A postgres major-version bump (e.g. 17 → 18) also needs a
+> dump/restore — the old PGDATA is not readable by the new major.
 
 ---
 

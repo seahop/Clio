@@ -19,3 +19,6 @@ server.key
 server.crt
 .claude
 CLAUDE.md
+
+# CRA production build output (generated)
+frontend/build

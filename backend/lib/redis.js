@@ -19,8 +19,10 @@ if (!encryptionKey || !redisPassword) {
 
 const encryption = new RedisEncryption(encryptionKey);
 
-// Override Node.js TLS settings
-process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+// NOTE: TLS verification is relaxed only for the Redis socket itself
+// (rejectUnauthorized: false below) — never process-wide. Other outbound TLS
+// (OIDC, etc.) must opt in explicitly (see lib/oidc-client.js) or trust the
+// internal CA via NODE_EXTRA_CA_CERTS.
 
 // Create Redis client with TLS configured at the socket level
 const createClient = () => {
@@ -205,6 +207,25 @@ const secureRedis = {
   async sMembers(key) {
     if (DEBUG) console.log(`Getting set members: ${key}`);
     return this.withRetry(async () => redisClient.sMembers(key));
+  },
+
+  // Close the connection so the event loop can drain (used by graceful
+  // shutdown and by test teardown). Safe to call when not connected. quit()
+  // can block on the keepAlive socket / reconnect strategy, so race it against
+  // a short timeout and fall back to an immediate disconnect.
+  async disconnect() {
+    this.connectionPromise = null;
+    this.isConnected = false;
+    if (!redisClient.isOpen) return;
+    try {
+      await Promise.race([
+        redisClient.quit(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('quit timeout')), 2000))
+      ]);
+    } catch (err) {
+      if (DEBUG) console.log('Redis graceful quit failed, forcing close:', err.message);
+      try { redisClient.disconnect(); } catch { /* already closing */ }
+    }
   }
 };
 

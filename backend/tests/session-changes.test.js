@@ -28,6 +28,14 @@ const { test, describe, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs     = require('fs');
 
+// Top-level teardown: close the shared Redis connection and DB pool so the
+// test runner's event loop drains and the process exits cleanly (0) instead
+// of hanging on the open infra handles.
+after(async () => {
+  try { await require('../lib/redis').redisClient.disconnect(); } catch { /* ignore */ }
+  try { await require('../db').pool.end(); } catch { /* ignore */ }
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Section 1 — resolveOIDCRole (pure unit, no external deps)
 // ─────────────────────────────────────────────────────────────────────────────

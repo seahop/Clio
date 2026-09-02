@@ -1,6 +1,8 @@
 // frontend/src/components/RelationList.jsx
 import React from 'react';
 import { ChevronRight, ChevronDown, Wifi, Server, Globe, Cpu, User, Network, Clock, Terminal, Shield } from 'lucide-react';
+import { formatUTC } from '../../utils/dateUtils';
+import { EmptyState } from '../common/ui';
 
 // Format MAC address for display
 const formatMacAddress = (mac) => {
@@ -12,20 +14,20 @@ const formatMacAddress = (mac) => {
 const getRelationIcon = (type) => {
   switch (type) {
     case 'ip':
-      return <Wifi className="w-5 h-5 text-blue-400" />;
+      return <Wifi className="w-5 h-5 text-accent" />;
     case 'hostname':
     case 'hostname_ip':
-      return <Server className="w-5 h-5 text-green-400" />;
+      return <Server className="w-5 h-5 text-success" />;
     case 'domain':
       return <Globe className="w-5 h-5 text-purple-400" />;
     case 'mac_address':
-      return <Cpu className="w-5 h-5 text-yellow-400" />;
+      return <Cpu className="w-5 h-5 text-warning" />;
     case 'username':
     case 'user_domain':
     case 'user_mac':
-      return <User className="w-5 h-5 text-blue-400" />;
+      return <User className="w-5 h-5 text-accent" />;
     default:
-      return <Network className="w-5 h-5 text-gray-400" />;
+      return <Network className="w-5 h-5 text-muted" />;
   }
 };
 
@@ -46,14 +48,14 @@ const getEnrichedDetails = (relation) => {
       
       details.push({
         label: "First seen",
-        value: firstSeen.toLocaleString(),
-        icon: <Clock className="w-4 h-4 text-blue-400" />
+        value: formatUTC(firstSeen),
+        icon: <Clock className="w-4 h-4 text-accent" />
       });
-      
+
       details.push({
         label: "Last seen",
-        value: lastSeen.toLocaleString(),
-        icon: <Clock className="w-4 h-4 text-blue-400" />
+        value: formatUTC(lastSeen),
+        icon: <Clock className="w-4 h-4 text-accent" />
       });
     }
   }
@@ -70,7 +72,7 @@ const getEnrichedDetails = (relation) => {
         details.push({
           label: "Unique hosts",
           value: hostnames.size,
-          icon: <Server className="w-4 h-4 text-green-400" />
+          icon: <Server className="w-4 h-4 text-success" />
         });
       }
       
@@ -82,7 +84,7 @@ const getEnrichedDetails = (relation) => {
         details.push({
           label: "Commands executed",
           value: commandsForIP.length,
-          icon: <Terminal className="w-4 h-4 text-green-400" />
+          icon: <Terminal className="w-4 h-4 text-success" />
         });
       }
       
@@ -94,13 +96,13 @@ const getEnrichedDetails = (relation) => {
         details.push({
           label: "IP type",
           value: "Internal",
-          icon: <Shield className="w-4 h-4 text-green-400" />
+          icon: <Shield className="w-4 h-4 text-success" />
         });
       } else if (externalIPRelation) {
         details.push({
           label: "IP type",
           value: "External",
-          icon: <Shield className="w-4 h-4 text-orange-400" />
+          icon: <Shield className="w-4 h-4 text-warning" />
         });
       }
       break;
@@ -118,7 +120,7 @@ const getEnrichedDetails = (relation) => {
         details.push({
           label: "IP addresses",
           value: ipAddresses.size,
-          icon: <Wifi className="w-4 h-4 text-blue-400" />
+          icon: <Wifi className="w-4 h-4 text-accent" />
         });
       }
       
@@ -140,7 +142,7 @@ const getEnrichedDetails = (relation) => {
         details.push({
           label: "Commands executed",
           value: commandsForHost.length,
-          icon: <Terminal className="w-4 h-4 text-green-400" />
+          icon: <Terminal className="w-4 h-4 text-success" />
         });
       }
       
@@ -153,7 +155,7 @@ const getEnrichedDetails = (relation) => {
         details.push({
           label: "Users",
           value: usersOnHost.size,
-          icon: <User className="w-4 h-4 text-blue-400" />
+          icon: <User className="w-4 h-4 text-accent" />
         });
       }
       break;
@@ -161,8 +163,8 @@ const getEnrichedDetails = (relation) => {
     case 'hostname_ip': {
       const internalIPs = relation.related.filter(r => r.metadata?.ipType === 'internal');
       const externalIPs = relation.related.filter(r => r.metadata?.ipType === 'external');
-      if (internalIPs.length > 0) details.push({ label: 'Internal IPs', value: internalIPs.length, icon: <Wifi className="w-4 h-4 text-green-400" /> });
-      if (externalIPs.length > 0) details.push({ label: 'External IPs', value: externalIPs.length, icon: <Wifi className="w-4 h-4 text-orange-400" /> });
+      if (internalIPs.length > 0) details.push({ label: 'Internal IPs', value: internalIPs.length, icon: <Wifi className="w-4 h-4 text-success" /> });
+      if (externalIPs.length > 0) details.push({ label: 'External IPs', value: externalIPs.length, icon: <Wifi className="w-4 h-4 text-warning" /> });
       break;
     }
 
@@ -170,15 +172,15 @@ const getEnrichedDetails = (relation) => {
       const domains = new Set(relation.related.map(r => r.target).filter(Boolean));
       if (domains.size > 0) details.push({ label: 'Domains accessed', value: domains.size, icon: <Globe className="w-4 h-4 text-purple-400" /> });
       const hostsForDomain = new Set(relation.related.map(r => r.metadata?.hostname).filter(Boolean));
-      if (hostsForDomain.size > 0) details.push({ label: 'Via hosts', value: hostsForDomain.size, icon: <Server className="w-4 h-4 text-green-400" /> });
+      if (hostsForDomain.size > 0) details.push({ label: 'Via hosts', value: hostsForDomain.size, icon: <Server className="w-4 h-4 text-success" /> });
       break;
     }
 
     case 'user_mac': {
       const macs = new Set(relation.related.map(r => r.target).filter(Boolean));
-      if (macs.size > 0) details.push({ label: 'Devices used', value: macs.size, icon: <Cpu className="w-4 h-4 text-yellow-400" /> });
+      if (macs.size > 0) details.push({ label: 'Devices used', value: macs.size, icon: <Cpu className="w-4 h-4 text-warning" /> });
       const hostsForMac = new Set(relation.related.map(r => r.metadata?.hostname).filter(Boolean));
-      if (hostsForMac.size > 0) details.push({ label: 'Hostnames seen', value: hostsForMac.size, icon: <Server className="w-4 h-4 text-green-400" /> });
+      if (hostsForMac.size > 0) details.push({ label: 'Hostnames seen', value: hostsForMac.size, icon: <Server className="w-4 h-4 text-success" /> });
       break;
     }
 
@@ -192,10 +194,11 @@ const getEnrichedDetails = (relation) => {
 const RelationList = ({ relations, expandedItems, toggleExpand }) => {
   if (relations.length === 0) {
     return (
-      <div className="text-center text-gray-400 py-8">
-        <p>No relationships found.</p>
-        <p className="text-sm mt-2">Create relationships between logs to see them here.</p>
-      </div>
+      <EmptyState
+        icon={Network}
+        title="No relationships found."
+        message="Create relationships between logs to see them here."
+      />
     );
   }
 
@@ -227,25 +230,25 @@ const RelationList = ({ relations, expandedItems, toggleExpand }) => {
         const hasCommands = commandItems.length > 0;
         
         return (
-          <div key={relationId} className="bg-gray-700/50 rounded-lg overflow-hidden">
+          <div key={relationId} className="bg-surface-2/50 rounded-card overflow-hidden">
             <button
               onClick={() => toggleExpand(relationId)}
-              className="w-full px-4 py-3 flex items-center justify-between hover:bg-gray-600/50 transition-colors"
+              className="w-full px-4 py-3 flex items-center justify-between hover:bg-surface-3/50 transition-colors"
             >
               <div className="flex items-center gap-3">
                 {getRelationIcon(relation.type)}
-                <span className="text-white font-medium">{displaySource}</span>
-                
+                <span className="text-content font-medium">{displaySource}</span>
+
                 {/* Show enriched details summary */}
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-1 ml-2">
-                  <span className="text-sm text-gray-400">
+                  <span className="text-sm text-muted">
                     {relation.related?.length || 0} connection{relation.related?.length !== 1 ? 's' : ''}
                   </span>
-                  
+
                   {enrichedDetails.slice(0, 3).map((detail, i) => (
                     <div key={i} className="flex items-center gap-1 text-xs">
                       {detail.icon}
-                      <span className={`${i === 0 ? 'text-green-400' : i === 1 ? 'text-blue-400' : 'text-purple-400'}`}>
+                      <span className={`${i === 0 ? 'text-success' : i === 1 ? 'text-accent' : 'text-purple-400'}`}>
                         {detail.label}: {detail.value}
                       </span>
                     </div>
@@ -253,107 +256,107 @@ const RelationList = ({ relations, expandedItems, toggleExpand }) => {
                 </div>
               </div>
               {isExpanded ? (
-                <ChevronDown className="w-5 h-5 text-gray-400" />
+                <ChevronDown className="w-5 h-5 text-muted" />
               ) : (
-                <ChevronRight className="w-5 h-5 text-gray-400" />
+                <ChevronRight className="w-5 h-5 text-muted" />
               )}
             </button>
 
             {isExpanded && (
-              <div className="border-t border-gray-600">
+              <div className="border-t border-line">
                 {/* Display enriched details first */}
                 {enrichedDetails.length > 0 && (
-                  <div className="border-b border-gray-600 p-4">
+                  <div className="border-b border-line p-4">
                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
                       {enrichedDetails.map((detail, i) => (
-                        <div key={i} className="bg-gray-800/50 rounded-md p-3 flex flex-col items-center justify-center text-center">
+                        <div key={i} className="bg-surface/50 rounded-card p-3 flex flex-col items-center justify-center text-center">
                           <div className="mb-2">{detail.icon}</div>
-                          <div className="text-sm font-medium text-gray-300">{detail.label}</div>
-                          <div className="text-lg font-bold text-white">{detail.value}</div>
+                          <div className="text-sm font-medium text-muted">{detail.label}</div>
+                          <div className="text-lg font-bold text-content">{detail.value}</div>
                         </div>
                       ))}
                     </div>
                   </div>
                 )}
-              
+
                 {/* Display commands executed on this IP/hostname if available */}
                 {hasCommands && (
-                  <div className="border-b border-gray-600">
-                    <div className="p-3 bg-gray-800/50 text-blue-300 font-medium">
-                      Commands Executed {relation.type === 'hostname' ? 'on Host' : relation.type === 'ip' ? 'on IP' : relation.type === 'username' ? 'by User' : ''} 
+                  <div className="border-b border-line">
+                    <div className="p-3 bg-surface/50 text-accent font-medium">
+                      Commands Executed {relation.type === 'hostname' ? 'on Host' : relation.type === 'ip' ? 'on IP' : relation.type === 'username' ? 'by User' : ''}
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-4">
                       {commandItems.map((item, i) => (
                         <div
                           key={`cmd-${i}`}
-                          className="bg-gray-800 p-3 rounded-md hover:bg-gray-700/50 transition-colors"
+                          className="bg-surface p-3 rounded-card hover:bg-surface-2/50 transition-colors"
                         >
                           <div className="flex items-start gap-2 mb-2">
-                            <Terminal className="w-4 h-4 text-green-400 mt-1 flex-shrink-0" />
-                            <div className="font-mono text-sm text-gray-200 break-all whitespace-pre-wrap">
+                            <Terminal className="w-4 h-4 text-success mt-1 flex-shrink-0" />
+                            <div className="font-mono text-sm text-content break-all whitespace-pre-wrap">
                               {item.target}
                             </div>
                           </div>
-                          
+
                           {/* Show user who ran the command if available */}
                           {item.metadata?.username && relation.type !== 'username' && (
-                            <div className="flex items-center gap-2 text-xs text-gray-400 ml-6 mt-2">
-                              <User className="w-3 h-3 text-blue-400" />
+                            <div className="flex items-center gap-2 text-xs text-muted ml-6 mt-2">
+                              <User className="w-3 h-3 text-accent" />
                               <span>Run by: {item.metadata.username}</span>
                             </div>
                           )}
                           
                           {/* Show hostname where command was run if available */}
                           {item.metadata?.hostname && relation.type !== 'hostname' && (
-                            <div className="flex items-center gap-2 text-xs text-gray-400 ml-6 mt-2">
-                              <Server className="w-3 h-3 text-green-400" />
+                            <div className="flex items-center gap-2 text-xs text-muted ml-6 mt-2">
+                              <Server className="w-3 h-3 text-success" />
                               <span>Host: {item.metadata.hostname}</span>
                             </div>
                           )}
-                          
-                          <div className="text-xs text-gray-500 ml-6 mt-1">
-                            {new Date(item.lastSeen).toLocaleString()}
+
+                          <div className="text-xs text-faint ml-6 mt-1">
+                            {formatUTC(item.lastSeen)}
                           </div>
                         </div>
                       ))}
                     </div>
                   </div>
                 )}
-                
+
                 {/* Display other connections */}
                 {otherItems.length > 0 && (
                   <div>
-                    <div className="p-3 bg-gray-800/50 text-blue-300 font-medium">
+                    <div className="p-3 bg-surface/50 text-accent font-medium">
                       Related Entities
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 p-4">
                       {otherItems.map((item, i) => (
                         <div
                           key={`rel-${i}`}
-                          className="bg-gray-800 p-3 rounded-md space-y-2 hover:bg-gray-700/50 transition-colors"
+                          className="bg-surface p-3 rounded-card space-y-2 hover:bg-surface-2/50 transition-colors"
                         >
                           <div className="flex items-center justify-between">
-                            <span className="text-gray-200 font-mono text-sm break-all">
+                            <span className="text-content font-mono text-sm break-all">
                               {item.target}
                             </span>
-                            <span className="text-xs px-2 py-1 bg-blue-600/20 text-blue-300 rounded">
+                            <span className="text-xs px-2 py-1 bg-accent/15 text-accent rounded">
                               {item.type}
                             </span>
                           </div>
                           {item.metadata && (
-                            <div className="text-sm text-gray-400 border-t border-gray-700 pt-2">
+                            <div className="text-sm text-muted border-t border-line pt-2">
                               {item.metadata.hostname && (
                                 <div className="flex items-center gap-2">
-                                  <Server className="w-4 h-4 text-green-400" />
+                                  <Server className="w-4 h-4 text-success" />
                                   <span>{item.metadata.hostname}</span>
                                 </div>
                               )}
                               {item.metadata.ipType && (
                                 <div className="mt-1 text-xs">
                                   <span className={`px-1.5 py-0.5 rounded ${
-                                    item.metadata.ipType === 'internal' 
-                                      ? 'bg-green-900/30 text-green-300' 
-                                      : 'bg-orange-900/30 text-orange-300'
+                                    item.metadata.ipType === 'internal'
+                                      ? 'bg-success/15 text-success'
+                                      : 'bg-warning/15 text-warning'
                                   }`}>
                                     {item.metadata.ipType} IP
                                   </span>
@@ -361,8 +364,8 @@ const RelationList = ({ relations, expandedItems, toggleExpand }) => {
                               )}
                             </div>
                           )}
-                          <div className="text-xs text-gray-500">
-                            Last seen: {new Date(item.lastSeen).toLocaleString()}
+                          <div className="text-xs text-faint">
+                            Last seen: {formatUTC(item.lastSeen)}
                           </div>
                         </div>
                       ))}

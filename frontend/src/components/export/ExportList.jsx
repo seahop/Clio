@@ -26,15 +26,15 @@ const ExportList = ({
   onRefresh
 }) => {
   return (
-    <div className="bg-gray-700/50 p-4 rounded-md">
+    <div className="bg-surface-2/50 p-4 rounded-md">
       <div className="flex items-center justify-between mb-3">
-        <h3 className="text-lg font-semibold text-white flex items-center">
+        <h3 className="text-lg font-semibold text-content flex items-center">
           <FileText size={18} className="mr-2" />
           Existing Exports
         </h3>
         <button 
           onClick={onRefresh} 
-          className="p-1 text-gray-400 hover:text-white rounded"
+          className="p-1 text-muted hover:text-content rounded"
           title="Refresh exports list"
         >
           <RefreshCw size={16} />
@@ -44,17 +44,17 @@ const ExportList = ({
       {loadingExports ? (
         <div className="flex justify-center items-center py-8">
           <RefreshCw className="animate-spin text-blue-400" />
-          <span className="ml-2 text-gray-300">Loading exports...</span>
+          <span className="ml-2 text-muted">Loading exports...</span>
         </div>
       ) : exports.length === 0 ? (
-        <div className="text-center py-8 text-gray-400">
+        <div className="text-center py-8 text-muted">
           <div className="mb-2">No exports found</div>
           <div className="text-sm">Exported files will appear here</div>
         </div>
       ) : (
         <div className="max-h-80 overflow-y-auto">
-          <table className="w-full text-sm text-left text-gray-300">
-            <thead className="text-xs text-gray-400 uppercase bg-gray-700/50">
+          <table className="w-full text-sm text-left text-muted">
+            <thead className="text-xs text-muted uppercase bg-surface-2/50">
               <tr>
                 <th className="px-3 py-2 w-6"></th>
                 <th className="px-3 py-2">Filename</th>
@@ -68,7 +68,7 @@ const ExportList = ({
               {exports.map((file, index) => {
                 // Decide what icon and class to use based on file type and status
                 let fileIcon = <FileText size={16} className="text-blue-400" title="CSV Export" />;
-                let rowClass = index % 2 === 0 ? 'bg-gray-800/30' : '';
+                let rowClass = index % 2 === 0 ? 'bg-surface/30' : '';
                 
                 if (file.fileType === 'evidence') {
                   fileIcon = <Archive size={16} className="text-purple-400" title="Evidence Export" />;
@@ -77,7 +77,7 @@ const ExportList = ({
                 } else if (file.fileType === 'key') {
                   fileIcon = <Key size={16} className="text-yellow-400" title="Encryption Key" />;
                 } else if (file.fileType === 'original-encrypted') {
-                  fileIcon = <Lock size={16} className="text-gray-400" title="Original (Encrypted Version Available)" />;
+                  fileIcon = <Lock size={16} className="text-muted" title="Original (Encrypted Version Available)" />;
                   rowClass += ' opacity-50'; // Dim the original file since it's been replaced by encrypted version
                 }
                 
@@ -90,24 +90,24 @@ const ExportList = ({
                                         file.size > 0;
                 
                 return (
-                  <tr key={file.name} className={`border-b border-gray-700 ${rowClass}`}>
+                  <tr key={file.name} className={`border-b border-line ${rowClass}`}>
                     <td className="px-3 py-2">
                       {fileIcon}
                     </td>
-                    <td className="px-3 py-2 font-medium text-white">
+                    <td className="px-3 py-2 font-medium text-content">
                       {file.name}
                       {file.isEncryptedVersion && file.originalFile && (
-                        <span className="ml-1 text-xs text-gray-400">
+                        <span className="ml-1 text-xs text-muted">
                           (encrypted from {file.originalFile})
                         </span>
                       )}
                       {file.isKeyFile && file.originalFile && (
-                        <span className="ml-1 text-xs text-gray-400">
+                        <span className="ml-1 text-xs text-muted">
                           (key for {file.originalFile})
                         </span>
                       )}
                       {file.isEncrypted && (
-                        <span className="ml-1 text-xs text-gray-400">
+                        <span className="ml-1 text-xs text-muted">
                           (encrypted version available)
                         </span>
                       )}
@@ -124,7 +124,7 @@ const ExportList = ({
                           {file.s3Status}
                         </span>
                       ) : (
-                        <span className="text-gray-400">Not uploaded</span>
+                        <span className="text-muted">Not uploaded</span>
                       )}
                     </td>
                     <td className="px-3 py-2 text-right">
@@ -157,8 +157,8 @@ const ExportList = ({
         </div>
       )}
       
-      <div className="mt-4 text-xs text-gray-400">
-        <p>File path: <code className="bg-gray-800 px-1 py-0.5 rounded">/app/exports/</code> inside container</p>
+      <div className="mt-4 text-xs text-muted">
+        <p>File path: <code className="bg-surface px-1 py-0.5 rounded">/app/exports/</code> inside container</p>
         <p className="mt-1">Host path: mounted volume location on your system</p>
       </div>
     </div>

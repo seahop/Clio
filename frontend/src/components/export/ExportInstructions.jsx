@@ -22,9 +22,9 @@ const ExportInstructions = ({
       </button>
       
       {expanded && (
-        <div className="mt-2 p-3 bg-gray-800/50 rounded text-sm text-gray-300">
+        <div className="mt-2 p-3 bg-surface/50 rounded text-sm text-muted">
           <p className="mb-2">This feature exports logs to CSV files on the server. The files are <strong>not</strong> downloaded to your browser.</p>
-          <p className="mb-2">Files are saved to the <code className="bg-gray-700 px-1 py-0.5 rounded">backend/exports</code> directory on the host system.</p>
+          <p className="mb-2">Files are saved to the <code className="bg-surface-2 px-1 py-0.5 rounded">backend/exports</code> directory on the host system.</p>
           {exportMode === 'evidence' && (
             <>
               <p className="mb-2">The evidence export creates a ZIP file containing all logs and related evidence files, along with an HTML viewer for easy browsing.</p>

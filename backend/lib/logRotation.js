@@ -333,7 +333,13 @@ class LogRotationManager {
         console.log(`Archive created: ${outputPath} (${archive.pointer()} bytes)`);
         resolve();
       });
-      
+
+      // Without this, a write-stream failure (e.g. disk full) leaves the
+      // promise pending forever with rotation locks still held
+      output.on('error', (err) => {
+        reject(err);
+      });
+
       archive.on('error', (err) => {
         reject(err);
       });

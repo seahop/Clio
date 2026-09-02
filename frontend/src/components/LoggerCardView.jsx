@@ -1,18 +1,27 @@
 // frontend/src/components/LoggerCardView.jsx
 import React, { useState, useEffect, useRef } from 'react';
-import { Layout, List, Plus, Filter, AlertCircle, FileText, Check } from 'lucide-react';
+import { Plus, Filter, FileText, Check, CheckSquare, Square } from 'lucide-react';
 import LogRowCard from './LogRowCard';
 import Pagination from './Pagination';
 import DateRangeFilter from './DateRangeFilter';
 import SearchFilter from './SearchFilter';
 import TemplateManager from './templates';
 import CardFieldSettings from './CardFieldSettings';
+import SavedViews from './SavedViews';
+import BulkActionBar from './BulkActionBar';
 import { TagFilter } from './Tags';
 import { useTagsApi } from '../hooks/useTagsApi';
 import { COLUMNS } from '../utils/constants';
 import usePagination from '../hooks/usePagination';
 import useCardFields from '../hooks/useCardFields';
 import { createFilterFunction } from '../utils/queryParser';
+import { EmptyState } from './common/ui';
+
+const savedViewsKey = (user) => `clio:savedViews:${user || 'anon'}`;
+const loadSavedViews = (user) => {
+  try { return JSON.parse(localStorage.getItem(savedViewsKey(user))) || []; }
+  catch { return []; }
+};
 
 const LoggerCardView = ({
   logs,
@@ -22,7 +31,6 @@ const LoggerCardView = ({
   handlers,
   csrfToken
 }) => {
-  const [viewMode, setViewMode] = useState('card');
   const [filteredLogs, setFilteredLogs] = useState(logs);
   const [dateRange, setDateRange] = useState({ start: null, end: null });
   const [searchFilter, setSearchFilter] = useState({ mode: 'simple', query: '', field: 'all' });
@@ -42,6 +50,65 @@ const { fetchAllTags, fetchTagsForLogs } = useTagsApi(csrfToken);
   const [selectedCardForSave, setSelectedCardForSave] = useState(null);
   const [selectedCardsForMerge, setSelectedCardsForMerge] = useState([]);
   const [templateMode, setTemplateMode] = useState(null);
+
+  // Bulk selection + saved views
+  const [bulkMode, setBulkMode] = useState(false);
+  const [selectedForBulk, setSelectedForBulk] = useState(new Set());
+  const [operations, setOperations] = useState([]);
+  const [savedViews, setSavedViews] = useState(() => loadSavedViews(currentUser));
+
+  useEffect(() => { setSavedViews(loadSavedViews(currentUser)); }, [currentUser]);
+
+  const persistViews = (next) => {
+    setSavedViews(next);
+    try { localStorage.setItem(savedViewsKey(currentUser), JSON.stringify(next)); } catch (_) {}
+  };
+  const handleSaveView = (name) => {
+    const next = [...savedViews.filter(v => v.name !== name), { name, searchFilter, dateRange, selectedTags }];
+    persistViews(next);
+  };
+  const handleApplyView = (v) => {
+    setSearchFilter(v.searchFilter || { mode: 'simple', query: '', field: 'all' });
+    setDateRange(v.dateRange || { start: null, end: null });
+    setSelectedTags(v.selectedTags || []);
+  };
+  const handleDeleteView = (name) => persistViews(savedViews.filter(v => v.name !== name));
+
+  // Admins can bulk-assign operations; load the list once for the bulk bar.
+  useEffect(() => {
+    if (!isAdmin) return;
+    fetch('/api/operations/my-operations', { credentials: 'include', headers: { Accept: 'application/json' } })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d) setOperations((d.operations || []).filter(o => o.is_active !== false)); })
+      .catch(() => {});
+  }, [isAdmin]);
+
+  const toggleBulk = (id) => setSelectedForBulk(prev => {
+    const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n;
+  });
+  const clearBulk = () => setSelectedForBulk(new Set());
+  const exitBulk = () => { setBulkMode(false); clearBulk(); };
+
+  const bulkRequest = async (path, body) => {
+    const res = await fetch(path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'CSRF-Token': csrfToken },
+      credentials: 'include',
+      body: JSON.stringify(body),
+    });
+    return res.ok;
+  };
+  const bulkIds = () => [...selectedForBulk];
+  const handleBulkStatus = async (status) => {
+    if (await bulkRequest('/api/logs/bulk-status', { logIds: bulkIds(), status })) exitBulk();
+  };
+  const handleBulkAssignOp = async (operationId) => {
+    if (await bulkRequest('/api/logs/bulk-operation-tag', { logIds: bulkIds(), operationId })) exitBulk();
+  };
+  const handleBulkDelete = async () => {
+    if (!window.confirm(`Delete ${selectedForBulk.size} selected log(s)? This cannot be undone.`)) return;
+    if (await bulkRequest('/api/logs/bulk-delete', { ids: bulkIds() })) exitBulk();
+  };
 
   // Use our custom hook for card field visibility settings
   const { visibleFields, updateVisibleFields } = useCardFields(currentUser);
@@ -318,69 +385,99 @@ const { fetchAllTags, fetchTagsForLogs } = useTagsApi(csrfToken);
   };
   
   return (
-    <div className="bg-gray-800 shadow-lg rounded-lg w-full">
-      {/* Header */}
-      <div className="flex justify-between items-center p-4 border-b border-gray-700">
-        <div className="flex items-center space-x-2 flex-wrap gap-y-2">
+    <div className="bg-surface border border-line shadow-card rounded-card w-full">
+      {/* Toolbar: search is the hero; "find" controls and "tools" are grouped below */}
+      <div className="p-4 border-b border-line space-y-3">
+        {/* Row 1 — search + primary action */}
+        <div className="flex items-start gap-3">
+          <div className="flex-grow min-w-0">
+            <SearchFilter onFilterChange={handleSearchFilterChange} />
+          </div>
           <button
-            onClick={() => setViewMode('card')}
-            className="px-3 py-1.5 rounded-md flex items-center gap-2 transition-colors duration-200 bg-blue-600 text-white"
-            title="Card View"
+            onClick={handlers.handleAddRow}
+            className="flex-shrink-0 px-3 py-2 bg-accent text-accent-fg rounded-md flex items-center gap-2 hover:bg-accent-hover transition-colors"
           >
-            <List size={16} />
-            <span className="hidden sm:inline">Card View</span>
+            <Plus size={16} />
+            <span className="hidden sm:inline">Add Row</span>
           </button>
-          
-          {/* Add Templates Button */}
-          <button
-            onClick={() => {
-              if (showTemplates) {
-                clearSelectedCards();
-              }
-              setShowTemplates(!showTemplates);
-            }}
-            className={`px-3 py-1.5 rounded-md flex items-center gap-2 transition-colors duration-200 ${
-              showTemplates ? 'bg-green-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-            }`}
-            title="Toggle Templates"
-          >
-            <FileText size={16} />
-            <span className="hidden sm:inline">Templates</span>
-          </button>
-          
-          {/* Card Field Settings */}
-          <CardFieldSettings 
-            currentUser={currentUser}
-            onSettingsChange={handleCardFieldsChange}
-          />
-          
-          {/* Show count of selected cards when in merge mode */}
-          {templateMode === 'merge' && selectedCardsForMerge.length > 0 && (
-            <div className="px-3 py-1.5 rounded-md bg-green-700 text-white flex items-center gap-2">
-              <Check size={16} />
-              <span>{selectedCardsForMerge.length} cards selected</span>
-              <button 
-                onClick={clearSelectedCards}
-                className="ml-2 text-xs bg-green-800 hover:bg-green-900 px-2 py-1 rounded"
-              >
-                Clear
-              </button>
-            </div>
-          )}
         </div>
-        
-        <button 
-          onClick={handlers.handleAddRow}
-          className="px-3 py-1.5 bg-blue-600 text-white rounded-md flex items-center gap-2 hover:bg-blue-700 transition-colors duration-200"
-        >
-          <Plus size={16} />
-          <span className="hidden sm:inline">Add Row</span>
-        </button>
+
+        {/* Row 2 — left: find controls (date, saved views) · right: tools */}
+        <div className="flex justify-between items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-2 flex-wrap">
+            <DateRangeFilter onFilterChange={handleDateFilterChange} />
+            <SavedViews
+              views={savedViews}
+              onSave={handleSaveView}
+              onApply={handleApplyView}
+              onDelete={handleDeleteView}
+              canSave={hasActiveFilters}
+            />
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              onClick={() => { if (showTemplates) clearSelectedCards(); setShowTemplates(!showTemplates); }}
+              className={`px-3 py-1.5 rounded-md flex items-center gap-2 border text-sm transition-colors ${
+                showTemplates ? 'bg-success/20 border-success/40 text-success' : 'bg-surface-2 border-line text-content hover:bg-surface-3'
+              }`}
+              title="Save cards as reusable templates"
+            >
+              <FileText size={16} />
+              <span className="hidden sm:inline">Templates</span>
+            </button>
+            <button
+              onClick={() => (bulkMode ? exitBulk() : setBulkMode(true))}
+              className={`px-3 py-1.5 rounded-md flex items-center gap-2 border text-sm transition-colors ${
+                bulkMode ? 'bg-accent/20 border-accent/40 text-accent' : 'bg-surface-2 border-line text-content hover:bg-surface-3'
+              }`}
+              title="Select multiple logs for bulk actions"
+            >
+              <CheckSquare size={16} />
+              <span className="hidden sm:inline">Select</span>
+            </button>
+            <CardFieldSettings
+              currentUser={currentUser}
+              onSettingsChange={handleCardFieldsChange}
+            />
+          </div>
+        </div>
+
+        {/* Row 3 — tag filter */}
+        <TagFilter
+          availableTags={availableTags}
+          selectedTags={selectedTags}
+          onTagToggle={handleTagToggle}
+          onClearAll={() => setSelectedTags([])}
+          showStats={true}
+        />
+
+        {/* Active-filter summary */}
+        {hasActiveFilters && (
+          <div className="flex items-center justify-between pt-3 border-t border-line">
+            <div className="text-muted text-sm flex items-center gap-2">
+              <Filter size={16} className="text-accent" />
+              <span>
+                Showing {filteredLogs.length} of {logs.length} logs
+                {selectedTags.length > 0 && (
+                  <span className="ml-2 text-xs bg-accent/20 text-accent px-2 py-0.5 rounded">
+                    {selectedTags.length} tag{selectedTags.length !== 1 ? 's' : ''} applied
+                  </span>
+                )}
+              </span>
+            </div>
+            <button
+              onClick={clearAllFilters}
+              className="px-3 py-1 bg-surface-2 text-muted rounded-md text-sm hover:bg-surface-3 transition-colors duration-200"
+            >
+              Clear All Filters
+            </button>
+          </div>
+        )}
       </div>
-      
-      {/* Templates Section */}
+
+      {/* Templates panel — appears under the toolbar when toggled on */}
       {showTemplates && (
-        <TemplateManager 
+        <TemplateManager
           currentCard={getCurrentCard()}
           selectedCards={getSelectedCards()}
           templateMode={templateMode}
@@ -388,88 +485,63 @@ const { fetchAllTags, fetchTagsForLogs } = useTagsApi(csrfToken);
           csrfToken={csrfToken}
         />
       )}
-      
-      {/* Filter section */}
-      <div className="p-4 border-b border-gray-700 bg-gray-900/30">
-        <div className="flex flex-col space-y-3">
-          <div className="flex flex-col md:flex-row items-start gap-4">
-            {/* Date filter */}
-            <DateRangeFilter onFilterChange={handleDateFilterChange} />
-            
-            {/* Enhanced Search filter */}
-            <div className="flex-grow">
-              <SearchFilter onFilterChange={handleSearchFilterChange} />
-            </div>
-          </div>
-          
-          {/* Tag Filter */}
-          <TagFilter
-            availableTags={availableTags}
-            selectedTags={selectedTags}
-            onTagToggle={handleTagToggle}
-            onClearAll={() => setSelectedTags([])}
-            showStats={true}
-          />
-        </div>
-        
-        {/* Filter status and clear all button */}
-        {hasActiveFilters && (
-          <div className="flex items-center justify-between mt-3 pt-3 border-t border-gray-700">
-            <div className="text-gray-300 text-sm flex items-center gap-2">
-              <Filter size={16} className="text-blue-400" />
-              <span>
-                Showing {filteredLogs.length} of {logs.length} logs
-                {selectedTags.length > 0 && (
-                  <span className="ml-2 text-xs bg-blue-600/20 px-2 py-0.5 rounded">
-                    {selectedTags.length} tag{selectedTags.length !== 1 ? 's' : ''} applied
-                  </span>
-                )}
-              </span>
-            </div>
-            
-            <button
-              onClick={clearAllFilters}
-              className="px-3 py-1 bg-gray-700 text-gray-300 rounded-md text-sm hover:bg-gray-600 transition-colors duration-200"
-            >
-              Clear All Filters
-            </button>
-          </div>
-        )}
-      </div>
-      
+
       {/* Content area */}
       <div className="p-4">
+        {bulkMode && selectedForBulk.size > 0 && (
+          <BulkActionBar
+            count={selectedForBulk.size}
+            isAdmin={isAdmin}
+            operations={operations}
+            onSetStatus={handleBulkStatus}
+            onAssignOp={handleBulkAssignOp}
+            onDelete={handleBulkDelete}
+            onClear={exitBulk}
+          />
+        )}
         {filteredLogs.length === 0 ? (
-          <div className="text-center py-8 text-gray-400">
-            {logs.length === 0 ? (
-              <p>No logs found. Click "Add Row" to create your first log entry.</p>
-            ) : (
-              <div>
-                <AlertCircle className="w-10 h-10 text-yellow-400 mx-auto mb-2" />
-                <p>No logs match your current filters.</p>
-                <button
-                  onClick={clearAllFilters}
-                  className="mt-2 px-4 py-2 bg-gray-700 text-white rounded-md hover:bg-gray-600 transition-colors"
-                >
-                  Clear Filters
-                </button>
-              </div>
-            )}
-          </div>
+          logs.length === 0 ? (
+            <EmptyState
+              icon={FileText}
+              title="No logs yet"
+              message='Click "Add Row" to create your first log entry for this operation.'
+              action={{ label: 'Add Row', icon: Plus, onClick: handlers.handleAddRow }}
+            />
+          ) : (
+            <EmptyState
+              icon={Filter}
+              title="No logs match your filters"
+              message="Try widening your search, date range, or tag selection."
+              action={{ label: 'Clear all filters', onClick: clearAllFilters }}
+            />
+          )
         ) : (
           <div className="space-y-2 mb-4">
             {pagination.paginatedItems.map(row => (
-              <div 
-                key={row.id} 
-                className={`relative ${
-                  selectedCardForSave === row.id ? 
-                    'ring-2 ring-blue-500' : 
+              <div
+                key={row.id}
+                className={`relative rounded-card ${
+                  bulkMode && selectedForBulk.has(row.id) ?
+                    'ring-2 ring-accent' :
+                  selectedCardForSave === row.id ?
+                    'ring-2 ring-accent' :
                     selectedCardsForMerge.includes(row.id) ?
-                    'ring-2 ring-green-500' : 
+                    'ring-2 ring-success' :
                     ''
                 }`}
               >
-                {showTemplates && (
+                {bulkMode && (
+                  <button
+                    onClick={() => toggleBulk(row.id)}
+                    className="absolute -left-2 top-2 z-10 p-1 rounded-md bg-surface-2 border border-line text-muted hover:text-content shadow-card"
+                    title="Select for bulk action"
+                  >
+                    {selectedForBulk.has(row.id)
+                      ? <CheckSquare size={16} className="text-accent" />
+                      : <Square size={16} />}
+                  </button>
+                )}
+                {showTemplates && !bulkMode && (
                   <div className="absolute -left-2 top-2 z-10 flex flex-col gap-.5">
                     {/* Template Save Button */}
                     <button
@@ -515,6 +587,7 @@ const { fetchAllTags, fetchTagsForLogs } = useTagsApi(csrfToken);
                   csrfToken={csrfToken}
                   visibleFields={visibleFields}
                   availableTags={availableTags}
+                  tags={logTags[row.id] || []}
                   onTagsUpdate={handleLogTagsUpdate}
                 />
               </div>

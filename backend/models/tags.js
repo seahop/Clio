@@ -19,17 +19,30 @@ class TagsModel {
 
   /**
    * Get tags for a specific log
+   * When operationTagId is provided, only return rows if the log carries that
+   * operation tag (operation-scoped access for non-admin users / admin view filter).
    */
-  static async getLogTags(logId) {
+  static async getLogTags(logId, operationTagId = null) {
     try {
-      const result = await db.query(
-        `SELECT t.*, lt.tagged_by, lt.tagged_at
+      let query = `SELECT t.*, lt.tagged_by, lt.tagged_at
          FROM tags t
          JOIN log_tags lt ON t.id = lt.tag_id
-         WHERE lt.log_id = $1
-         ORDER BY lt.tagged_at DESC`,
-        [logId]
-      );
+         WHERE lt.log_id = $1`;
+      const params = [logId];
+
+      if (operationTagId) {
+        query += `
+         AND EXISTS (
+           SELECT 1 FROM log_tags slt
+           WHERE slt.log_id = $1 AND slt.tag_id = $2
+         )`;
+        params.push(operationTagId);
+      }
+
+      query += `
+         ORDER BY lt.tagged_at DESC`;
+
+      const result = await db.query(query, params);
       return result.rows;
     } catch (error) {
       console.error('Error getting log tags:', error);
@@ -40,20 +53,30 @@ class TagsModel {
   /**
    * Get tags for multiple logs (batch operation)
    */
-  static async getTagsForLogs(logIds) {
+  static async getTagsForLogs(logIds, operationTagId = null) {
     try {
       if (!logIds || logIds.length === 0) {
         return {};
       }
 
-      const result = await db.query(
-        `SELECT lt.log_id, t.*, lt.tagged_by, lt.tagged_at
+      let query = `SELECT lt.log_id, t.*, lt.tagged_by, lt.tagged_at
          FROM tags t
          JOIN log_tags lt ON t.id = lt.tag_id
-         WHERE lt.log_id = ANY($1)
-         ORDER BY lt.log_id, lt.tagged_at DESC`,
-        [logIds]
-      );
+         WHERE lt.log_id = ANY($1)`;
+      const params = [logIds];
+
+      if (operationTagId) {
+        query += `
+         AND lt.log_id IN (
+           SELECT slt.log_id FROM log_tags slt WHERE slt.tag_id = $2
+         )`;
+        params.push(operationTagId);
+      }
+
+      query += `
+         ORDER BY lt.log_id, lt.tagged_at DESC`;
+
+      const result = await db.query(query, params);
 
       // Group tags by log_id
       const tagsByLogId = {};
@@ -552,22 +575,34 @@ class TagsModel {
 
   /**
    * Get logs by tag IDs
+   * When operationTagId is provided, only return logs that carry that
+   * operation tag (operation-scoped access for non-admin users / admin view filter).
    */
-  static async getLogsByTagIds(tagIds) {
+  static async getLogsByTagIds(tagIds, operationTagId = null) {
     try {
       if (!tagIds || tagIds.length === 0) {
         return [];
       }
 
-      const result = await db.query(
-        `SELECT DISTINCT l.*
+      let query = `SELECT DISTINCT l.*
          FROM logs l
          JOIN log_tags lt ON l.id = lt.log_id
-         WHERE lt.tag_id = ANY($1)
-         ORDER BY l.timestamp DESC`,
-        [tagIds]
-      );
-      
+         WHERE lt.tag_id = ANY($1)`;
+      const params = [tagIds];
+
+      if (operationTagId) {
+        query += `
+         AND l.id IN (
+           SELECT slt.log_id FROM log_tags slt WHERE slt.tag_id = $2
+         )`;
+        params.push(operationTagId);
+      }
+
+      query += `
+         ORDER BY l.timestamp DESC`;
+
+      const result = await db.query(query, params);
+
       return result.rows;
     } catch (error) {
       console.error('Error getting logs by tag IDs:', error);
@@ -578,7 +613,7 @@ class TagsModel {
   /**
    * Get logs by tag names
    */
-  static async getLogsByTagNames(tagNames) {
+  static async getLogsByTagNames(tagNames, operationTagId = null) {
     try {
       if (!tagNames || tagNames.length === 0) {
         return [];
@@ -587,16 +622,26 @@ class TagsModel {
       // Normalize tag names
       const normalizedNames = tagNames.map(name => name.toLowerCase().trim());
 
-      const result = await db.query(
-        `SELECT DISTINCT l.*
+      let query = `SELECT DISTINCT l.*
          FROM logs l
          JOIN log_tags lt ON l.id = lt.log_id
          JOIN tags t ON lt.tag_id = t.id
-         WHERE t.name = ANY($1)
-         ORDER BY l.timestamp DESC`,
-        [normalizedNames]
-      );
-      
+         WHERE t.name = ANY($1)`;
+      const params = [normalizedNames];
+
+      if (operationTagId) {
+        query += `
+         AND l.id IN (
+           SELECT slt.log_id FROM log_tags slt WHERE slt.tag_id = $2
+         )`;
+        params.push(operationTagId);
+      }
+
+      query += `
+         ORDER BY l.timestamp DESC`;
+
+      const result = await db.query(query, params);
+
       return result.rows;
     } catch (error) {
       console.error('Error getting logs by tag names:', error);

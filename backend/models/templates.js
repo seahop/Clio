@@ -38,6 +38,41 @@ const TemplatesModel = {
   },
   
   /**
+   * Get a single template by ID
+   * @param {Number} id - Template ID
+   * @returns {Promise<Object|null>} Template or null if not found
+   */
+  async getTemplateById(id) {
+    try {
+      const result = await db.query(
+        'SELECT * FROM log_templates WHERE id = $1',
+        [id]
+      );
+
+      if (result.rows.length === 0) {
+        return null;
+      }
+
+      const template = result.rows[0];
+
+      // Add the data property with the parsed template_data
+      try {
+        template.data = typeof template.template_data === 'string'
+          ? JSON.parse(template.template_data)
+          : template.template_data;
+      } catch (e) {
+        console.error('Error parsing template data:', e);
+        template.data = {};
+      }
+
+      return template;
+    } catch (error) {
+      console.error('Error getting template by ID:', error);
+      throw error;
+    }
+  },
+
+  /**
    * Create a new template
    * @param {Object} templateData - Template data to save
    * @returns {Promise<Object>} Created template

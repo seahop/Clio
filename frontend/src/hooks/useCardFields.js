@@ -23,7 +23,9 @@ export const useCardFields = (currentUser) => {
       if (username) {
         const savedSettings = localStorage.getItem(`${username}_cardFields`);
         if (savedSettings) {
-          setVisibleFields(JSON.parse(savedSettings));
+          // Merge over the defaults so newly added default fields aren't
+          // silently hidden by an older saved settings object
+          setVisibleFields({ ...DEFAULT_CARD_FIELDS, ...JSON.parse(savedSettings) });
         }
       }
     } catch (error) {

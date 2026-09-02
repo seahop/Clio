@@ -182,8 +182,8 @@ const S3ConfigPanel = ({ csrfToken, onConfigSaved }) => {
   };
 
   return (
-    <div className="bg-gray-800 p-5 rounded-lg border border-gray-700">
-      <h3 className="text-lg font-medium text-white mb-4 flex items-center gap-2">
+    <div className="bg-surface p-5 rounded-lg border border-line">
+      <h3 className="text-lg font-medium text-content mb-4 flex items-center gap-2">
         <CloudUpload className="text-blue-400" size={20} />
         S3 Export Configuration
       </h3>
@@ -199,17 +199,17 @@ const S3ConfigPanel = ({ csrfToken, onConfigSaved }) => {
       )}
 
       <div className="mb-4">
-        <label className="flex items-center gap-2 text-gray-300 mb-1 cursor-pointer">
+        <label className="flex items-center gap-2 text-muted mb-1 cursor-pointer">
           <input
             type="checkbox"
             name="enabled"
             checked={config.enabled}
             onChange={handleChange}
-            className="rounded border-gray-600 text-blue-600 focus:ring-blue-500 bg-gray-700"
+            className="rounded border-line text-blue-600 focus:ring-blue-500 bg-surface-2"
           />
           <span className="select-none">Enable S3 Export for Log Rotation</span>
         </label>
-        <p className="text-sm text-gray-400 mt-1">
+        <p className="text-sm text-muted mt-1">
           When enabled, log files will be automatically uploaded to the specified S3 bucket during rotation.
         </p>
       </div>
@@ -217,32 +217,32 @@ const S3ConfigPanel = ({ csrfToken, onConfigSaved }) => {
       <div className={config.enabled ? "space-y-4" : "space-y-4 opacity-50 pointer-events-none"}>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm text-gray-400 mb-1">S3 Bucket Name</label>
+            <label className="block text-sm text-muted mb-1">S3 Bucket Name</label>
             <input
               type="text"
               name="bucket"
               value={config.bucket}
               onChange={handleChange}
               placeholder="my-logs-bucket"
-              className="w-full bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-white"
+              className="w-full bg-surface-2 border border-line rounded-md px-3 py-2 text-content"
             />
           </div>
           <div>
-            <label className="block text-sm text-gray-400 mb-1">AWS Region</label>
+            <label className="block text-sm text-muted mb-1">AWS Region</label>
             <input
               type="text"
               name="region"
               value={config.region}
               onChange={handleChange}
               placeholder="us-east-1"
-              className="w-full bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-white"
+              className="w-full bg-surface-2 border border-line rounded-md px-3 py-2 text-content"
             />
           </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm text-gray-400 mb-1">Access Key ID</label>
+            <label className="block text-sm text-muted mb-1">Access Key ID</label>
             <div className="relative">
               <input
                 type="text"
@@ -250,13 +250,13 @@ const S3ConfigPanel = ({ csrfToken, onConfigSaved }) => {
                 value={config.accessKeyId}
                 onChange={handleChange}
                 placeholder="AKIAIOSFODNN7EXAMPLE"
-                className="w-full bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-white"
+                className="w-full bg-surface-2 border border-line rounded-md px-3 py-2 text-content"
               />
-              <Key size={16} className="absolute right-3 top-2.5 text-gray-500" />
+              <Key size={16} className="absolute right-3 top-2.5 text-faint" />
             </div>
           </div>
           <div>
-            <label className="block text-sm text-gray-400 mb-1">Secret Access Key</label>
+            <label className="block text-sm text-muted mb-1">Secret Access Key</label>
             <div className="relative">
               <input
                 type="password"
@@ -264,24 +264,24 @@ const S3ConfigPanel = ({ csrfToken, onConfigSaved }) => {
                 value={config.secretAccessKey}
                 onChange={handleChange}
                 placeholder="wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
-                className="w-full bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-white"
+                className="w-full bg-surface-2 border border-line rounded-md px-3 py-2 text-content"
               />
-              <Lock size={16} className="absolute right-3 top-2.5 text-gray-500" />
+              <Lock size={16} className="absolute right-3 top-2.5 text-faint" />
             </div>
           </div>
         </div>
 
         <div>
-          <label className="block text-sm text-gray-400 mb-1">S3 Path Prefix</label>
+          <label className="block text-sm text-muted mb-1">S3 Path Prefix</label>
           <input
             type="text"
             name="prefix"
             value={config.prefix}
             onChange={handleChange}
             placeholder="logs/"
-            className="w-full bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-white"
+            className="w-full bg-surface-2 border border-line rounded-md px-3 py-2 text-content"
           />
-          <p className="text-xs text-gray-500 mt-1">
+          <p className="text-xs text-faint mt-1">
             Optional prefix for the S3 object key, e.g., "logs/" will store files as "logs/filename.zip"
           </p>
         </div>
@@ -291,7 +291,7 @@ const S3ConfigPanel = ({ csrfToken, onConfigSaved }) => {
         <button
           onClick={fetchConfig}
           disabled={loading}
-          className="px-3 py-2 bg-gray-700 text-gray-300 rounded-md text-sm flex items-center gap-1 hover:bg-gray-600 disabled:opacity-50"
+          className="px-3 py-2 bg-surface-2 text-muted rounded-md text-sm flex items-center gap-1 hover:bg-surface-3 disabled:opacity-50"
         >
           <RefreshCw size={16} className={loading ? "animate-spin" : ""} />
           {loading ? 'Loading...' : 'Refresh'}
@@ -301,7 +301,7 @@ const S3ConfigPanel = ({ csrfToken, onConfigSaved }) => {
           <button
             onClick={testConnection}
             disabled={saving || loading}
-            className="px-3 py-2 bg-green-700 text-white rounded-md text-sm flex items-center gap-1 hover:bg-green-600 disabled:opacity-50"
+            className="px-3 py-2 bg-green-700 text-content rounded-md text-sm flex items-center gap-1 hover:bg-green-600 disabled:opacity-50"
           >
             <Database size={16} />
             Test Connection
@@ -311,7 +311,7 @@ const S3ConfigPanel = ({ csrfToken, onConfigSaved }) => {
         <button
           onClick={saveConfig}
           disabled={saving || loading}
-          className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm flex items-center gap-1 hover:bg-blue-700 disabled:opacity-50"
+          className="px-4 py-2 bg-accent text-content rounded-md text-sm flex items-center gap-1 hover:bg-accent-hover disabled:opacity-50"
         >
           {saving ? (
             <>

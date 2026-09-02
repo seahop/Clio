@@ -8,6 +8,8 @@ const fs = require('fs').promises;
 const crypto = require('crypto');
 const EvidenceModel = require('../models/evidence');
 const LogsModel = require('../models/logs');
+const TagsModel = require('../models/tags');
+const OperationsModel = require('../models/operations');
 const eventLogger = require('../lib/eventLogger');
 const { authenticateJwt } = require('../middleware/jwt.middleware');
 const { sanitizeRequestMiddleware } = require('../middleware/sanitize.middleware');
@@ -49,11 +51,17 @@ const fileFilter = (req, file, cb) => {
     'image/gif', 
     'application/pdf',
     'text/plain',
-    'application/vnd.tcpdump.pcap',
-    'application/octet-stream'
+    'application/vnd.tcpdump.pcap'
   ];
-  
+
+  // Browsers commonly upload pcaps as application/octet-stream, so accept
+  // generic binary only when the extension is on an explicit allowlist
+  const octetStreamExtensions = ['.pcap', '.pcapng', '.cap'];
+
   if (allowedTypes.includes(file.mimetype)) {
+    cb(null, true);
+  } else if (file.mimetype === 'application/octet-stream' &&
+             octetStreamExtensions.includes(path.extname(file.originalname).toLowerCase())) {
     cb(null, true);
   } else {
     cb(new Error('Invalid file type. Only JPEG, PNG, GIF, PDF, TXT, and PCAP files are allowed.'), false);
@@ -70,30 +78,57 @@ const upload = multer({
   fileFilter: fileFilter
 });
 
+// Operation scoping check: non-admin users may only access logs that carry
+// their active operation's tag. Admins bypass. Fails closed on any error.
+const userCanAccessLog = async (user, logId) => {
+  if (user.role === 'admin') {
+    return true;
+  }
+
+  try {
+    const activeOp = await OperationsModel.getUserActiveOperation(user.username);
+
+    if (!activeOp || !activeOp.tag_id) {
+      return false;
+    }
+
+    const logTags = await TagsModel.getLogTags(logId);
+    return logTags.some(tag => tag.id === activeOp.tag_id);
+  } catch (error) {
+    console.error('Error checking log operation access:', error);
+    return false;
+  }
+};
+
 // Validate log ownership before allowing uploads
 const validateLogAccess = async (req, res, next) => {
   try {
     const logId = parseInt(req.params.logId);
-    
+
     if (isNaN(logId)) {
       return res.status(400).json({ error: 'Invalid log ID' });
     }
-    
+
     // Get the log to verify it exists
     const log = await LogsModel.getLogById(logId);
-    
+
     if (!log) {
       return res.status(404).json({ error: 'Log not found' });
     }
-    
+
     // Check if the log is locked and by whom
     if (log.locked && log.locked_by !== req.user.username && req.user.role !== 'admin') {
-      return res.status(403).json({ 
+      return res.status(403).json({
         error: 'Access denied',
         detail: `This log is locked by ${log.locked_by}`
       });
     }
-    
+
+    // Enforce operation scoping
+    if (!(await userCanAccessLog(req.user, logId))) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
     // All checks passed, proceed
     next();
   } catch (error) {
@@ -102,15 +137,73 @@ const validateLogAccess = async (req, res, next) => {
   }
 };
 
-// Get all evidence files for a log
-router.get('/:logId', authenticateJwt, async (req, res) => {
+// Enforce operation scoping for read access to a log's evidence
+const validateLogViewAccess = async (req, res, next) => {
   try {
     const logId = parseInt(req.params.logId);
-    
+
     if (isNaN(logId)) {
       return res.status(400).json({ error: 'Invalid log ID' });
     }
-    
+
+    const log = await LogsModel.getLogById(logId);
+
+    if (!log) {
+      return res.status(404).json({ error: 'Log not found' });
+    }
+
+    if (!(await userCanAccessLog(req.user, logId))) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    next();
+  } catch (error) {
+    console.error('Error validating log access:', error);
+    res.status(500).json({ error: 'Failed to validate log access' });
+  }
+};
+
+// Resolve an evidence file's parent log and enforce the same operation scoping
+const validateFileAccess = async (req, res, next) => {
+  try {
+    const fileId = parseInt(req.params.fileId);
+
+    if (isNaN(fileId)) {
+      return res.status(400).json({ error: 'Invalid file ID' });
+    }
+
+    const evidenceFile = await EvidenceModel.getEvidenceFileById(fileId);
+
+    if (!evidenceFile) {
+      return res.status(404).json({ error: 'Evidence file not found' });
+    }
+
+    if (!(await userCanAccessLog(req.user, evidenceFile.log_id))) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    req.evidenceFile = evidenceFile;
+    next();
+  } catch (error) {
+    console.error('Error validating evidence file access:', error);
+    res.status(500).json({ error: 'Failed to validate evidence file access' });
+  }
+};
+
+// Strip characters that could break or split the Content-Disposition header
+const sanitizeHeaderFilename = (filename) => {
+  const cleaned = String(filename || '')
+    .replace(/[\r\n"\\]/g, '')
+    .replace(/[^\x20-\x7e]/g, '_')
+    .trim();
+  return cleaned || 'download';
+};
+
+// Get all evidence files for a log
+router.get('/:logId', authenticateJwt, validateLogViewAccess, async (req, res) => {
+  try {
+    const logId = parseInt(req.params.logId);
+
     const evidenceFiles = await EvidenceModel.getEvidenceFilesByLogId(logId);
     
     // Log the access
@@ -193,20 +286,11 @@ router.post('/:logId/upload', authenticateJwt, validateLogAccess, upload.array('
 });
 
 // Get a specific evidence file
-router.get('/file/:fileId', authenticateJwt, async (req, res) => {
+router.get('/file/:fileId', authenticateJwt, validateFileAccess, async (req, res) => {
   try {
     const fileId = parseInt(req.params.fileId);
-    
-    if (isNaN(fileId)) {
-      return res.status(400).json({ error: 'Invalid file ID' });
-    }
-    
-    const evidenceFile = await EvidenceModel.getEvidenceFileById(fileId);
-    
-    if (!evidenceFile) {
-      return res.status(404).json({ error: 'Evidence file not found' });
-    }
-    
+    const evidenceFile = req.evidenceFile;
+
     // Log the access
     await eventLogger.logDataEvent('view_evidence_file', req.user.username, {
       fileId,
@@ -214,12 +298,12 @@ router.get('/file/:fileId', authenticateJwt, async (req, res) => {
       filename: evidenceFile.original_filename,
       timestamp: new Date().toISOString()
     });
-    
+
     // Send the file
     res.sendFile(evidenceFile.filepath, {
       headers: {
         'Content-Type': evidenceFile.file_type,
-        'Content-Disposition': `inline; filename="${evidenceFile.original_filename}"`
+        'Content-Disposition': `inline; filename="${sanitizeHeaderFilename(evidenceFile.original_filename)}"`
       }
     });
   } catch (error) {
@@ -229,20 +313,11 @@ router.get('/file/:fileId', authenticateJwt, async (req, res) => {
 });
 
 // Download a specific evidence file
-router.get('/file/:fileId/download', authenticateJwt, async (req, res) => {
+router.get('/file/:fileId/download', authenticateJwt, validateFileAccess, async (req, res) => {
   try {
     const fileId = parseInt(req.params.fileId);
-    
-    if (isNaN(fileId)) {
-      return res.status(400).json({ error: 'Invalid file ID' });
-    }
-    
-    const evidenceFile = await EvidenceModel.getEvidenceFileById(fileId);
-    
-    if (!evidenceFile) {
-      return res.status(404).json({ error: 'Evidence file not found' });
-    }
-    
+    const evidenceFile = req.evidenceFile;
+
     // Log the download
     await eventLogger.logDataEvent('download_evidence', req.user.username, {
       fileId,
@@ -252,7 +327,7 @@ router.get('/file/:fileId/download', authenticateJwt, async (req, res) => {
     });
     
     // Send the file as attachment
-    res.download(evidenceFile.filepath, evidenceFile.original_filename);
+    res.download(evidenceFile.filepath, sanitizeHeaderFilename(evidenceFile.original_filename));
   } catch (error) {
     console.error('Error downloading evidence file:', error);
     res.status(500).json({ error: 'Failed to download evidence file' });

@@ -133,6 +133,69 @@ const LogsModel = {
     }
   },
 
+  // Resolve the operation-tag scope for the current viewer, mirroring
+  // getAllLogs: admin → admin_view_filter (null = all operations); non-admin →
+  // active operation tag (null → no access). Returns { tagId, hasScope }.
+  async _resolveScopeTagId(username, isAdmin) {
+    if (isAdmin) {
+      let filterTagId = null;
+      try { filterTagId = await OperationsModel.getAdminViewFilter(username); } catch (_) {}
+      return { tagId: filterTagId || null, hasScope: true };  // admin always has scope (all)
+    }
+    const activeOp = await OperationsModel.getUserActiveOperation(username);
+    return { tagId: activeOp?.tag_id || null, hasScope: !!(activeOp && activeOp.tag_id) };
+  },
+
+  // Aggregate dashboard statistics for the viewer's operation scope.
+  async getStats(username = null, isAdmin = false) {
+    const { tagId, hasScope } = await this._resolveScopeTagId(username, isAdmin);
+    const empty = {
+      total: 0, locked: 0, distinctHosts: 0, distinctUsers: 0,
+      byStatus: [], topHosts: [], topUsers: [], topCommands: [], activity: []
+    };
+    if (!hasScope) return empty;
+
+    // Base source: all logs (admin unscoped) or logs INNER-JOINed to the
+    // operation tag. Keeping the tag filter in the JOIN's ON clause leaves each
+    // query's WHERE free for its own column filters.
+    const base = tagId
+      ? `FROM logs l JOIN log_tags lt ON l.id = lt.log_id AND lt.tag_id = $1`
+      : `FROM logs l`;
+    const p = tagId ? [tagId] : [];
+    const q = (sql) => db.query(sql, p);
+
+    const [totals, byStatus, topHosts, topUsers, topCommands, activity] = await Promise.all([
+      q(`SELECT COUNT(DISTINCT l.id)::int AS total,
+                COUNT(DISTINCT l.id) FILTER (WHERE l.locked)::int AS locked,
+                COUNT(DISTINCT l.hostname) FILTER (WHERE l.hostname IS NOT NULL AND l.hostname <> '')::int AS hosts,
+                COUNT(DISTINCT l.username) FILTER (WHERE l.username IS NOT NULL AND l.username <> '')::int AS users
+         ${base}`),
+      q(`SELECT COALESCE(NULLIF(l.status,''),'UNKNOWN') AS status, COUNT(DISTINCT l.id)::int AS count
+         ${base} GROUP BY 1 ORDER BY 2 DESC`),
+      q(`SELECT l.hostname AS name, COUNT(DISTINCT l.id)::int AS count
+         ${base} WHERE l.hostname IS NOT NULL AND l.hostname <> '' GROUP BY 1 ORDER BY 2 DESC LIMIT 8`),
+      q(`SELECT l.username AS name, COUNT(DISTINCT l.id)::int AS count
+         ${base} WHERE l.username IS NOT NULL AND l.username <> '' GROUP BY 1 ORDER BY 2 DESC LIMIT 8`),
+      q(`SELECT l.command AS name, COUNT(DISTINCT l.id)::int AS count
+         ${base} WHERE l.command IS NOT NULL AND l.command <> '' GROUP BY 1 ORDER BY 2 DESC LIMIT 8`),
+      q(`SELECT to_char(date_trunc('day', l.timestamp), 'YYYY-MM-DD') AS day, COUNT(DISTINCT l.id)::int AS count
+         ${base} WHERE l.timestamp > NOW() - INTERVAL '30 days' GROUP BY 1 ORDER BY 1`),
+    ]);
+
+    const t = totals.rows[0] || {};
+    return {
+      total: t.total || 0,
+      locked: t.locked || 0,
+      distinctHosts: t.hosts || 0,
+      distinctUsers: t.users || 0,
+      byStatus: byStatus.rows,
+      topHosts: topHosts.rows,
+      topUsers: topUsers.rows,
+      topCommands: topCommands.rows,
+      activity: activity.rows,
+    };
+  },
+
   async checkForDuplicate(logData) {
     try {
       // Build a query to check for existing logs with the same key fields
@@ -233,14 +296,21 @@ const LogsModel = {
     try {
       // Process updates for storage
       const processedUpdates = this._processForStorage(updates);
-      
+
       // Build dynamic update query
       const fields = [];
       const values = [];
       let valueIndex = 1;
-      
+
+      const UPDATABLE_COLUMNS = [
+        'timestamp', 'internal_ip', 'external_ip', 'mac_address', 'hostname',
+        'domain', 'username', 'command', 'notes', 'filename', 'status',
+        'secrets', 'hash_algorithm', 'hash_value', 'pid', 'analyst',
+        'locked', 'locked_by', 'mitre_techniques'
+      ];
+
       Object.keys(processedUpdates).forEach(key => {
-        if (processedUpdates[key] !== undefined && key !== 'id') {
+        if (processedUpdates[key] !== undefined && UPDATABLE_COLUMNS.includes(key)) {
           fields.push(`${key} = $${valueIndex}`);
           values.push(processedUpdates[key]);
           valueIndex++;

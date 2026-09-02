@@ -3,7 +3,7 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: {{ include "clio.fullname" . }}-redis
-  namespace: {{ .Values.namespace }}
+  namespace: {{ include "clio.namespace" . }}
   labels:
     {{- include "clio.labels" . | nindent 4 }}
     app.kubernetes.io/component: redis
@@ -46,23 +46,23 @@ spec:
               mountPath: /data
             - name: config
               mountPath: /etc/redis
+          # $(VAR) is NOT expanded in exec probes (only in command/args), so
+          # these go through a shell to read the env var.
           readinessProbe:
             exec:
               command:
-                - redis-cli
-                - -a
-                - $(REDIS_PASSWORD)
-                - ping
+                - sh
+                - -c
+                - redis-cli -a "$REDIS_PASSWORD" --no-auth-warning ping | grep -q PONG
             initialDelaySeconds: 5
             periodSeconds: 10
             failureThreshold: 5
           livenessProbe:
             exec:
               command:
-                - redis-cli
-                - -a
-                - $(REDIS_PASSWORD)
-                - ping
+                - sh
+                - -c
+                - redis-cli -a "$REDIS_PASSWORD" --no-auth-warning ping | grep -q PONG
             initialDelaySeconds: 15
             periodSeconds: 30
           resources:
@@ -87,7 +87,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: {{ include "clio.fullname" . }}-redis
-  namespace: {{ .Values.namespace }}
+  namespace: {{ include "clio.namespace" . }}
   labels:
     {{- include "clio.labels" . | nindent 4 }}
     app.kubernetes.io/component: redis

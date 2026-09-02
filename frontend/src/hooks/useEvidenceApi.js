@@ -25,13 +25,15 @@ export const useEvidenceApi = (csrfToken) => {
       }
     }
     
-    // Handle error responses
+    // Handle error responses — parse the body first so a JSON parse failure
+    // doesn't swallow the server's error message
+    let errorData = null;
     try {
-      const errorData = await response.json();
-      throw new Error(errorData.error || `Server error: ${response.status}`);
+      errorData = await response.json();
     } catch (e) {
-      throw new Error(`Server error: ${response.status}`);
+      // Body wasn't JSON; fall back to a generic message below
     }
+    throw new Error(errorData?.error || `Server error: ${response.status}`);
   };
 
   const fetchEvidenceFiles = async (logId) => {

@@ -1,4 +1,5 @@
 // frontend/src/components/export/exportUtils.js
+import { formatUTC } from '../../utils/dateUtils';
 
 /**
  * Format file size for display
@@ -17,26 +18,11 @@ export const formatFileSize = (bytes) => {
    * @returns {string} - Formatted date string
    */
   export const formatDate = (dateString) => {
-    try {
-      // Return a clear message for undefined/null dates
-      if (!dateString) return 'Unknown date';
-  
-      // Try to create a proper date object
-      const date = new Date(dateString);
-      
-      // Detect invalid dates (including epoch time around Jan 1, 1970)
-      if (isNaN(date.getTime()) || date.getFullYear() < 2020) {
-        // If we get a very old date or invalid date, just show the current time
-        return new Date().toLocaleString();
-      }
-      
-      // Otherwise return a properly formatted date
-      return date.toLocaleString();
-    } catch (error) {
-      console.error('Date formatting error:', error);
-      // Return current time as fallback
-      return new Date().toLocaleString();
-    }
+    // Return a clear message for undefined/null dates
+    if (!dateString) return 'Unknown date';
+
+    // formatUTC falls back to the raw value for unparseable dates
+    return formatUTC(dateString);
   };
   
   /**

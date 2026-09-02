@@ -42,9 +42,10 @@ const HASH_ALGOS    = ['SHA256', 'MD5', 'SHA1'];
 function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
 
 function daysAgo(n) {
+  // All timestamps are UTC — use UTC setters and zero out seconds/ms
   const d = new Date();
-  d.setDate(d.getDate() - n);
-  d.setHours(Math.floor(Math.random() * 23), Math.floor(Math.random() * 59));
+  d.setUTCDate(d.getUTCDate() - n);
+  d.setUTCHours(Math.floor(Math.random() * 24), Math.floor(Math.random() * 60), 0, 0);
   return d.toISOString();
 }
 

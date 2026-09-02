@@ -2,12 +2,18 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ include "clio.fullname" . }}-backend
-  namespace: {{ .Values.namespace }}
+  namespace: {{ include "clio.namespace" . }}
   labels:
     {{- include "clio.labels" . | nindent 4 }}
     app.kubernetes.io/component: backend
 spec:
   replicas: {{ .Values.backend.replicas }}
+  # Recreate, not RollingUpdate: the evidence/exports/data PVCs are
+  # ReadWriteOnce, so a surge pod on another node deadlocks the rollout
+  # with a Multi-Attach error. Also see the cron-duplication note in
+  # values.yaml before raising replicas above 1.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       {{- include "clio.selectorLabels" (dict "root" . "component" "backend") | nindent 6 }}
@@ -15,8 +21,10 @@ spec:
     metadata:
       labels:
         {{- include "clio.selectorLabels" (dict "root" . "component" "backend") | nindent 8 }}
-      {{- if .Values.linkerd.enabled }}
       annotations:
+        # Restart pods when config changes
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- if .Values.linkerd.enabled }}
         linkerd.io/inject: enabled
         # Skip Linkerd's outbound mTLS for database ports. Linkerd edge's
         # transport-header protocol breaks opaque TCP (Redis RESP, Postgres),
@@ -24,8 +32,12 @@ spec:
         # Linkerd proxy on each DB pod still accepts plain connections via
         # defaultInboundPolicy: all-unauthenticated.
         config.linkerd.io/skip-outbound-ports: "6379,5432"
-      {{- end }}
+        {{- end }}
     spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       {{- if .Values.backend.podSecurityContext.enabled }}
       securityContext:
         runAsNonRoot: {{ .Values.backend.podSecurityContext.runAsNonRoot }}
@@ -34,8 +46,8 @@ spec:
       {{- end }}
       containers:
         - name: backend
-          image: "{{ .Values.backend.image.repository }}:{{ .Values.backend.image.tag }}"
-          imagePullPolicy: {{ .Values.backend.image.pullPolicy }}
+          image: "{{ .Values.backend.image.repository }}:{{ include "clio.imageTag" (dict "root" . "image" .Values.backend.image) }}"
+          imagePullPolicy: {{ include "clio.imagePullPolicy" (dict "root" . "image" .Values.backend.image) }}
           ports:
             - name: http
               containerPort: {{ .Values.backend.port }}
@@ -48,20 +60,32 @@ spec:
           volumeMounts:
             - name: evidence
               mountPath: /app/evidence
-          readinessProbe:
+            - name: exports
+              mountPath: /app/exports
+            - name: data
+              mountPath: /app/data
+          # Startup is serial (Redis wait → DB wait → migrations → relation
+          # tables); the startup probe gives it up to 2.5 minutes before
+          # liveness takes over.
+          startupProbe:
             httpGet:
-              path: /api/csrf-token
+              path: /health
               port: {{ .Values.backend.port }}
               scheme: HTTP
-            initialDelaySeconds: 15
+            periodSeconds: 5
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.backend.port }}
+              scheme: HTTP
             periodSeconds: 10
             failureThreshold: 3
           livenessProbe:
             httpGet:
-              path: /api/csrf-token
+              path: /health
               port: {{ .Values.backend.port }}
               scheme: HTTP
-            initialDelaySeconds: 30
             periodSeconds: 30
             failureThreshold: 3
           resources:
@@ -70,12 +94,18 @@ spec:
         - name: evidence
           persistentVolumeClaim:
             claimName: clio-evidence
+        - name: exports
+          persistentVolumeClaim:
+            claimName: clio-exports
+        - name: data
+          persistentVolumeClaim:
+            claimName: clio-data
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: {{ include "clio.fullname" . }}-backend
-  namespace: {{ .Values.namespace }}
+  namespace: {{ include "clio.namespace" . }}
   labels:
     {{- include "clio.labels" . | nindent 4 }}
     app.kubernetes.io/component: backend

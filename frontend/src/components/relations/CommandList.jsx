@@ -1,6 +1,7 @@
 // frontend/src/components/relations/CommandList.jsx
 import React from 'react';
 import { Terminal, User, Server } from 'lucide-react';
+import { formatUTC } from '../../utils/dateUtils';
 
 const CommandList = ({ commands, relationType }) => {
   return (
@@ -8,33 +9,33 @@ const CommandList = ({ commands, relationType }) => {
       {commands.map((item, i) => (
         <div
           key={`cmd-${i}`}
-          className="bg-gray-800 p-3 rounded-md hover:bg-gray-700/50 transition-colors"
+          className="bg-surface p-3 rounded-card hover:bg-surface-2/50 transition-colors"
         >
           <div className="flex items-start gap-2 mb-2">
-            <Terminal className="w-4 h-4 text-green-400 mt-1 flex-shrink-0" />
-            <div className="font-mono text-sm text-gray-200 break-all whitespace-pre-wrap">
+            <Terminal className="w-4 h-4 text-success mt-1 flex-shrink-0" />
+            <div className="font-mono text-sm text-content break-all whitespace-pre-wrap">
               {item.target}
             </div>
           </div>
-          
+
           {/* Show user who ran the command if available */}
           {item.metadata?.username && relationType !== 'username' && (
-            <div className="flex items-center gap-2 text-xs text-gray-400 ml-6 mt-2">
-              <User className="w-3 h-3 text-blue-400" />
+            <div className="flex items-center gap-2 text-xs text-muted ml-6 mt-2">
+              <User className="w-3 h-3 text-accent" />
               <span>Run by: {item.metadata.username}</span>
             </div>
           )}
-          
+
           {/* Show hostname where command was run if available */}
           {item.metadata?.hostname && relationType !== 'hostname' && (
-            <div className="flex items-center gap-2 text-xs text-gray-400 ml-6 mt-2">
-              <Server className="w-3 h-3 text-green-400" />
+            <div className="flex items-center gap-2 text-xs text-muted ml-6 mt-2">
+              <Server className="w-3 h-3 text-success" />
               <span>Host: {item.metadata.hostname}</span>
             </div>
           )}
-          
-          <div className="text-xs text-gray-500 ml-6 mt-1">
-            {new Date(item.lastSeen).toLocaleString()}
+
+          <div className="text-xs text-faint ml-6 mt-1">
+            {formatUTC(item.lastSeen)}
           </div>
         </div>
       ))}

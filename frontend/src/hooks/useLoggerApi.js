@@ -137,7 +137,13 @@ export const useLoggerApi = (csrfToken) => {
           return executeApiRequest(url, newOptions, retryCount - 1);
         }
       }
-      
+
+      // CSRF validation failed and we couldn't recover — surface it as an error
+      // instead of returning null (which callers would treat as success)
+      if (result === null) {
+        throw new Error('CSRF token validation failed. Please try again.');
+      }
+
       return result;
     } catch (err) {
       // Re-throw the error to be handled by the caller

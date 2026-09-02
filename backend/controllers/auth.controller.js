@@ -287,7 +287,7 @@ const getCurrentUser = async (req, res) => {
 
     if (!isGoogleSSO) {
       try {
-        const hasGoogleId = await redisClient.exists(`user:${username}:googleId`);
+        const hasGoogleId = await redisClient.exists(`user:${username}:isGoogleSSO`);
         if (hasGoogleId) isGoogleSSO = true;
       } catch (redisError) {
         console.warn('Error checking Redis for Google ID:', redisError);
@@ -361,15 +361,9 @@ const getCurrentUser = async (req, res) => {
 // Function to revoke all sessions
 const revokeAllUserSessions = async (req, res) => {
   try {
-    // Revoke all tokens in the system
+    // Revoke all tokens in the system, including the acting admin's own session
     await revokeAllTokens();
-    
-    // Create a new user object for the admin
-    const user = AuthService.createUserObject(req.user.username, true);
-    
-    // Generate a new token for the admin who performed this action
-    const tokenData = await createJwtToken(user, { expiresIn: '8h' });
-    
+
     // Log session revocation
     await eventLogger.logSecurityEvent('revoke_all_sessions', req.user.username, {
       ip: req.ip,
@@ -378,10 +372,10 @@ const revokeAllUserSessions = async (req, res) => {
       timestamp: new Date().toISOString()
     });
 
-    // Set the new token in httpOnly cookies
-    res.cookie('token', tokenData.token, SESSION_OPTIONS);
-    res.cookie('auth_token', tokenData.token, SESSION_OPTIONS);
-    res.json({ message: 'All sessions revoked successfully' });
+    res.clearCookie('token', SESSION_OPTIONS);
+    res.clearCookie('auth_token', SESSION_OPTIONS);
+    res.clearCookie('_csrf');
+    res.json({ message: 'All sessions revoked successfully. You will be logged out.', selfRevoked: true });
   } catch (error) {
     console.error('Session revocation error:', error);
 

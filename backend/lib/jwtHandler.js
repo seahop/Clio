@@ -133,8 +133,10 @@ class JwtHandler {
         return null;
       }
       
-      // Prepare to generate a new token
-      const { jti: oldJti, ...payload } = decoded;
+      // Prepare to generate a new token, dropping registered claims —
+      // jwt.sign throws if the payload carries exp/iss alongside the
+      // expiresIn/issuer options, which made every refresh fail
+      const { jti: oldJti, exp, iat, iss, nbf, ...payload } = decoded;
       
       // Increment token version to prevent use of previous token
       payload.tokenVersion = (payload.tokenVersion || 1) + 1;
@@ -204,7 +206,7 @@ class JwtHandler {
   async revokeUserTokens(username) {
     try {
       // Get all tokens for this user
-      const tokenIds = await redisClient.smembers(`user:${username}:tokens`);
+      const tokenIds = await redisClient.sMembers(`user:${username}:tokens`);
       
       console.log(`Revoking ${tokenIds.length} tokens for user ${username}`);
       

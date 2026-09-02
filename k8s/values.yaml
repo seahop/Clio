@@ -8,15 +8,27 @@
 # See docs/kubernetes.md for the full deployment guide.
 # ─────────────────────────────────────────────────────────────────────────────
 
-# -- Kubernetes namespace (create it first: kubectl create namespace clio)
-namespace: clio
+# -- Kubernetes namespace. Leave blank to use the Helm release namespace
+# (helm install -n clio --create-namespace). Kept as an override for installs
+# that predate that default.
+namespace: ""
+
+# -- Override the resource-name prefix (defaults to the release name)
+fullnameOverride: ""
+
+# -- Pull secrets for private registries, e.g. [{name: ghcr-creds}]
+imagePullSecrets: []
 
 # ── Images ────────────────────────────────────────────────────────────────────
 backend:
   image:
     repository: ghcr.io/seahop/clio-backend
-    tag: latest
+    # Leave blank to use the chart's appVersion (pinned, upgrade-safe).
+    # Setting "latest" forces pullPolicy Always so upgrades re-pull.
+    tag: ""
     pullPolicy: IfNotPresent
+  # Keep at 1: relation-analysis cron jobs run in every replica (no leader
+  # election), and the evidence/exports/data PVCs are ReadWriteOnce.
   replicas: 1
   port: 3001
   resources:
@@ -30,6 +42,15 @@ backend:
   evidenceStorage:
     size: 10Gi
     storageClass: ""   # leave blank to use cluster default
+  # Export packages (/app/exports) — without this PVC, generated exports
+  # vanish on every pod restart
+  exportsStorage:
+    size: 5Gi
+    storageClass: ""
+  # Event logs + rotated archives (/app/data)
+  dataStorage:
+    size: 5Gi
+    storageClass: ""
   # Pod security context.
   # Enable runAsNonRoot once the image is built with a non-root USER directive
   # (docker build --target backend sets USER node / chown -R node:node /app).
@@ -43,7 +64,7 @@ backend:
 frontend:
   image:
     repository: ghcr.io/seahop/clio-frontend
-    tag: latest
+    tag: ""            # blank = chart appVersion; "latest" forces pullPolicy Always
     pullPolicy: IfNotPresent
   replicas: 1
   port: 80
@@ -61,6 +82,11 @@ postgres:
     tag: "17-alpine"
     pullPolicy: IfNotPresent
   port: 5432
+  # PGDATA inside the mounted volume. The subdirectory keeps initdb happy on
+  # block storage that ships a lost+found directory.
+  # EXISTING installs upgrading from chart 0.1.x must set this to
+  # /var/lib/postgresql/data to keep their current data layout.
+  pgdata: /var/lib/postgresql/data/pgdata
   storage:
     size: 20Gi
     storageClass: ""
@@ -93,17 +119,24 @@ redis:
 # ── Ingress ───────────────────────────────────────────────────────────────────
 ingress:
   enabled: true
-  # Ingress class — nginx is the most common; change to your controller.
-  # Examples: nginx | traefik | haproxy | alb (AWS) | gce (GKE)
-  className: nginx
+  # Ingress class. Defaults to traefik — the controller that ships built-in on
+  # k3s / Rancher Desktop / RKE2, so a bare `helm install` works with no extra
+  # setup. Change to match your cluster's controller.
+  # Examples: traefik | nginx | haproxy | alb (AWS) | gce (GKE)
+  className: traefik
   # Your external hostname (required — also drives OIDC/Google callback URL defaults)
   host: clio.example.com
+  # Extra Ingress annotations, merged over the chart's defaults
+  # (e.g. ALB cert ARN, custom timeouts).
+  annotations: {}
   # TLS options — see docs/kubernetes.md for all three approaches.
   tls:
     enabled: true
-    # cert-manager ClusterIssuer to use for automatic certificate issuance.
-    # Set to "" if you are providing the TLS Secret manually.
-    certManagerIssuer: letsencrypt-prod
+    # cert-manager ClusterIssuer for automatic certificate issuance. Empty by
+    # default so a bare install does not assume cert-manager is present — the
+    # ingress controller then serves its own default cert (or supply the Secret
+    # manually, see below). Set to e.g. "letsencrypt-prod" for public deploys.
+    certManagerIssuer: ""
     # Name of the K8s TLS Secret.  cert-manager creates it automatically when
     # certManagerIssuer is set.  Otherwise: kubectl create secret tls clio-tls ...
     secretName: clio-tls
@@ -116,7 +149,19 @@ ingress:
 #   kubectl get secret clio-secrets -n <namespace> \
 #     -o jsonpath='{.data.ADMIN_PASSWORD}' | base64 -d && echo
 #
-# To rotate all secrets: delete the Secret and run helm upgrade.
+# Rotation — READ BEFORE DELETING THE SECRET:
+#   Safe to rotate by deleting the key and upgrading: JWT_SECRET,
+#     ADMIN_PASSWORD*, USER_PASSWORD*, REDIS_PASSWORD, SERVER_INSTANCE_ID
+#     (*bootstrap only — live passwords rotate in-app).
+#   POSTGRES_PASSWORD: the postgres image only reads it at initdb. Rotate by
+#     ALTER ROLE inside postgres FIRST, then update the Secret to match.
+#   FIELD_ENCRYPTION_KEY / REDIS_ENCRYPTION_KEY: NEVER rotate — existing
+#     encrypted data becomes permanently unreadable.
+#
+# GitOps note: secret generation uses Helm's lookup(), which returns empty
+# during `helm template`, `--dry-run`, and ArgoCD/Flux server-side rendering —
+# every render would mint new passwords. GitOps users must pre-create
+# clio-secrets (see the External Secrets section in docs/kubernetes.md).
 #
 # Only set the values below if you are enabling Google SSO or generic OIDC.
 secrets:
@@ -189,6 +234,20 @@ oidc:
 # k3s/Rancher Desktop: works with the default flannel CNI (≥ k3s 1.21).
 networkPolicy:
   enabled: true
+  # Where your ingress controller runs — the frontend only accepts traffic
+  # from pods matching these selectors. Defaults fit Traefik (k3s / Rancher
+  # Desktop / RKE2, which run it in kube-system). For ingress-nginx use:
+  #   namespace: ingress-nginx
+  #   podLabels: {app.kubernetes.io/name: ingress-nginx}
+  ingressController:
+    namespace: kube-system
+    podLabels:
+      app.kubernetes.io/name: traefik
+  # Allow the backend to reach the internet on 80/443. Automatically enabled
+  # when googleSso or oidc is enabled (OAuth token/JWKS endpoints), or for
+  # S3 exports set it explicitly. NOTE: the rule excludes RFC1918 ranges —
+  # an IdP on a private LAN IP needs its own egress rule.
+  allowBackendInternetEgress: false
 
 # ── Linkerd service mesh ───────────────────────────────────────────────────────
 # Adds automatic mTLS between all pods via sidecar injection.

@@ -246,9 +246,9 @@ const SearchFilter = ({ onFilterChange }) => {
           <button
             onClick={() => setSearchMode('simple')}
             className={`px-2 py-1 text-sm rounded ${
-              searchMode === 'simple' 
-                ? 'bg-blue-600 text-white' 
-                : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+              searchMode === 'simple'
+                ? 'bg-accent text-accent-fg'
+                : 'bg-surface-2 text-muted hover:bg-surface-3'
             }`}
           >
             Simple Search
@@ -256,18 +256,18 @@ const SearchFilter = ({ onFilterChange }) => {
           <button
             onClick={() => setSearchMode('advanced')}
             className={`px-2 py-1 text-sm rounded ${
-              searchMode === 'advanced' 
-                ? 'bg-blue-600 text-white' 
-                : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+              searchMode === 'advanced'
+                ? 'bg-accent text-accent-fg'
+                : 'bg-surface-2 text-muted hover:bg-surface-3'
             }`}
           >
             Advanced Search
           </button>
-          
+
           {searchMode === 'advanced' && (
             <button
               onClick={() => setShowHelp(!showHelp)}
-              className="ml-auto text-gray-400 hover:text-white flex items-center gap-1"
+              className="ml-auto text-muted hover:text-content flex items-center gap-1"
               title={showHelp ? "Hide help" : "Show search help"}
             >
               <Info size={16} />
@@ -287,24 +287,24 @@ const SearchFilter = ({ onFilterChange }) => {
                 value={simpleQuery}
                 onChange={(e) => setSimpleQuery(e.target.value)}
                 placeholder="Search logs..."
-                className="w-full pl-10 pr-8 py-2 bg-gray-700 border border-gray-600 rounded-l-md text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full pl-10 pr-8 py-2 bg-surface-2 border border-line rounded-l-md text-content placeholder-faint focus:outline-none focus:ring-2 focus:ring-accent"
               />
-              <Search size={16} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
-              
+              <Search size={16} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted" />
+
               {simpleQuery && (
                 <button
                   onClick={clearSearch}
-                  className="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-white"
+                  className="absolute right-2 top-1/2 transform -translate-y-1/2 text-muted hover:text-content"
                 >
                   <X size={16} />
                 </button>
               )}
             </div>
-            
+
             <select
               value={simpleField}
               onChange={(e) => setSimpleField(e.target.value)}
-              className="bg-gray-700 border-l-0 border border-gray-600 rounded-r-md text-white px-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="bg-surface-2 border-l-0 border border-line rounded-r-md text-content px-2 focus:outline-none focus:ring-2 focus:ring-accent"
             >
               {searchFields.map(field => (
                 <option key={field.value} value={field.value}>
@@ -325,27 +325,27 @@ const SearchFilter = ({ onFilterChange }) => {
                 value={advancedQuery}
                 onChange={handleAdvancedQueryChange}
                 placeholder="hostname:server AND status:ON_DISK NOT username:admin"
-                className={`w-full pl-10 pr-8 py-2 bg-gray-700 border ${
-                  !syntaxValid ? 'border-red-500' : 'border-gray-600'
-                } rounded-md text-white focus:outline-none focus:ring-2 ${
-                  !syntaxValid ? 'focus:ring-red-500' : 'focus:ring-blue-500'
+                className={`w-full pl-10 pr-8 py-2 bg-surface-2 border ${
+                  !syntaxValid ? 'border-danger' : 'border-line'
+                } rounded-md text-content placeholder-faint focus:outline-none focus:ring-2 ${
+                  !syntaxValid ? 'focus:ring-danger' : 'focus:ring-accent'
                 }`}
                 spellCheck={false}
               />
-              <Search size={16} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
-              
+              <Search size={16} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted" />
+
               {advancedQuery && (
                 <button
                   onClick={clearSearch}
-                  className="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-white"
+                  className="absolute right-2 top-1/2 transform -translate-y-1/2 text-muted hover:text-content"
                 >
                   <X size={16} />
                 </button>
               )}
             </div>
-            
+
             {error && (
-              <div className="flex items-center gap-1 text-red-400 text-xs mt-1">
+              <div className="flex items-center gap-1 text-danger text-xs mt-1">
                 <AlertCircle size={12} />
                 <span>{error}</span>
               </div>
@@ -355,19 +355,19 @@ const SearchFilter = ({ onFilterChange }) => {
             <div className="flex flex-wrap gap-1 mt-2">
               <button 
                 onClick={() => insertSyntaxHelper('AND')}
-                className="px-2 py-0.5 text-xs bg-gray-700 text-gray-300 rounded hover:bg-gray-600"
+                className="px-2 py-0.5 text-xs bg-surface-2 text-muted rounded hover:bg-surface-3"
               >
                 AND
               </button>
               <button 
                 onClick={() => insertSyntaxHelper('OR')}
-                className="px-2 py-0.5 text-xs bg-gray-700 text-gray-300 rounded hover:bg-gray-600"
+                className="px-2 py-0.5 text-xs bg-surface-2 text-muted rounded hover:bg-surface-3"
               >
                 OR
               </button>
               <button 
                 onClick={() => insertSyntaxHelper('NOT')}
-                className="px-2 py-0.5 text-xs bg-gray-700 text-gray-300 rounded hover:bg-gray-600"
+                className="px-2 py-0.5 text-xs bg-surface-2 text-muted rounded hover:bg-surface-3"
               >
                 NOT
               </button>
@@ -375,31 +375,31 @@ const SearchFilter = ({ onFilterChange }) => {
               {/* Field shortcuts */}
               <button 
                 onClick={() => insertSyntaxHelper('hostname:')}
-                className="px-2 py-0.5 text-xs bg-gray-700 text-gray-300 rounded hover:bg-gray-600"
+                className="px-2 py-0.5 text-xs bg-surface-2 text-muted rounded hover:bg-surface-3"
               >
                 hostname:
               </button>
               <button 
                 onClick={() => insertSyntaxHelper('username:')}
-                className="px-2 py-0.5 text-xs bg-gray-700 text-gray-300 rounded hover:bg-gray-600"
+                className="px-2 py-0.5 text-xs bg-surface-2 text-muted rounded hover:bg-surface-3"
               >
                 username:
               </button>
               <button 
                 onClick={() => insertSyntaxHelper('status:')}
-                className="px-2 py-0.5 text-xs bg-gray-700 text-gray-300 rounded hover:bg-gray-600"
+                className="px-2 py-0.5 text-xs bg-surface-2 text-muted rounded hover:bg-surface-3"
               >
                 status:
               </button>
               <button 
                 onClick={() => insertSyntaxHelper('command:')}
-                className="px-2 py-0.5 text-xs bg-gray-700 text-gray-300 rounded hover:bg-gray-600"
+                className="px-2 py-0.5 text-xs bg-surface-2 text-muted rounded hover:bg-surface-3"
               >
                 command:
               </button>
               <button 
                 onClick={() => insertSyntaxHelper('internal_ip:')}
-                className="px-2 py-0.5 text-xs bg-gray-700 text-gray-300 rounded hover:bg-gray-600"
+                className="px-2 py-0.5 text-xs bg-surface-2 text-muted rounded hover:bg-surface-3"
               >
                 internal_ip:
               </button>
@@ -409,18 +409,18 @@ const SearchFilter = ({ onFilterChange }) => {
         
         {/* Advanced Search Help */}
         {searchMode === 'advanced' && showHelp && (
-          <div className="mt-2 p-3 bg-gray-700 rounded-md text-sm text-gray-300">
-            <h4 className="font-medium text-white mb-1">Advanced Search Syntax</h4>
+          <div className="mt-2 p-3 bg-surface-2 rounded-md text-sm text-muted">
+            <h4 className="font-medium text-content mb-1">Advanced Search Syntax</h4>
             <p className="mb-2">Use the following operators for complex searches:</p>
             <ul className="list-disc pl-5 space-y-1">
-              <li><code className="bg-gray-800 px-1 rounded">field:value</code> - Search for logs where the field contains the value</li>
-              <li><code className="bg-gray-800 px-1 rounded">AND</code> - Both conditions must match</li>
-              <li><code className="bg-gray-800 px-1 rounded">OR</code> - Either condition can match</li>
-              <li><code className="bg-gray-800 px-1 rounded">NOT</code> - Exclude logs that match this condition</li>
-              <li><code className="bg-gray-800 px-1 rounded">"exact phrase"</code> - Match exact phrase in a field</li>
+              <li><code className="bg-canvas px-1 rounded">field:value</code> - Search for logs where the field contains the value</li>
+              <li><code className="bg-canvas px-1 rounded">AND</code> - Both conditions must match</li>
+              <li><code className="bg-canvas px-1 rounded">OR</code> - Either condition can match</li>
+              <li><code className="bg-canvas px-1 rounded">NOT</code> - Exclude logs that match this condition</li>
+              <li><code className="bg-canvas px-1 rounded">"exact phrase"</code> - Match exact phrase in a field</li>
             </ul>
-            <div className="mt-2 bg-gray-800 p-2 rounded text-xs">
-              <p className="font-medium text-blue-300">Examples:</p>
+            <div className="mt-2 bg-canvas p-2 rounded text-xs">
+              <p className="font-medium text-accent">Examples:</p>
               <p className="mt-1"><code>hostname:server AND status:ON_DISK</code> - Find logs with hostname containing "server" AND status "ON_DISK"</p>
               <p className="mt-1"><code>command:"sudo rm" OR command:"sudo mv"</code> - Find logs with commands containing exactly "sudo rm" OR "sudo mv"</p>
               <p className="mt-1"><code>hostname:web NOT status:CLEANED</code> - Find logs with hostname containing "web" but NOT having status "CLEANED"</p>
@@ -430,32 +430,32 @@ const SearchFilter = ({ onFilterChange }) => {
             
             {/* New: Common search patterns section */}
             <div className="mt-3">
-              <h5 className="font-medium text-white">Common Search Patterns</h5>
+              <h5 className="font-medium text-content">Common Search Patterns</h5>
               <div className="mt-1 space-y-1">
-                <button 
+                <button
                   onClick={() => setAdvancedQuery('status:ON_DISK AND username:admin')}
-                  className="block px-2 py-1 text-xs bg-gray-800 hover:bg-gray-600 rounded w-full text-left"
+                  className="block px-2 py-1 text-xs bg-surface-3 hover:bg-line rounded w-full text-left"
                 >
                   Find admin user's files on disk
                 </button>
-                <button 
+                <button
                   onClick={() => setAdvancedQuery('command:"sudo" AND NOT status:CLEANED')}
-                  className="block px-2 py-1 text-xs bg-gray-800 hover:bg-gray-600 rounded w-full text-left"
+                  className="block px-2 py-1 text-xs bg-surface-3 hover:bg-line rounded w-full text-left"
                 >
                   Find sudo commands that haven't been cleaned
                 </button>
-                <button 
+                <button
                   onClick={() => setAdvancedQuery('internal_ip:192.168 AND external_ip:10.')}
-                  className="block px-2 py-1 text-xs bg-gray-800 hover:bg-gray-600 rounded w-full text-left"
+                  className="block px-2 py-1 text-xs bg-surface-3 hover:bg-line rounded w-full text-left"
                 >
                   Find specific internal/external IP pattern
                 </button>
               </div>
             </div>
-            
+
             {/* Tips for complex queries */}
-            <div className="mt-3 bg-blue-900/30 p-2 rounded border border-blue-800">
-              <h5 className="font-medium text-blue-300">Tips for Complex Queries</h5>
+            <div className="mt-3 bg-accent/10 p-2 rounded border border-accent/30">
+              <h5 className="font-medium text-accent">Tips for Complex Queries</h5>
               <ul className="list-disc pl-5 mt-1 text-xs">
                 <li>Use quick buttons above to insert operators and fields</li>
                 <li>Queries are evaluated from left to right</li>
