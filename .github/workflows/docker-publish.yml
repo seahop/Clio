@@ -17,10 +17,91 @@ env:
   OMNIBUS_IMAGE:  ghcr.io/seahop/clio
 
 jobs:
+  # ── Quality gates ─────────────────────────────────────────────────────────
+  # The image builds below depend on these, so nothing is published unless the
+  # lint, unit, integration, and chart checks all pass.
+
+  lint:
+    name: Lint (ESLint)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Backend lint
+        working-directory: backend
+        run: |
+          npm install --no-audit --no-fund
+          npm run lint
+      - name: Frontend lint
+        working-directory: frontend
+        run: |
+          npm install --no-audit --no-fund
+          npm run lint
+
+  frontend-test:
+    name: Frontend unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install
+        working-directory: frontend
+        run: npm install --no-audit --no-fund
+      - name: Jest (react-scripts, run once)
+        working-directory: frontend
+        run: npm test -- --watchAll=false
+        env:
+          CI: 'true'
+
+  helm-lint:
+    name: Helm lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: azure/setup-helm@v4
+      - name: helm lint
+        run: helm lint k8s
+
+  backend-test:
+    name: Backend integration tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Generate .env files + self-signed certs
+        run: |
+          pip install -r requirements.txt
+          python generate-env.py https://localhost
+      - name: Build backend image and start db + redis + backend
+        run: |
+          docker compose build backend
+          docker compose up -d db redis backend
+      - name: Wait for backend to become healthy
+        run: |
+          for i in $(seq 1 48); do
+            s=$(docker inspect --format '{{.State.Health.Status}}' clio-backend-1 2>/dev/null || echo none)
+            echo "[$((i*5))s] backend health=$s"
+            [ "$s" = "healthy" ] && exit 0
+            sleep 5
+          done
+          echo "backend did not become healthy"; docker compose logs backend; exit 1
+      - name: Run backend test suites (relations, session-changes, smoke)
+        run: docker compose exec -T backend npm test
+      - name: Dump container logs on failure
+        if: failure()
+        run: docker compose logs --tail=200
+
   # HA backend image — used by docker-compose multi-container deployments
   build-backend:
     name: Build Backend Image
     runs-on: ubuntu-latest
+    needs: [lint, frontend-test, helm-lint, backend-test]
     permissions:
       contents: read
       packages: write
@@ -79,6 +160,7 @@ jobs:
   build-frontend:
     name: Build Frontend Image
     runs-on: ubuntu-latest
+    needs: [lint, frontend-test, helm-lint, backend-test]
     permissions:
       contents: read
       packages: write
@@ -137,6 +219,7 @@ jobs:
   build-omnibus:
     name: Build Omnibus Image
     runs-on: ubuntu-latest
+    needs: [lint, frontend-test, helm-lint, backend-test]
     permissions:
       contents: read
       packages: write
