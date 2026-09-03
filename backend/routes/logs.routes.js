@@ -21,21 +21,33 @@ router.get('/', authenticateJwt, async (req, res, next) => {
   try {
     const username = req.user.username;
     const isAdmin = req.user.role === 'admin';
-    
-    // Get logs with operation filtering
-    const logs = await LogsModel.getAllLogs(username, isAdmin);
-    
+
+    // Server-side pagination: when `limit` is supplied the client is browsing
+    // page-by-page and we return a bounded page plus the total count. When it is
+    // omitted we return the full scoped set (backward-compatible — the client
+    // uses this when a rich search/filter is active and filters client-side).
+    const paged = req.query.limit !== undefined;
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), 500);
+    const offset = Math.max(parseInt(req.query.offset, 10) || 0, 0);
+    let logs, total;
+    if (paged) {
+      const page = await LogsModel.getLogsPage(username, isAdmin, { limit, offset });
+      logs = page.rows;
+      total = page.total;
+    } else {
+      logs = await LogsModel.getAllLogs(username, isAdmin);
+      total = logs.length;
+    }
+
     // For admins, active operation comes from their view filter so the UI
     // header reflects what they're looking at, not their log-creation target.
     const activeOp = isAdmin
       ? await OperationsModel.getAdminViewOperation(username)
       : await OperationsModel.getUserActiveOperation(username);
 
-    // For logging purposes, create a redacted version that doesn't include secrets
-    const logsForLogging = logs.map(log => redactSensitiveData(log, ['secrets']));
-
     await eventLogger.logDataEvent('view_logs', req.user.username, {
       count: logs.length,
+      total,
       timestamp: new Date().toISOString(),
       activeOperation: activeOp ? activeOp.name : null
     });
@@ -43,6 +55,8 @@ router.get('/', authenticateJwt, async (req, res, next) => {
     // Return the logs with actual secrets to the UI, plus operation context
     res.json({
       logs,
+      total,
+      ...(paged ? { limit, offset } : {}),
       activeOperation: activeOp ? {
         id: activeOp.id,
         name: activeOp.name,

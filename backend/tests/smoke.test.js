@@ -428,6 +428,35 @@ describe('operation scoping (non-admin)', () => {
   });
 });
 
+// ── 5b. Server-side pagination ───────────────────────────────────────────────
+
+describe('log pagination (server-side)', () => {
+  test('limit/offset return a bounded page plus a total count', async () => {
+    const page = await user.request('GET', '/api/logs?limit=1&offset=0');
+    assert.equal(page.status, 200, page.text);
+    assert.ok(Array.isArray(page.json.logs), 'logs array present');
+    assert.ok(page.json.logs.length <= 1, 'page honours the limit');
+    assert.equal(typeof page.json.total, 'number', 'total count present');
+    assert.ok(page.json.total >= page.json.logs.length, 'total is at least the page size');
+    assert.equal(page.json.limit, 1, 'echoes the applied limit');
+  });
+
+  test('paged results stay operation-scoped (no foreign logs)', async () => {
+    const page = await user.request('GET', '/api/logs?limit=500&offset=0');
+    assert.equal(page.status, 200);
+    assert.ok(!page.json.logs.some((l) => l.id === fx.adminLog.id),
+      'foreign log must not appear in paged results');
+  });
+
+  test('no limit returns the full scoped set (backward compatible)', async () => {
+    const all = await user.request('GET', '/api/logs');
+    assert.equal(all.status, 200);
+    assert.equal(typeof all.json.total, 'number', 'total present on unpaged response too');
+    assert.ok(all.json.logs.some((l) => l.id === fx.userLog.id),
+      'own log present in the unpaged response');
+  });
+});
+
 // ── 6. Injection regressions ─────────────────────────────────────────────────
 
 describe('injection hardening', () => {

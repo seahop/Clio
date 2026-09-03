@@ -123,6 +123,35 @@ const LogsModel = {
     }
   },
 
+  // Operation-scoped, server-paginated log fetch. Returns { rows, total } where
+  // total is the full count in the viewer's scope (for pagination controls).
+  // Ordering matches getAllLogs and the client's sortLogs (timestamp DESC, id DESC).
+  async getLogsPage(username = null, isAdmin = false, { limit = 50, offset = 0 } = {}) {
+    const { tagId, hasScope } = await this._resolveScopeTagId(username, isAdmin);
+    if (!hasScope) return { rows: [], total: 0 };
+
+    const from = tagId
+      ? `FROM logs l JOIN log_tags lt ON l.id = lt.log_id AND lt.tag_id = $1`
+      : `FROM logs l`;
+
+    const countRes = await db.query(
+      `SELECT COUNT(DISTINCT l.id)::int AS total ${from}`,
+      tagId ? [tagId] : []
+    );
+    const total = countRes.rows[0]?.total || 0;
+
+    const limIdx = tagId ? 2 : 1;
+    const offIdx = tagId ? 3 : 2;
+    const pageParams = tagId ? [tagId, limit, offset] : [limit, offset];
+    const rowsRes = await db.query(
+      `SELECT DISTINCT l.* ${from}
+       ORDER BY l.timestamp DESC, l.id DESC
+       LIMIT $${limIdx} OFFSET $${offIdx}`,
+      pageParams
+    );
+    return { rows: rowsRes.rows.map((row) => this._processFromStorage(row)), total };
+  },
+
   async getLogById(id) {
     try {
       const result = await db.query('SELECT * FROM logs WHERE id = $1', [id]);
