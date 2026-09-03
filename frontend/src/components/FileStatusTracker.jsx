@@ -114,7 +114,7 @@ const FileStatusTracker = () => {
       setRefreshing(true);
       
       // Use relative URL with proxy
-      const response = await fetch(`/relation-service/api/file-status`, {
+      const response = await fetch(`/api/file-status`, {
         credentials: 'include',
         headers: {
           'Accept': 'application/json'

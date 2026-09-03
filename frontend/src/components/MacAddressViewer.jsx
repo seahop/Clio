@@ -14,7 +14,7 @@ const MacAddressViewer = ({ opQuery = '' }) => {
     try {
       setLoading(true);
 
-      const response = await fetch(`/relation-service/api/relations/mac_address${opQuery ? `?${opQuery}` : ''}`, {
+      const response = await fetch(`/api/relations/mac_address${opQuery ? `?${opQuery}` : ''}`, {
         credentials: 'include',
         headers: {
           'Accept': 'application/json'

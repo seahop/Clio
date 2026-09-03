@@ -136,7 +136,7 @@ const RelationViewer = () => {
     try {
       setLoading(true);
       setError(null);
-      const base = `/relation-service/api/relations${
+      const base = `/api/relations${
         selectedFilter !== 'all' ? `/${selectedFilter}` : ''
       }`;
       const apiUrl = opQuery ? `${base}?${opQuery}` : base;

@@ -357,7 +357,7 @@ export const useLoggerOperations = (currentUser, csrfToken) => {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 10000); // 10-second timeout
         
-        await fetch('/relation-service/api/relations/notify/template-update', {
+        await fetch('/api/relations/notify/template-update', {
           method: 'POST',
           credentials: 'include',
           headers: {

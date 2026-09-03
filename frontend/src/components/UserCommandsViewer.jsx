@@ -16,7 +16,7 @@ const UserCommandsViewer = ({ opQuery = '' }) => {
         setLoading(true);
         // Use proxy instead of direct service URL
         const response = await fetch(
-          `/relation-service/api/relations/user${opQuery ? `?${opQuery}` : ''}`,
+          `/api/relations/user${opQuery ? `?${opQuery}` : ''}`,
           {
             credentials: 'include',
             headers: {
