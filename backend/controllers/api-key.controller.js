@@ -1,6 +1,26 @@
 // backend/controllers/api-key.controller.js
 const ApiKeyModel = require('../models/api-key');
+const OperationsModel = require('../models/operations');
 const eventLogger = require('../lib/eventLogger');
+
+// The only permissions the ingest middleware recognizes. Validating against
+// this on create/update stops silent misconfiguration — e.g. a typo like
+// "logs:wrote" that would otherwise be stored and grant nothing.
+const ALLOWED_PERMISSIONS = ['logs:read', 'logs:write', 'logs:admin'];
+
+// Returns an error string if `permissions` is present but invalid, else null.
+// `undefined` is allowed (the model falls back to its default).
+function validatePermissions(permissions) {
+  if (permissions === undefined) return null;
+  if (!Array.isArray(permissions) || permissions.length === 0) {
+    return 'permissions must be a non-empty array';
+  }
+  const invalid = permissions.filter((p) => !ALLOWED_PERMISSIONS.includes(p));
+  if (invalid.length) {
+    return `Invalid permission(s): ${invalid.join(', ')}. Allowed: ${ALLOWED_PERMISSIONS.join(', ')}`;
+  }
+  return null;
+}
 
 /**
  * Controller for managing API keys
@@ -16,6 +36,21 @@ const apiKeyController = {
       // Validate required fields
       if (!name) {
         return res.status(400).json({ error: 'API key name is required' });
+      }
+
+      // Reject unknown permissions rather than silently storing an inert key.
+      const permError = validatePermissions(permissions);
+      if (permError) {
+        return res.status(400).json({ error: permError });
+      }
+
+      // If the key is scoped to an operation, make sure that operation exists —
+      // otherwise ingested logs would silently land untagged.
+      if (operation_id) {
+        const op = await OperationsModel.getOperationById(operation_id);
+        if (!op) {
+          return res.status(400).json({ error: 'operation_id does not match an existing operation' });
+        }
       }
 
       // Create API key
@@ -137,12 +172,20 @@ const apiKeyController = {
     try {
       const { id } = req.params;
       const updates = req.body;
-      
+
+      // Reject unknown permissions on update too.
+      if (updates.permissions !== undefined) {
+        const permError = validatePermissions(updates.permissions);
+        if (permError) {
+          return res.status(400).json({ error: permError });
+        }
+      }
+
       // Convert expiration date string to Date object if provided
       if (updates.expires_at) {
         updates.expires_at = new Date(updates.expires_at);
       }
-      
+
       const apiKey = await ApiKeyModel.updateApiKey(parseInt(id), updates);
       
       if (!apiKey) {

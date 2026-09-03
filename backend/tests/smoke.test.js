@@ -457,6 +457,76 @@ describe('log pagination (server-side)', () => {
   });
 });
 
+// ── 5c. API keys (management validation + ingest scoping) ────────────────────
+
+describe('API key management + ingest', () => {
+  let created = null;
+
+  test('rejects an unknown permission on create (regression: allowlist)', async () => {
+    const res = await admin.request('POST', '/api/api-keys', {
+      name: `smoke_badperm_${RUN_ID}`,
+      permissions: ['logs:wrote'],
+    });
+    assert.equal(res.status, 400, 'an unknown permission must be rejected');
+  });
+
+  test('rejects a non-existent operation_id on create', async () => {
+    const res = await admin.request('POST', '/api/api-keys', {
+      name: `smoke_badop_${RUN_ID}`,
+      operation_id: 999999,
+    });
+    assert.equal(res.status, 400, 'a bogus operation_id must be rejected');
+  });
+
+  test('non-admin cannot manage API keys', async () => {
+    const res = await user.request('POST', '/api/api-keys', { name: 'nope' });
+    assert.equal(res.status, 403);
+  });
+
+  test('creates a valid operation-scoped key (full key returned once)', async () => {
+    const res = await admin.request('POST', '/api/api-keys', {
+      name: `smoke_key_${RUN_ID}`,
+      permissions: ['logs:write'],
+      operation_id: fx.opA.id,
+    });
+    assert.equal(res.status, 201, res.text);
+    assert.ok(res.json.apiKey?.key?.startsWith('rtl_'), 'the full key is returned once');
+    created = res.json.apiKey;
+  });
+
+  test('the key ingests a log tagged into its operation', async () => {
+    assert.ok(created, 'key was created');
+    const ingest = await fetch(`${BASE}/api/ingest/logs`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-API-Key': created.key,
+        'X-Forwarded-For': `10.20.30.${1 + crypto.randomInt(254)}`,
+      },
+      body: JSON.stringify({
+        hostname: `smoke-ingest-${RUN_ID}`,
+        command: 'ingested via api key',
+      }),
+    });
+    assert.ok([200, 201].includes(ingest.status), `ingest should succeed: ${await ingest.text()}`);
+
+    // Visible to the op-A-scoped user — proves the key's operation tag was applied.
+    const list = await user.request('GET', '/api/logs?limit=500');
+    const rows = list.json.logs || list.json;
+    assert.ok(
+      rows.some((l) => l.hostname === `smoke-ingest-${RUN_ID}`),
+      "ingested log must be visible within the key's operation scope"
+    );
+  });
+
+  test('cleanup: delete the smoke key', async () => {
+    if (created) {
+      const res = await admin.request('DELETE', `/api/api-keys/${created.id}`);
+      assert.ok([200, 404].includes(res.status), res.text);
+    }
+  });
+});
+
 // ── 6. Injection regressions ─────────────────────────────────────────────────
 
 describe('injection hardening', () => {
