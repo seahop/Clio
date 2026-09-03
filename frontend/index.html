@@ -4,14 +4,17 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#000000" />
-    <meta
-      name="description"
-      content="Clio Logging Platform"
-    />
+    <meta name="description" content="Clio Logging Platform" />
     <title>Red Team Logger</title>
   </head>
   <body>
     <noscript>You need to enable JavaScript to run this app.</noscript>
     <div id="root"></div>
+    <!-- Some browser deps (e.g. aws-sdk v2) reference Node's `global`, which the
+         old CRA/webpack build polyfilled. Vite does not, so map it to window. -->
+    <script>
+      window.global = window;
+    </script>
+    <script type="module" src="/src/index.jsx"></script>
   </body>
 </html>

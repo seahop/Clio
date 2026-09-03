@@ -51,11 +51,9 @@ jobs:
       - name: Install
         working-directory: frontend
         run: npm install --no-audit --no-fund
-      - name: Jest (react-scripts, run once)
+      - name: Unit tests (vitest)
         working-directory: frontend
-        run: npm test -- --watchAll=false
-        env:
-          CI: 'true'
+        run: npm test
 
   helm-lint:
     name: Helm lint

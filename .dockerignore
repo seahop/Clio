@@ -1,0 +1,13 @@
+# Build context hygiene for the root multi-stage Dockerfile.
+# Keep stale/local artifacts out so each image builds from source only.
+**/node_modules
+frontend/dist
+frontend/build
+backend/data
+backend/exports
+.git
+.github
+venv
+**/__pycache__
+credentials-backup-*.txt
+*.log

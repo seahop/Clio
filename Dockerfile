@@ -17,17 +17,14 @@
 #   docker build --target omnibus       -t clio .
 # ─────────────────────────────────────────────────────────────────────────────
 
-# ── Stage 1: Build React frontend into static files ───────────────────────────
-# CRA's webpack plugins (ajv-keywords) require Node ≤18; Node 23 breaks them.
-FROM node:18-alpine AS frontend-build
+# ── Stage 1: Build the React frontend (Vite) into static files ────────────────
+FROM node:20-alpine AS frontend-build
 WORKDIR /build
 COPY frontend/package*.json ./
-RUN npm install --legacy-peer-deps && \
-    # ajv-keywords@5 requires ajv@8; force-hoist it so the production build resolves correctly
-    npm install ajv@^8.8.2 --legacy-peer-deps
+RUN npm install
 COPY frontend/ ./
-# Disable source maps to keep the image lean
-RUN GENERATE_SOURCEMAP=false npm run build
+# Vite emits to /build/dist (source maps disabled in vite.config.mjs)
+RUN npm run build
 
 
 # ── Stage 2: Backend production dependencies (no devDeps) ────────────────────
@@ -59,7 +56,7 @@ CMD ["node", "server.js"]
 # BACKEND_URL env var controls where API calls are proxied (default: http://clio-backend:3001).
 FROM nginx:alpine AS frontend-prod
 RUN apk add --no-cache gettext   # provides envsubst
-COPY --from=frontend-build /build/build /usr/share/nginx/html
+COPY --from=frontend-build /build/dist /usr/share/nginx/html
 # Place the template where nginx's default entrypoint picks it up via envsubst
 COPY docker/frontend-prod/nginx.conf /etc/nginx/templates/default.conf.template
 COPY docker/frontend-prod/entrypoint.sh /entrypoint.sh
@@ -95,7 +92,7 @@ RUN echo "[system_default_sect]"       > /app/backend/openssl.cnf && \
     echo "CipherString = DEFAULT@SECLEVEL=0" >> /app/backend/openssl.cnf
 
 # ── Frontend static files ─────────────────────────────────────────────────────
-COPY --from=frontend-build /build/build /app/frontend/build
+COPY --from=frontend-build /build/dist /app/frontend/build
 
 # ── Omnibus config files ──────────────────────────────────────────────────────
 COPY docker/omnibus/supervisord.conf /etc/supervisord.conf

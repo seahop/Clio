@@ -1,11 +1,37 @@
 {
   "root": true,
-  "extends": ["react-app", "react-app/jest", "prettier"],
+  "env": { "browser": true, "es2022": true },
+  "parserOptions": {
+    "ecmaVersion": 2022,
+    "sourceType": "module",
+    "ecmaFeatures": { "jsx": true }
+  },
+  "settings": { "react": { "version": "detect" } },
+  "extends": [
+    "eslint:recommended",
+    "plugin:react/recommended",
+    "plugin:react/jsx-runtime",
+    "plugin:react-hooks/recommended",
+    "prettier"
+  ],
+  "plugins": ["react", "react-hooks"],
   "rules": {
     "no-unused-vars": ["warn", { "argsIgnorePattern": "^_", "varsIgnorePattern": "^_" }],
     "no-console": "off",
     "no-control-regex": "off",
+    "no-case-declarations": "warn",
+    "no-useless-catch": "warn",
+    "no-useless-escape": "warn",
+    "no-empty": ["warn", { "allowEmptyCatch": true }],
+    "react/prop-types": "off",
+    "react/no-unescaped-entities": "off",
     "react-hooks/rules-of-hooks": "error",
     "react-hooks/exhaustive-deps": "warn"
-  }
+  },
+  "overrides": [
+    {
+      "files": ["**/*.test.{js,jsx}"],
+      "env": { "jest": true }
+    }
+  ]
 }
