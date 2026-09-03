@@ -5,6 +5,7 @@ import Login from './components/Login';
 import { OperationsProvider, OperationSwitcher } from './components/Operations';
 import { BrandMark } from './components/common/ui';
 import Presence from './components/Presence';
+import UserMenu from './components/UserMenu';
 
 // Debug function to help diagnose CSRF and CORS issues
 const debugNetworkIssues = async () => {
@@ -48,6 +49,7 @@ function App() {
   const [initializationAttempts, setInitializationAttempts] = useState(0);
   const [initError, setInitError] = useState(null);
   const [lastTokenRefresh, setLastTokenRefresh] = useState(Date.now());
+  const [activeView, setActiveView] = useState('dashboard');
 
   const handleLoginSuccess = (userData) => {
     console.log('Login success, updating user data:', userData);
@@ -87,6 +89,31 @@ function App() {
       // Clear storage and reload anyway for safety
       localStorage.clear();
       sessionStorage.clear();
+      window.location.href = '/';
+    }
+  };
+
+  // Sign out everywhere: revoke ALL of this user's sessions (every device),
+  // then clear local state like a normal logout.
+  const handleSignOutEverywhere = async () => {
+    try {
+      await fetch(`/api/auth/logout-all`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'CSRF-Token': csrfToken,
+        },
+        credentials: 'include',
+        body: JSON.stringify({}),
+      });
+    } catch (error) {
+      console.error('Sign out everywhere failed:', error);
+    } finally {
+      localStorage.removeItem('user');
+      localStorage.removeItem('passwordChangeRequired');
+      localStorage.removeItem('activeOperationId');
+      sessionStorage.clear();
+      setUser(null);
       window.location.href = '/';
     }
   };
@@ -372,26 +399,24 @@ function App() {
                   <div className="flex items-center gap-2 sm:gap-3 min-w-0">
                     <Presence currentUsername={user.username} />
                     <div className="h-5 w-px bg-line hidden sm:block" />
-                    <span className="text-sm text-muted truncate hidden md:inline">{user.username}</span>
-                    {user.role === 'admin' && (
-                      <span className="bg-danger/15 text-danger text-2xs font-semibold uppercase tracking-wide px-2 py-0.5 rounded border border-danger/30">
-                        Admin
-                      </span>
-                    )}
-                    <button
-                      onClick={handleLogout}
-                      className="px-3 py-1.5 text-sm bg-surface-2 text-muted border border-line rounded-md hover:bg-surface-3 hover:text-content transition-colors"
-                    >
-                      Logout
-                    </button>
+                    <UserMenu
+                      user={user}
+                      isAdmin={user.role === 'admin'}
+                      onOpenSettings={() => setActiveView('settings')}
+                      onNavigate={setActiveView}
+                      onSignOutEverywhere={handleSignOutEverywhere}
+                      onLogout={handleLogout}
+                    />
                   </div>
                 </div>
               </div>
             </div>
             <div className="py-4 max-w-full overflow-hidden">
-              <RedTeamLogger 
+              <RedTeamLogger
                 currentUser={user}
                 csrfToken={csrfToken}
+                activeView={activeView}
+                setActiveView={setActiveView}
               />
             </div>
           </div>

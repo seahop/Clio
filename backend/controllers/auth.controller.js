@@ -6,7 +6,7 @@ const authLogger = require('../utils/auth-logger');
 const eventLogger = require('../lib/eventLogger');
 const security = require('../config/security');
 const { SESSION_OPTIONS } = require('../config/constants');
-const { createJwtToken, revokeJwtToken, revokeAllTokens } = require('../middleware/jwt.middleware');
+const { createJwtToken, revokeJwtToken, revokeAllTokens, revokeUserTokens } = require('../middleware/jwt.middleware');
 const { redisClient } = require('../lib/redis');
 const { completeLoginRedirect } = require('../lib/ssoRedirect');
 
@@ -269,6 +269,34 @@ const logoutUser = async (req, res) => {
     res.clearCookie('_csrf');
 
     res.status(500).json({ error: 'Logout failed' });
+  }
+};
+
+// Sign out everywhere: revoke ALL of the current user's sessions (this device
+// and every other), then clear this browser's cookies. Scoped to the caller's
+// own account — unlike the admin revoke-all, it never touches other users.
+const signOutEverywhere = async (req, res) => {
+  const clearCookies = () => {
+    res.clearCookie('token', SESSION_OPTIONS);
+    res.clearCookie('auth_token', SESSION_OPTIONS);
+    res.clearCookie('_csrf');
+  };
+  try {
+    const username = req.user.username;
+    await revokeUserTokens(username);
+
+    await eventLogger.logSecurityEvent('logout_all', username, {
+      ip: req.ip,
+      userAgent: req.get('User-Agent'),
+      timestamp: new Date().toISOString()
+    });
+
+    clearCookies();
+    res.json({ message: 'Signed out of all sessions' });
+  } catch (error) {
+    console.error('Sign-out-everywhere error:', error);
+    clearCookies();
+    res.status(500).json({ error: 'Failed to sign out of all sessions' });
   }
 };
 
@@ -786,6 +814,7 @@ const promoteToAdmin = async (req, res) => {
 module.exports = {
   loginUser,
   logoutUser,
+  signOutEverywhere,
   getCurrentUser,
   revokeAllSessions: revokeAllUserSessions,
   changePassword,

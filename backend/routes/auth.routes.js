@@ -5,6 +5,7 @@ const passport = require('passport');
 const {
   loginUser,
   logoutUser,
+  signOutEverywhere,
   getCurrentUser,
   revokeAllSessions,
   changePassword,
@@ -32,6 +33,7 @@ router.get('/providers', getAuthProviders);
 // Standard credential login / session management
 router.post('/login',             loginLimiter, loginUser);
 router.post('/logout',            authenticateJwt, logoutUser);
+router.post('/logout-all',        authenticateJwt, signOutEverywhere);
 router.get('/me',                 authenticateJwt, getCurrentUser);
 router.post('/change-password',   authenticateJwt, changePassword);
 router.post('/change-own-password', authenticateJwt, changeOwnPassword);

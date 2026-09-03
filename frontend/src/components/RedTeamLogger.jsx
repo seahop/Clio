@@ -1,6 +1,6 @@
 // frontend/src/components/RedTeamLogger.jsx - Updated with Operations tab
 import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
-import { ScrollText, Network, File, Database, Users, Key, Book, HardDrive, Settings, Shield, Briefcase, UserPlus, Tags, LayoutDashboard, Clock, Crosshair, ChevronDown } from 'lucide-react';
+import { ScrollText, Network, File, Database, Users, Briefcase, UserPlus, Tags, LayoutDashboard, Clock, Crosshair, ChevronDown } from 'lucide-react';
 import LoggerCardView from './LoggerCardView';
 import RelationViewer from './RelationViewer';
 import FileStatusTracker from './FileStatusTracker';
@@ -29,20 +29,18 @@ const NAV_ITEMS = [
   { view: 'timeline', label: 'Timeline', icon: Clock },
   { view: 'attack', label: 'ATT&CK', icon: Crosshair },
   { view: 'files', label: 'File Status', icon: File },
-  { view: 'settings', label: 'Settings', icon: Settings },
   { view: 'export', label: 'Export', icon: Database },
 ];
 
+// Note: Log Management, API Keys, API Docs, and Certificates were moved into the
+// top-right account menu ("Admin & config") to declutter this bar. Their views
+// still render below, reached via that menu.
 const ADMIN_NAV_ITEMS = [
   { view: 'operations', label: 'Operations', icon: Briefcase },
   { view: 'untagged', label: 'Untagged', icon: Tags },
   { view: 'audit', label: 'Audit Log', icon: ScrollText },
-  { view: 'logs-management', label: 'Log Management', icon: HardDrive },
   { view: 'sessions', label: 'Sessions', icon: Users },
   { view: 'users', label: 'Users', icon: UserPlus },
-  { view: 'api-keys', label: 'API Keys', icon: Key },
-  { view: 'api-docs', label: 'API Docs', icon: Book },
-  { view: 'certificates', label: 'Certificates', icon: Shield },
 ];
 
 const NavTab = ({ item, active, onClick }) => {
@@ -159,8 +157,7 @@ const Panel = ({ children }) => (
   </div>
 );
 
-const RedTeamLogger = ({ currentUser, csrfToken }) => {
-  const [activeView, setActiveView] = useState('dashboard');
+const RedTeamLogger = ({ currentUser, csrfToken, activeView, setActiveView }) => {
 
   const {
     logs,
