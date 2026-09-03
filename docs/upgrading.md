@@ -120,7 +120,26 @@ backup is the safe path.
 
 ## Version-specific notes
 
-### Upgrading to 1.0.4 (from 1.0.3)
+**Skipping versions is supported.** The migration runner applies every
+intervening migration in order, so you can upgrade directly from an older
+release — you do not have to step through each version.
+
+### Upgrading to 1.0.4 from 1.0.2
+
+1.0.2 predates migrations 002 and 003, so this upgrade **applies them on first
+boot** (you'll see `Applying migration: 002…` / `003…` in the backend log):
+
+- **002** widens `file_status.filename` to `VARCHAR(254)` — a non-destructive
+  widening; existing filenames are preserved.
+- **003** adds the `logs.mitre_techniques` column (`ADD COLUMN IF NOT EXISTS`) —
+  additive; existing logs are untouched and simply get an empty value.
+
+Verified with a clean-room 1.0.2 → 1.0.4 run: 50 logs / 318 relations / 10
+file-status rows all survived, the column was added, the filename column widened
+with filenames intact, and a 1.0.2-era API key kept working. Everything in the
+"from 1.0.3" notes below also applies.
+
+### Upgrading to 1.0.4 from 1.0.3
 
 - **No database schema changes.** 1.0.4 adds no migrations, so the runner is a
   no-op against a 1.0.3 database — every existing log, tag, operation, relation,
