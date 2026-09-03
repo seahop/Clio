@@ -29,6 +29,7 @@ const LoggerCardView = ({
   currentUser,
   tableState,
   handlers,
+  serverPagination,
   csrfToken
 }) => {
   const [filteredLogs, setFilteredLogs] = useState(logs);
@@ -187,17 +188,46 @@ const { fetchAllTags, fetchTagsForLogs } = useTagsApi(csrfToken);
     setFilteredLogs(filtered);
   }, [logs, dateRange, searchFilter, selectedTags, logTags]);
   
-  // Use our custom pagination hook
+  // Client-side pagination (used when a filter is active — the rich query runs
+  // over the full set fetched by the hook).
   const pagination = usePagination(filteredLogs, { username: currentUser });
-  
-  // Load tags for current page of logs with debouncing
+
+  // Hybrid pagination. Browsing (no active filter) uses the server pages the
+  // hook loads; when a filter is active we filter + paginate client-side.
+  const browseMode = !hasActiveFilters;
+  const displayLogs = browseMode ? logs : pagination.paginatedItems;
+  const pageControl = browseMode
+    ? {
+        currentPage: serverPagination.page,
+        totalPages: Math.max(1, Math.ceil((serverPagination.total || 0) / serverPagination.rowsPerPage)),
+        rowsPerPage: serverPagination.rowsPerPage,
+        totalRows: serverPagination.total,
+        onPageChange: serverPagination.setPage,
+        onRowsPerPageChange: serverPagination.setRowsPerPage
+      }
+    : {
+        currentPage: pagination.currentPage,
+        totalPages: pagination.totalPages,
+        rowsPerPage: pagination.rowsPerPage,
+        totalRows: pagination.totalRows,
+        onPageChange: pagination.handlePageChange,
+        onRowsPerPageChange: pagination.handleRowsPerPageChange
+      };
+
+  // Tell the data hook whether to load a server page or the full scoped set.
+  useEffect(() => {
+    serverPagination.setBrowseMode(browseMode);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [browseMode]);
+
+  // Load tags for the currently displayed logs with debouncing
   useEffect(() => {
     // Only load tags if we have logs and user is authenticated
-    if (!currentUser || pagination.paginatedItems.length === 0) return;
-    
+    if (!currentUser || displayLogs.length === 0) return;
+
     // Debounce the API call to prevent spam
     const timeoutId = setTimeout(() => {
-      const logIds = pagination.paginatedItems.map(log => log.id);
+      const logIds = displayLogs.map(log => log.id);
       // Only load if we have IDs and they've changed
       const idsKey = logIds.sort().join(',');
       if (idsKey !== lastLoadedIdsRef.current) {
@@ -207,7 +237,8 @@ const { fetchAllTags, fetchTagsForLogs } = useTagsApi(csrfToken);
     }, 300);
     
     return () => clearTimeout(timeoutId);
-  }, [pagination.paginatedItems, currentUser]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [displayLogs, currentUser]);
   
   // Handle date range filter changes
   const handleDateFilterChange = (range) => {
@@ -517,7 +548,7 @@ const { fetchAllTags, fetchTagsForLogs } = useTagsApi(csrfToken);
           )
         ) : (
           <div className="space-y-2 mb-4">
-            {pagination.paginatedItems.map(row => (
+            {displayLogs.map(row => (
               <div
                 key={row.id}
                 className={`relative rounded-card ${
@@ -598,12 +629,12 @@ const { fetchAllTags, fetchTagsForLogs } = useTagsApi(csrfToken);
       
       {/* Pagination */}
       <Pagination
-        currentPage={pagination.currentPage}
-        totalPages={pagination.totalPages}
-        rowsPerPage={pagination.rowsPerPage}
-        totalRows={pagination.totalRows}
-        onPageChange={pagination.handlePageChange}
-        onRowsPerPageChange={pagination.handleRowsPerPageChange}
+        currentPage={pageControl.currentPage}
+        totalPages={pageControl.totalPages}
+        rowsPerPage={pageControl.rowsPerPage}
+        totalRows={pageControl.totalRows}
+        onPageChange={pageControl.onPageChange}
+        onRowsPerPageChange={pageControl.onRowsPerPageChange}
       />
     </div>
   );

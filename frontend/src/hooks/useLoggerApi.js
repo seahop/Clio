@@ -151,17 +151,23 @@ export const useLoggerApi = (csrfToken) => {
     }
   };
 
-  const fetchLogs = async () => {
+  const fetchLogs = async (params = {}) => {
     if (!csrfToken && !window.csrfToken) return null;
-    
+
     try {
       const options = {
         credentials: 'include',
         headers: getAuthHeaders()
       };
-      
+
+      // Optional server-side pagination (?limit=&offset=). Omitted → full set.
+      const qs = new URLSearchParams();
+      if (params.limit != null) qs.set('limit', String(params.limit));
+      if (params.offset != null) qs.set('offset', String(params.offset));
+      const query = qs.toString();
+
       // Use relative URL with proxy
-      return await executeApiRequest(`/api/logs`, options);
+      return await executeApiRequest(`/api/logs${query ? `?${query}` : ''}`, options);
     } catch (err) {
       console.error('Error fetching logs:', err);
       setError(err.message);

@@ -168,7 +168,8 @@ const RedTeamLogger = ({ currentUser, csrfToken }) => {
     error,
     isAdmin,
     tableState,
-    handlers
+    handlers,
+    serverPagination
   } = useLoggerOperations(currentUser, csrfToken);
 
   if (loading) return <div className="p-4 text-white">Loading...</div>;
@@ -200,6 +201,7 @@ const RedTeamLogger = ({ currentUser, csrfToken }) => {
             currentUser={currentUser.username}
             tableState={tableState}
             handlers={handlers}
+            serverPagination={serverPagination}
             csrfToken={csrfToken}
           />
         )}

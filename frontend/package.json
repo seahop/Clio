@@ -52,7 +52,6 @@
     "@babel/plugin-transform-nullish-coalescing-operator": "^7.23.3",
     "@babel/plugin-transform-class-properties": "^7.23.3",
     "@babel/plugin-transform-optional-chaining": "^7.23.3",
-    "eslint": "^8.57.0",
     "svgo": "^3.0.2",
     "postcss": "^8.4.31"
   }

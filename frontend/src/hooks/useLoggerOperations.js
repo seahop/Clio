@@ -21,6 +21,21 @@ export const useLoggerOperations = (currentUser, csrfToken) => {
   const [expandedCell, setExpandedCell] = useState(null);
   const [activeOperation, setActiveOperation] = useState(null); // NEW: Add active operation state
 
+  // Server-side pagination (used while browsing — i.e. no active search/filter).
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const getInitialRowsPerPage = () => {
+    try {
+      const username = currentUser?.username;
+      const saved = username && localStorage.getItem(`${username}_rowsPerPage`);
+      return saved ? parseInt(saved, 10) : 25;
+    } catch {
+      return 25;
+    }
+  };
+  const [rowsPerPage, setRowsPerPage] = useState(getInitialRowsPerPage);
+  const [browseMode, setBrowseMode] = useState(true);
+
   // Guards against stale poll responses clobbering fresh local state:
   // only the latest in-flight request may apply, and polls are skipped mid-edit
   const fetchSeqRef = useRef(0);
@@ -45,45 +60,53 @@ export const useLoggerOperations = (currentUser, csrfToken) => {
     });
   };
 
-  // Fetch logs
-  useEffect(() => {
-    const loadLogs = async () => {
-      const seq = ++fetchSeqRef.current;
-      const data = await fetchLogs();
-      // Ignore this response if a newer request/edit has superseded it,
-      // or if a cell edit is in flight (its optimistic update would be reverted)
-      if (seq !== fetchSeqRef.current || editingCellRef.current) {
-        setLoading(false);
-        return;
-      }
-      if (data) {
-        // NEW: Handle new response format with operations
-        if (data.logs && data.activeOperation !== undefined) {
-          setLogs(sortLogs(data.logs));
-          setActiveOperation(data.activeOperation);
-        } else if (Array.isArray(data)) {
-          // Fallback for old format
-          setLogs(sortLogs(data));
-          setActiveOperation(null);
-        } else {
-          // Handle unexpected format
-          console.warn('Unexpected data format from fetchLogs:', data);
-          setLogs([]);
-        }
-      }
+  // Fetch logs. While browsing (no active search/filter) we request a bounded
+  // server page; when a filter is active we pull the full scoped set so the
+  // rich client-side query language can run over it (the hybrid model).
+  const loadLogs = async () => {
+    const seq = ++fetchSeqRef.current;
+    const data = await (browseMode
+      ? fetchLogs({ limit: rowsPerPage, offset: (page - 1) * rowsPerPage })
+      : fetchLogs());
+    // Ignore this response if a newer request/edit has superseded it,
+    // or if a cell edit is in flight (its optimistic update would be reverted)
+    if (seq !== fetchSeqRef.current || editingCellRef.current) {
       setLoading(false);
-    };
+      return;
+    }
+    if (data) {
+      if (data.logs && data.activeOperation !== undefined) {
+        setLogs(sortLogs(data.logs));
+        setActiveOperation(data.activeOperation);
+        setTotal(typeof data.total === 'number' ? data.total : data.logs.length);
+      } else if (Array.isArray(data)) {
+        // Fallback for old format
+        setLogs(sortLogs(data));
+        setActiveOperation(null);
+        setTotal(data.length);
+      } else {
+        console.warn('Unexpected data format from fetchLogs:', data);
+        setLogs([]);
+      }
+    }
+    setLoading(false);
+  };
+  // The SSE/interval handlers are set up once; always invoke the freshest
+  // closure so they read the current page/mode.
+  const loadLogsRef = useRef(loadLogs);
+  loadLogsRef.current = loadLogs;
 
-    loadLogs();
+  // Initial load + live updates. The backend pushes lightweight "logs:changed"
+  // events over SSE; a slow 30s poll covers a dropped stream. Kept on
+  // [csrfToken] so the stream isn't torn down on every page change.
+  useEffect(() => {
+    loadLogsRef.current();
 
-    // Live updates: the backend pushes lightweight "logs:changed" events over
-    // SSE, so we refresh on demand instead of hammering a 3s poll. A slow 30s
-    // fallback poll still runs to cover a dropped stream or a missed event.
     let debounce = null;
     const requestReload = () => {
       if (editingCellRef.current) return; // don't clobber an in-flight edit
       clearTimeout(debounce);
-      debounce = setTimeout(loadLogs, 250);
+      debounce = setTimeout(() => loadLogsRef.current(), 250);
     };
 
     let es = null;
@@ -93,13 +116,37 @@ export const useLoggerOperations = (currentUser, csrfToken) => {
       // onerror: the browser auto-reconnects; the fallback poll covers any gap.
     } catch (_) { /* SSE unsupported — fallback poll still runs */ }
 
-    const interval = setInterval(loadLogs, 30000);
+    const interval = setInterval(() => loadLogsRef.current(), 30000);
     return () => {
       clearInterval(interval);
       clearTimeout(debounce);
       if (es) es.close();
     };
-  }, [csrfToken]); // Removed fetchLogs from the dependency array to prevent infinite loops
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [csrfToken]);
+
+  // Refetch when the browse page / page size / mode changes. Skips the initial
+  // mount so it doesn't double-fetch alongside the effect above.
+  const didMountRef = useRef(false);
+  useEffect(() => {
+    if (!didMountRef.current) {
+      didMountRef.current = true;
+      return;
+    }
+    loadLogsRef.current();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [browseMode, page, rowsPerPage]);
+
+  // Persist the page-size preference (shared key with usePagination) and reset
+  // to the first page when it changes.
+  const handleServerRowsPerPageChange = (r) => {
+    try {
+      const username = currentUser?.username;
+      if (username) localStorage.setItem(`${username}_rowsPerPage`, String(r));
+    } catch (_) { /* localStorage unavailable */ }
+    setRowsPerPage(r);
+    setPage(1);
+  };
 
   // Cell editing handlers
   const handleCellClick = (rowId, field) => {
@@ -409,6 +456,15 @@ export const useLoggerOperations = (currentUser, csrfToken) => {
     error,
     isAdmin,
     activeOperation, // NEW: Include active operation in return
+    serverPagination: {
+      total,
+      page,
+      rowsPerPage,
+      browseMode,
+      setPage,
+      setBrowseMode,
+      setRowsPerPage: handleServerRowsPerPageChange
+    },
     tableState: {
       editingCell,
       editingValue,
