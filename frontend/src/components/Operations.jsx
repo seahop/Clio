@@ -474,7 +474,7 @@ const OperationCard = ({ operation, csrfToken, onUpdate }) => {
   };
 
   const handleRemoveUser = async (username) => {
-    if (!confirm(`Remove ${username} from this operation?`)) return;
+    if (!window.confirm(`Remove ${username} from this operation?`)) return;
     
     try {
       const response = await fetch(`/api/operations/${operation.id}/users/${username}`, {

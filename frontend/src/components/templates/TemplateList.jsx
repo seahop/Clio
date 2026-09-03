@@ -14,6 +14,7 @@ export const TemplateItem = ({
   currentCard,
   selectedCards,
   handleEditName,
+  handleStartEdit,
   handleSaveEdit,
   handleCancelEdit,
   handleDeleteTemplate,
