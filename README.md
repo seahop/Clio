@@ -246,6 +246,7 @@ walkthrough (ingress controllers, TLS options, SSO, upgrades, backups).
 - [Using Log Forwarders](./log_exporter/README.md)
 - [SSO Integration (Google + Generic OIDC)](./docs/sso-integration.md)
 - [Kubernetes Deployment Guide](./docs/kubernetes.md)
+- [Upgrading Between Versions](./docs/upgrading.md)
 
 ## License
 
