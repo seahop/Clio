@@ -1,6 +1,6 @@
 // frontend/src/components/api-keys/ApiKeyListItem.jsx
 import React from 'react';
-import { Key, Calendar, Clock, Shield, Lock, Trash2, MoreHorizontal, ChevronDown, Copy } from 'lucide-react';
+import { Key, Calendar, Clock, Shield, Lock, Trash2, MoreHorizontal, ChevronDown, Copy, RotateCw } from 'lucide-react';
 import { formatDate, generateCurlExample, generatePythonExample } from './apiKeyUtils';
 
 // Available permissions for reference
@@ -16,9 +16,10 @@ const PERMISSION_OPTIONS = [
 const ApiKeyListItem = ({ 
   apiKey, 
   isDetailOpen, 
-  onToggleDetail, 
-  onRevoke, 
+  onToggleDetail,
+  onRevoke,
   onDelete,
+  onRotate,
   onCopy
 }) => {
   return (
@@ -74,6 +75,15 @@ const ApiKeyListItem = ({
           >
             <MoreHorizontal size={16} />
           </button>
+          {apiKey.isActive && (
+            <button
+              onClick={onRotate}
+              title="Rotate key (issue a replacement, grace-expire this one)"
+              className="p-1 text-gray-400 hover:text-purple-300 rounded"
+            >
+              <RotateCw size={16} />
+            </button>
+          )}
           {apiKey.isActive && (
             <button
               onClick={onRevoke}

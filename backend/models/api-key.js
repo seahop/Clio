@@ -3,6 +3,32 @@ const db = require('../db');
 const crypto = require('crypto');
 const { redactSensitiveData } = require('../utils/sanitize');
 
+// API keys are high-entropy random secrets, so a fast keyed hash (HMAC-SHA256)
+// is the right primitive: a presented key can be verified against the stored
+// digest, but the digest alone is not usable offline if the database leaks. The
+// HMAC key is dedicated — an explicit API_KEY_HMAC_SECRET if set, otherwise
+// derived from a stable server secret so it isn't shared with other subsystems.
+const HMAC_SECRET =
+  process.env.API_KEY_HMAC_SECRET ||
+  crypto
+    .createHash('sha256')
+    .update('clio:api-key-hmac:v1:' + (process.env.FIELD_ENCRYPTION_KEY || process.env.JWT_SECRET || ''))
+    .digest('hex');
+
+const hmacHash = (apiKey) => crypto.createHmac('sha256', HMAC_SECRET).update(apiKey).digest('hex');
+// Pre-HMAC keys were stored as an unsalted SHA-256; kept for backward-compat.
+const legacyHash = (apiKey) => crypto.createHash('sha256').update(apiKey).digest('hex');
+
+// Constant-time comparison of two equal-length hex digests.
+const hashesEqual = (a, b) => {
+  if (typeof a !== 'string' || typeof b !== 'string' || a.length !== b.length) return false;
+  try {
+    return crypto.timingSafeEqual(Buffer.from(a, 'hex'), Buffer.from(b, 'hex'));
+  } catch {
+    return false;
+  }
+};
+
 /**
  * Manages API keys in the database
  */
@@ -20,11 +46,8 @@ class ApiKeyModel {
       const keyId = crypto.randomBytes(8).toString('hex');
       const apiKey = `${keyPrefix}${keyId}_${keySecret}`;
       
-      // Store only the keyId and a hash of the full API key
-      const keyHash = crypto
-        .createHash('sha256')
-        .update(apiKey)
-        .digest('hex');
+      // Store only the keyId and a keyed hash (HMAC) of the full API key
+      const keyHash = hmacHash(apiKey);
       
       // Make sure permissions is properly formatted as JSON
       const permissionsJson = JSON.stringify(data.permissions || ['logs:write']);
@@ -112,43 +135,59 @@ class ApiKeyModel {
    */
   static async getApiKeyByKey(apiKey) {
     try {
-      // Extract the key ID from the API key
+      // Extract the public key ID from the API key (format: rtl_keyId_secret)
       const keyParts = apiKey.split('_');
       if (keyParts.length < 2) {
         return null; // Invalid format
       }
-      
-      const keyId = keyParts[1]; // Format: rtl_keyId_secret
-      
-      // Calculate the hash of the full API key
-      const keyHash = crypto
-        .createHash('sha256')
-        .update(apiKey)
-        .digest('hex');
-      
-      // Find the API key by ID and hash
+      const keyId = keyParts[1];
+
+      // Fetch active candidates by key_id, then verify the secret's digest in
+      // constant time. A legacy unsalted-SHA-256 hash is still accepted so keys
+      // issued before the HMAC switch keep working, and is transparently
+      // upgraded to HMAC on first use.
       const result = await db.query(
-        `SELECT id, name, key_id, created_by, permissions, description,
-         created_at, expires_at, is_active, last_used, metadata, operation_id
-         FROM api_keys
-         WHERE key_id = $1 AND key_hash = $2 AND is_active = true`,
-        [keyId, keyHash]
+        `SELECT * FROM api_keys WHERE key_id = $1 AND is_active = true`,
+        [keyId]
       );
-      
-      if (result.rows.length === 0) {
-        return null;
+
+      const hmac = hmacHash(apiKey);
+      const legacy = legacyHash(apiKey);
+
+      for (const row of result.rows) {
+        const matchesHmac = hashesEqual(row.key_hash, hmac);
+        const matchesLegacy = !matchesHmac && hashesEqual(row.key_hash, legacy);
+        if (!matchesHmac && !matchesLegacy) continue;
+
+        if (matchesLegacy) {
+          try {
+            await db.query(`UPDATE api_keys SET key_hash = $1 WHERE id = $2`, [hmac, row.id]);
+          } catch (e) {
+            console.error('API key hash upgrade failed:', e.message);
+          }
+        }
+
+        // Never leak the stored digest to callers.
+        const { key_hash, ...safe } = row;
+        return safe;
       }
-      
-      // Update last_used timestamp
-      await db.query(
-        `UPDATE api_keys SET last_used = NOW() WHERE id = $1`,
-        [result.rows[0].id]
-      );
-      
-      return result.rows[0];
+
+      return null;
     } catch (error) {
       console.error('Error getting API key by key:', error);
       throw error;
+    }
+  }
+
+  /**
+   * Stamp last_used. Called by the auth middleware only after a request is
+   * authorized, so it reflects real usage rather than every auth attempt.
+   */
+  static async touchLastUsed(id) {
+    try {
+      await db.query(`UPDATE api_keys SET last_used = NOW() WHERE id = $1`, [id]);
+    } catch (error) {
+      console.error('Error updating API key last_used:', error);
     }
   }
   

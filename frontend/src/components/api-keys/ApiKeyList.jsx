@@ -12,6 +12,7 @@ const ApiKeyList = ({
   toggleKeyDetail,
   onRevoke,
   onDelete,
+  onRotate,
   onCopy,
   loading,
   refreshing,
@@ -54,6 +55,7 @@ const ApiKeyList = ({
               onToggleDetail={() => toggleKeyDetail(key.id)}
               onRevoke={() => onRevoke(key.id, key.name)}
               onDelete={() => onDelete(key.id, key.name)}
+              onRotate={() => onRotate(key.id, key.name)}
               onCopy={onCopy}
             />
           ))}

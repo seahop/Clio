@@ -103,7 +103,81 @@ const apiKeyController = {
       res.status(500).json({ error: 'Failed to create API key' });
     }
   },
-  
+
+  /**
+   * Rotate an API key: issue a fresh replacement carrying the same name,
+   * permissions, and operation scope, then grace-expire the old one so deployed
+   * agents have a window to switch over before it stops working.
+   */
+  async rotateApiKey(req, res) {
+    try {
+      const { id } = req.params;
+      const existing = await ApiKeyModel.getApiKeyById(parseInt(id));
+      if (!existing) {
+        return res.status(404).json({ error: 'API key not found' });
+      }
+
+      // Fresh replacement with the same scope/permissions (no inherited expiry —
+      // a rotated key starts a clean lifetime; set one explicitly if desired).
+      const newKey = await ApiKeyModel.createApiKey({
+        name: existing.name,
+        description: existing.description,
+        permissions: existing.permissions,
+        expires_at: null,
+        operation_id: existing.operation_id || null,
+        created_by: req.user.username,
+        metadata: {
+          ...(existing.metadata || {}),
+          rotated_from: existing.key_id,
+          rotated_at: new Date().toISOString(),
+        },
+      });
+
+      // Grace-expire the old key: keep it valid for a short window, unless it
+      // already expires sooner.
+      const GRACE_MS = 24 * 60 * 60 * 1000;
+      const graceUntil = new Date(Date.now() + GRACE_MS);
+      const oldExpiry = existing.expires_at ? new Date(existing.expires_at) : null;
+      const newOldExpiry = oldExpiry && oldExpiry < graceUntil ? oldExpiry : graceUntil;
+      await ApiKeyModel.updateApiKey(existing.id, { expires_at: newOldExpiry });
+
+      await eventLogger.logSecurityEvent('api_key_rotated', req.user.username, {
+        oldKeyId: existing.key_id,
+        newKeyId: newKey.key_id,
+        gracePeriodEnds: newOldExpiry,
+        ip: req.ip,
+      });
+
+      res.status(201).json({
+        message: 'API key rotated. The previous key keeps working until the grace period ends.',
+        apiKey: {
+          id: newKey.id,
+          name: newKey.name,
+          keyId: newKey.key_id,
+          key: newKey.api_key, // Full key - only returned once
+          permissions: newKey.permissions,
+          description: newKey.description,
+          createdAt: newKey.created_at,
+          expiresAt: newKey.expires_at,
+          createdBy: newKey.created_by,
+        },
+        previousKey: {
+          id: existing.id,
+          keyId: existing.key_id,
+          gracePeriodEnds: newOldExpiry,
+        },
+        important: 'Save this new API key value - it will not be shown again!',
+      });
+    } catch (error) {
+      console.error('Error rotating API key:', error);
+      await eventLogger.logSecurityEvent('api_key_rotation_error', req.user.username, {
+        error: error.message,
+        ip: req.ip,
+      });
+      res.status(500).json({ error: 'Failed to rotate API key' });
+    }
+  },
+
   /**
    * Get all API keys
    */

@@ -30,7 +30,8 @@ const ApiKeyManager = ({ csrfToken }) => {
     fetchApiKeys,
     createApiKey,
     revokeApiKey,
-    deleteApiKey
+    deleteApiKey,
+    rotateApiKey
   } = useApiKeys(csrfToken);
 
   // Toggle API key details panel
@@ -69,6 +70,22 @@ const ApiKeyManager = ({ csrfToken }) => {
       return;
     }
     await deleteApiKey(id, name);
+  };
+
+  // Handle rotating an API key — issues a new one (shown once) and grace-expires the old
+  const handleRotateApiKey = async (id, name) => {
+    if (!window.confirm(
+      `Rotate the API key "${name}"?\n\nA new key is issued now and shown once. ` +
+      `The old key keeps working for a short grace period so you can update anything using it.`
+    )) {
+      return;
+    }
+    try {
+      const data = await rotateApiKey(id, name);
+      if (data?.apiKey) setNewApiKey(data.apiKey);
+    } catch (e) {
+      // error is surfaced via the hook's error state
+    }
   };
 
   // Copy text to clipboard
@@ -121,6 +138,7 @@ const ApiKeyManager = ({ csrfToken }) => {
         toggleKeyDetail={toggleKeyDetail}
         onRevoke={handleRevokeApiKey}
         onDelete={handleDeleteApiKey}
+        onRotate={handleRotateApiKey}
         onCopy={copyToClipboard}
         loading={loading}
         refreshing={refreshing}

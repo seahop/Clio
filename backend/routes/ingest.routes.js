@@ -44,8 +44,10 @@ const ingestLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req) => {
-    // Use the API key as the identifier for rate limiting
-    return req.header('X-API-Key') || req.ip;
+    // Rate-limit per API key. authenticateApiKey runs first and sets req.apiKey,
+    // so we key on the public keyId rather than holding the raw secret in the
+    // limiter's store.
+    return req.apiKey?.keyId || req.ip;
   }
 });
 

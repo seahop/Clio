@@ -66,6 +66,7 @@ const authenticateApiKey = async (req, res, next) => {
         operation_id: keyData.operation_id || null
       };
 
+      await ApiKeyModel.touchLastUsed(keyData.id);
       return next();
     }
     
@@ -101,6 +102,8 @@ const authenticateApiKey = async (req, res, next) => {
       operation_id: keyData.operation_id || null
     };
     
+    await ApiKeyModel.touchLastUsed(keyData.id);
+
     // Log successful usage
     await eventLogger.logDataEvent('api_key_used', keyData.created_by, {
       keyId: keyData.key_id,
@@ -109,7 +112,7 @@ const authenticateApiKey = async (req, res, next) => {
       path: req.path,
       method: req.method
     });
-    
+
     next();
   } catch (error) {
     console.error('API key authentication error:', error);

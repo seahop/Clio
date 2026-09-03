@@ -519,6 +519,43 @@ describe('API key management + ingest', () => {
     );
   });
 
+  test('rotate issues a new key and grace-keeps the old one working', async () => {
+    const create = await admin.request('POST', '/api/api-keys', {
+      name: `smoke_rotate_${RUN_ID}`,
+      permissions: ['logs:write'],
+      operation_id: fx.opA.id,
+    });
+    assert.equal(create.status, 201, create.text);
+    const oldKey = create.json.apiKey;
+
+    const rot = await admin.request('POST', `/api/api-keys/${oldKey.id}/rotate`);
+    assert.equal(rot.status, 201, rot.text);
+    const newKey = rot.json.apiKey;
+    assert.ok(newKey.key?.startsWith('rtl_'), 'new full key returned once');
+    assert.notEqual(newKey.key, oldKey.key, 'rotated key must differ from the old one');
+    assert.ok(rot.json.previousKey?.gracePeriodEnds, 'grace period is reported');
+
+    const ingest = (key, host) =>
+      fetch(`${BASE}/api/ingest/logs`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-API-Key': key,
+          'X-Forwarded-For': `10.21.31.${1 + crypto.randomInt(254)}`,
+        },
+        body: JSON.stringify({ hostname: host, command: 'rotate-test' }),
+      });
+
+    const ingNew = await ingest(newKey.key, `rot-new-${RUN_ID}`);
+    assert.ok([200, 201].includes(ingNew.status), `new key ingests: ${await ingNew.text()}`);
+
+    const ingOld = await ingest(oldKey.key, `rot-old-${RUN_ID}`);
+    assert.ok([200, 201].includes(ingOld.status), `old key valid during grace: ${await ingOld.text()}`);
+
+    await admin.request('DELETE', `/api/api-keys/${newKey.id}`);
+    await admin.request('DELETE', `/api/api-keys/${oldKey.id}`);
+  });
+
   test('cleanup: delete the smoke key', async () => {
     if (created) {
       const res = await admin.request('DELETE', `/api/api-keys/${created.id}`);

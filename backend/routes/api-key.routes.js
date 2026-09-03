@@ -33,6 +33,9 @@ router.put('/:id', apiKeyController.updateApiKey);
 // Revoke API key
 router.post('/:id/revoke', apiKeyController.revokeApiKey);
 
+// Rotate API key (issue a replacement, grace-expire the old one)
+router.post('/:id/rotate', apiKeyController.rotateApiKey);
+
 // Delete API key
 router.delete('/:id', apiKeyController.deleteApiKey);
 

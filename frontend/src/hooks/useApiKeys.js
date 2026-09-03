@@ -153,6 +153,44 @@ const useApiKeys = (csrfToken) => {
     }
   };
 
+  // Rotate an API key: issue a replacement (returned once) and grace-expire the old one
+  const rotateApiKey = async (id, name) => {
+    try {
+      setLoading(true);
+      setError(null);
+      setMessage(null);
+
+      const response = await fetch(`/api/api-keys/${id}/rotate`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+          'CSRF-Token': csrfToken
+        },
+        body: JSON.stringify({})
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to rotate API key');
+      }
+
+      const data = await response.json();
+      setMessage(
+        `API key "${name}" rotated. Save the new key — it won't be shown again. ` +
+        `The old key keeps working briefly so you can update anything still using it.`
+      );
+      await fetchApiKeys();
+      return data;
+    } catch (err) {
+      console.error('Error rotating API key:', err);
+      setError(err.message);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return {
     apiKeys,
     loading,
@@ -164,7 +202,8 @@ const useApiKeys = (csrfToken) => {
     fetchApiKeys,
     createApiKey,
     revokeApiKey,
-    deleteApiKey
+    deleteApiKey,
+    rotateApiKey
   };
 };
 
