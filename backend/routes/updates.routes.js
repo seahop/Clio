@@ -1,13 +1,17 @@
 // backend/routes/updates.routes.js
 const express = require('express');
 const router = express.Router();
-const { authenticateJwt: authenticateToken } = require('../middleware/jwt.middleware');
+const { authenticateJwt: authenticateToken, verifyAdmin } = require('../middleware/jwt.middleware');
 const RelationsModel = require('../models/relations');
 const FileStatusModel = require('../models/fileStatus');
 const RelationAnalyzer = require('../services/relations/relationAnalyzer');
 const batchService = require('../services/relations/batchService');
 
-router.post('/field-update', authenticateToken, async (req, res) => {
+// Admin-only: this performs a GLOBAL, cross-operation relation rename (delete +
+// re-insert of every matching relation row). It is not used by the SPA — normal
+// field edits are batched server-side inside PUT /api/logs/:id — so gating it to
+// admin closes a cross-operation integrity hole with no UI impact.
+router.post('/field-update', authenticateToken, verifyAdmin, async (req, res) => {
   try {
     const { fieldType, oldValue, newValue, username } = req.body;
 
@@ -168,7 +172,7 @@ router.get('/status', authenticateToken, async (req, res) => {
   }
 });
 
-router.post('/flush', authenticateToken, async (req, res) => {
+router.post('/flush', authenticateToken, verifyAdmin, async (req, res) => {
   try {
     await batchService.flushBatch('fieldUpdates');
     res.json({ success: true, message: 'Field update batches flushed successfully', timestamp: new Date().toISOString() });

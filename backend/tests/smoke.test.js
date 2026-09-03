@@ -377,6 +377,55 @@ describe('operation scoping (non-admin)', () => {
       { logIds: [fx.adminLog.id] });
     assert.equal(res.status, 403);
   });
+
+  // ── by-id / bulk isolation (regression: 2026-09 audit C1/H2/H4/M6/H3) ──
+  // These guard the crown-jewel invariant on the single-log and bulk write
+  // paths, which previously skipped the operation-scope gate that the list,
+  // tag, and evidence paths already enforce.
+
+  test('cannot read a foreign log by id (regression: getLogById IDOR / C1)', async () => {
+    const res = await user.request('GET', `/api/logs/${fx.adminLog.id}`);
+    assert.equal(res.status, 404, 'a foreign log fetched by id must 404 for a non-admin');
+    assert.ok(!res.text.includes('smoke-foreign'), 'no foreign log data may leak in the body');
+  });
+
+  test('can read own log by id (positive control)', async () => {
+    const res = await user.request('GET', `/api/logs/${fx.userLog.id}`);
+    assert.equal(res.status, 200);
+    assert.equal(res.json.id, fx.userLog.id);
+  });
+
+  test('cannot update a foreign log by id (regression: PUT IDOR / H2)', async () => {
+    const res = await user.request('PUT', `/api/logs/${fx.adminLog.id}`,
+      { command: 'tampered-by-smoke' });
+    assert.equal(res.status, 404, 'a foreign log update must 404');
+    const check = await admin.request('GET', `/api/logs/${fx.adminLog.id}`);
+    assert.equal(check.status, 200);
+    assert.notEqual(check.json.command, 'tampered-by-smoke', 'foreign log must be unchanged');
+  });
+
+  test('bulk-status cannot touch a foreign log (regression: H4)', async () => {
+    const before = await admin.request('GET', `/api/logs/${fx.adminLog.id}`);
+    const res = await user.request('POST', '/api/logs/bulk-status',
+      { logIds: [fx.adminLog.id], status: 'CLEANED' });
+    assert.equal(res.status, 200);
+    assert.equal(res.json.updated, 0, 'no foreign rows may be updated');
+    const after = await admin.request('GET', `/api/logs/${fx.adminLog.id}`);
+    assert.equal(after.json.status, before.json.status, 'foreign log status unchanged');
+  });
+
+  test('cannot lock a foreign log (regression: M6)', async () => {
+    const res = await user.request('POST', `/api/logs/${fx.adminLog.id}/lock`, { lock: true });
+    assert.equal(res.status, 404, 'a foreign log lock must 404');
+    const check = await admin.request('GET', `/api/logs/${fx.adminLog.id}`);
+    assert.equal(check.json.locked, false, 'foreign log must remain unlocked');
+  });
+
+  test('global relation rename (field-update) is admin-only (regression: H3)', async () => {
+    const res = await user.request('POST', '/api/updates/field-update',
+      { fieldType: 'hostname', oldValue: `smoke-foreign-${RUN_ID}`, newValue: 'x' });
+    assert.equal(res.status, 403, 'cross-operation relation rename must be admin-only');
+  });
 });
 
 // ── 6. Injection regressions ─────────────────────────────────────────────────

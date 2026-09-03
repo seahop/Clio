@@ -335,7 +335,7 @@ router.get('/file/:fileId/download', authenticateJwt, validateFileAccess, async 
 });
 
 // Update evidence file metadata
-router.put('/file/:fileId', authenticateJwt, sanitizeRequestMiddleware, async (req, res) => {
+router.put('/file/:fileId', authenticateJwt, validateFileAccess, sanitizeRequestMiddleware, async (req, res) => {
   try {
     const fileId = parseInt(req.params.fileId);
     
@@ -377,7 +377,7 @@ router.put('/file/:fileId', authenticateJwt, sanitizeRequestMiddleware, async (r
 });
 
 // Delete an evidence file
-router.delete('/file/:fileId', authenticateJwt, async (req, res) => {
+router.delete('/file/:fileId', authenticateJwt, validateFileAccess, async (req, res) => {
   try {
     const fileId = parseInt(req.params.fileId);
     

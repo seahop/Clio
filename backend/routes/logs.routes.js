@@ -14,6 +14,7 @@ const { scheduleRelationAnalysis } = require('../services/relations/analysisSche
 const cascadeDeleteRelations = require('../services/relations/cascadeDeleteRelations');
 const batchService = require('../services/relations/batchService');
 const { batchUpdateProcessor } = require('./updates.routes');
+const { sanitizeRequestMiddleware, sanitizeLogMiddleware } = require('../middleware/sanitize.middleware');
 
 // Get all logs (with operation filtering)
 router.get('/', authenticateJwt, async (req, res, next) => {
@@ -59,7 +60,7 @@ router.get('/', authenticateJwt, async (req, res, next) => {
 });
 
 // Create new log
-router.post('/', authenticateJwt, async (req, res, next) => {
+router.post('/', authenticateJwt, sanitizeRequestMiddleware, sanitizeLogMiddleware, async (req, res, next) => {
   try {
     // Non-admin logs are only visible when tagged with the user's active
     // operation. Without one, the row would be created but immediately
@@ -119,18 +120,30 @@ router.post('/', authenticateJwt, async (req, res, next) => {
 });
 
 // Update log
-router.put('/:id', authenticateJwt, async (req, res, next) => {
+router.put('/:id', authenticateJwt, sanitizeRequestMiddleware, sanitizeLogMiddleware, async (req, res, next) => {
   try {
     const id = parseInt(req.params.id);
     const isAdmin = req.user.role === 'admin';
 
     // Get the existing log before updating to have the original values
     const existingLog = await LogsModel.getLogById(id);
-    
+
     if (!existingLog) {
       await eventLogger.logDataEvent('update_failed', req.user.username, {
         rowId: id,
         reason: 'Log not found',
+        attempted_changes: redactSensitiveData(req.body, ['secrets'])
+      });
+      return res.status(404).json({ error: 'Log not found' });
+    }
+
+    // Operation-scope gate: a non-admin may only modify logs carrying their
+    // active operation's tag. Return 404 (not 403) so a cross-operation log's
+    // existence isn't revealed.
+    if (!(await LogsModel.isLogInScope(id, req.user.username, isAdmin))) {
+      await eventLogger.logDataEvent('update_failed', req.user.username, {
+        rowId: id,
+        reason: 'Out of operation scope',
         attempted_changes: redactSensitiveData(req.body, ['secrets'])
       });
       return res.status(404).json({ error: 'Log not found' });
@@ -450,15 +463,26 @@ router.post('/bulk-status', authenticateJwt, async (req, res, next) => {
     if (ids.length === 0) return res.status(400).json({ error: 'No valid log ids' });
 
     const isAdmin = req.user.role === 'admin';
-    // Admins may change any; others skip logs locked by a different user.
-    const result = isAdmin
-      ? await db.query(
-          `UPDATE logs SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = ANY($2::int[]) RETURNING id`,
-          [status, ids])
-      : await db.query(
-          `UPDATE logs SET status = $1, updated_at = CURRENT_TIMESTAMP
-           WHERE id = ANY($2::int[]) AND (locked = false OR locked_by = $3) RETURNING id`,
-          [status, ids, req.user.username]);
+    let result;
+    if (isAdmin) {
+      // Admins may change any log.
+      result = await db.query(
+        `UPDATE logs SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = ANY($2::int[]) RETURNING id`,
+        [status, ids]);
+    } else {
+      // Non-admins: only logs carrying their active operation's tag, and not
+      // locked by someone else. Fail closed when they have no active operation.
+      const { tagId, hasScope } = await LogsModel._resolveScopeTagId(req.user.username, false);
+      if (!hasScope || !tagId) {
+        return res.json({ success: true, updated: 0, requested: ids.length });
+      }
+      result = await db.query(
+        `UPDATE logs SET status = $1, updated_at = CURRENT_TIMESTAMP
+         WHERE id = ANY($2::int[]) AND (locked = false OR locked_by = $3)
+           AND EXISTS (SELECT 1 FROM log_tags lt WHERE lt.log_id = logs.id AND lt.tag_id = $4)
+         RETURNING id`,
+        [status, ids, req.user.username, tagId]);
+    }
 
     await eventLogger.logDataEvent('bulk_status', req.user.username, {
       status, updated: result.rows.length, requested: ids.length,
@@ -559,8 +583,12 @@ router.post('/bulk-operation-tag', authenticateJwt, verifyAdmin, async (req, res
 router.get('/:id', authenticateJwt, async (req, res, next) => {
   try {
     const { id } = req.params;
-    const log = await LogsModel.getLogById(id);
-    
+    const isAdmin = req.user.role === 'admin';
+    // Operation-scoped fetch: a non-admin can only read logs carrying their
+    // active operation's tag. Out-of-scope (or unknown) ids return 404 so we
+    // never leak another operation's records — or its decrypted secrets.
+    const log = await LogsModel.getLogByIdScoped(id, req.user.username, isAdmin);
+
     if (!log) {
       return res.status(404).json({ error: 'Log not found' });
     }
@@ -622,7 +650,13 @@ router.post('/:id/lock', authenticateJwt, async (req, res, next) => {
     const { id } = req.params;
     const { lock } = req.body;
     const isAdmin = req.user.role === 'admin';
-    
+
+    // Operation-scope gate — a non-admin can only lock/unlock logs carrying
+    // their active operation's tag. 404 avoids leaking cross-op existence.
+    if (!(await LogsModel.isLogInScope(id, req.user.username, isAdmin))) {
+      return res.status(404).json({ error: 'Log not found' });
+    }
+
     const lockStatus = await LogsModel.getLockStatus(id);
     
     if (lock && lockStatus.locked && !isAdmin) {

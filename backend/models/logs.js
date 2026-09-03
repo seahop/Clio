@@ -133,6 +133,42 @@ const LogsModel = {
     }
   },
 
+  // Scoped single-log fetch — enforces the same operation-tag isolation as
+  // getAllLogs so a non-admin can only ever read logs carrying their active
+  // operation's tag (admin → admin_view_filter; null filter → all). Returns
+  // null when the log is out of the viewer's scope, so callers can 404 without
+  // leaking the existence of another operation's records.
+  async getLogByIdScoped(id, username, isAdmin = false) {
+    const { tagId, hasScope } = await this._resolveScopeTagId(username, isAdmin);
+    if (!hasScope) return null;
+    const sql = tagId
+      ? `SELECT l.* FROM logs l JOIN log_tags lt ON l.id = lt.log_id AND lt.tag_id = $2 WHERE l.id = $1`
+      : `SELECT l.* FROM logs l WHERE l.id = $1`;
+    const params = tagId ? [id, tagId] : [id];
+    const result = await db.query(sql, params);
+    return result.rows.length > 0 ? this._processFromStorage(result.rows[0]) : null;
+  },
+
+  // Cheap boolean scope check (no decryption) for write handlers that already
+  // load the row for other reasons. Same rules as getLogByIdScoped.
+  async isLogInScope(id, username, isAdmin = false) {
+    const { tagId, hasScope } = await this._resolveScopeTagId(username, isAdmin);
+    if (!hasScope) return false;
+    const sql = tagId
+      ? `SELECT 1 FROM logs l JOIN log_tags lt ON l.id = lt.log_id AND lt.tag_id = $2 WHERE l.id = $1 LIMIT 1`
+      : `SELECT 1 FROM logs l WHERE l.id = $1 LIMIT 1`;
+    const params = tagId ? [id, tagId] : [id];
+    const result = await db.query(sql, params);
+    return result.rows.length > 0;
+  },
+
+  // Decrypt/normalize an array of raw storage rows. Used by the CSV/evidence
+  // export controllers when decryptSensitiveData is requested.
+  _processMultipleFromStorage(rows) {
+    if (!Array.isArray(rows)) return [];
+    return rows.map((row) => this._processFromStorage(row));
+  },
+
   // Resolve the operation-tag scope for the current viewer, mirroring
   // getAllLogs: admin → admin_view_filter (null = all operations); non-admin →
   // active operation tag (null → no access). Returns { tagId, hasScope }.
