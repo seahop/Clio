@@ -160,6 +160,7 @@ environment:
 | `OIDC_PROVIDER_NAME` | No | `SSO` | Label shown on the login button |
 | `OIDC_SCOPE` | No | `openid email profile` | Scopes to request; adjust if your provider uses non-standard scope names |
 | `OIDC_ID_TOKEN_ALG` | No | auto-detected | ID-token signing algorithm (e.g. `ES256`, `RS256`). Auto-detection reads the provider's discovery document and JWKS; set this only when login fails with an algorithm mismatch (see Troubleshooting) |
+| `OIDC_USERNAME_CLAIM` | No | `preferred_username` | Claim whose value becomes the Clio username when an SSO account is first created. Looked up in the UserInfo response, then the ID token; if absent, falls back to `preferred_username` and then the email local part. Examples: `upn`, `sAMAccountName`, `email`. Only affects new accounts — existing accounts are matched by `sub` |
 | `OIDC_ADMIN_GROUP` | No | `clio-admin` | Group name in the `groups` claim that grants the admin role. Admin takes precedence if a user is in both groups |
 | `OIDC_USER_GROUP` | No | `clio-user` | Group name in the `groups` claim that grants the regular user role. Users in neither group, or with no `groups` claim at all, are denied login |
 
@@ -255,4 +256,4 @@ docker compose build backend && docker compose up -d backend
 - Verify Client ID and Secret are correct and the OAuth consent screen is fully configured.
 
 **Users created with wrong username**
-- Usernames are derived from the `preferred_username` claim (OIDC) or the email prefix (Google/OIDC fallback). The claim must be present in the ID token. Add the relevant mapper/claim in your provider's client configuration.
+- By default usernames are derived from the `preferred_username` claim (OIDC) or the email prefix (Google/OIDC fallback). For OIDC, set `OIDC_USERNAME_CLAIM` to use a different claim (e.g. `upn`, `sAMAccountName`); it is read from UserInfo first, then the ID token, so add the relevant mapper/claim in your provider's client configuration. Usernames are sanitised to `[A-Za-z0-9_-]` (other characters become `_`), and the claim is only consulted when the account is first created — an existing account keeps its username.

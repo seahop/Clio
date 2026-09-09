@@ -167,6 +167,7 @@ Optional OIDC variables:
 | `OIDC_PROVIDER_NAME` | `SSO` | Label shown on the login button |
 | `OIDC_SCOPE` | `openid email profile` | Scopes to request |
 | `OIDC_ID_TOKEN_ALG` | auto-detected | ID-token signing algorithm (e.g. `ES256`). Clio detects it from the provider's discovery document and JWKS; set this only if login fails with an algorithm mismatch — the exact value to use is printed in the container logs |
+| `OIDC_USERNAME_CLAIM` | `preferred_username` | Claim used for the Clio username when an SSO account is first created (checked in UserInfo, then the ID token). Falls back to the email local part if the claim is absent |
 | `OIDC_ADMIN_GROUP` | `clio-admin` | Group name in the `groups` claim that grants the admin role |
 | `OIDC_USER_GROUP` | `clio-user` | Group name in the `groups` claim that grants the user role. Users in neither group are denied login. If no `groups` claim is present, login is also denied |
 

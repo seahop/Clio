@@ -100,6 +100,53 @@ describe('resolveOIDCRole — group-based role assignment', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Section 1a — resolveBaseUsername (OIDC_USERNAME_CLAIM, pure unit)
+// ─────────────────────────────────────────────────────────────────────────────
+describe('resolveBaseUsername — OIDC_USERNAME_CLAIM', () => {
+  const loadFresh = (claim) => {
+    if (claim === undefined) delete process.env.OIDC_USERNAME_CLAIM;
+    else process.env.OIDC_USERNAME_CLAIM = claim;
+    delete require.cache[require.resolve('../config/oidc')];
+    delete require.cache[require.resolve('../controllers/oidc.controller')];
+    return require('../controllers/oidc.controller').resolveBaseUsername;
+  };
+  const restore = () => loadFresh(undefined);
+
+  test('default (unset): preferred_username, then email local part', () => {
+    const fn = loadFresh(undefined);
+    assert.equal(fn({ preferred_username: 'jdoe' }, {}, 'j@x.io'), 'jdoe');
+    assert.equal(fn({}, {}, 'jane.doe@x.io'), 'jane.doe');
+    restore();
+  });
+
+  test('uses the configured claim from UserInfo', () => {
+    const fn = loadFresh('upn');
+    assert.equal(fn({ upn: 'jdoe@corp.local', preferred_username: 'x' }, {}, 'j@x.io'), 'jdoe@corp.local');
+    restore();
+  });
+
+  test('falls back to the ID token when UserInfo lacks the claim', () => {
+    const fn = loadFresh('sAMAccountName');
+    assert.equal(fn({ preferred_username: 'x' }, { sAMAccountName: 'jdoe' }, 'j@x.io'), 'jdoe');
+    restore();
+  });
+
+  test('falls back to the default chain when the claim is missing/empty', () => {
+    const fn = loadFresh('missing_claim');
+    assert.equal(fn({ preferred_username: 'pu' }, {}, 'j@x.io'), 'pu');
+    assert.equal(fn({ missing_claim: '   ' }, {}, 'jane@x.io'), 'jane');
+    assert.equal(fn({ missing_claim: ['array'] }, {}, 'jane@x.io'), 'jane');
+    restore();
+  });
+
+  test('accepts numeric claim values (e.g. employee id)', () => {
+    const fn = loadFresh('employee_id');
+    assert.equal(fn({ employee_id: 4711 }, {}, 'j@x.io'), '4711');
+    restore();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Section 1b — parseStateRecord (PKCE state record, pure unit)
 // ─────────────────────────────────────────────────────────────────────────────
 describe('parseStateRecord — OIDC state record with PKCE verifier', () => {

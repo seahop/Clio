@@ -41,6 +41,9 @@ data:
   {{- if .Values.oidc.idTokenAlg }}
   OIDC_ID_TOKEN_ALG:  {{ .Values.oidc.idTokenAlg | quote }}
   {{- end }}
+  {{- if .Values.oidc.usernameClaim }}
+  OIDC_USERNAME_CLAIM: {{ .Values.oidc.usernameClaim | quote }}
+  {{- end }}
   {{- end }}
 ---
 # Redis configuration (no TLS, password auth via requirepass)

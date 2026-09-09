@@ -16,6 +16,10 @@ module.exports = {
   // When the provider includes a groups claim, users must belong to one of
   // these groups. Admin takes precedence over user. Users in neither group,
   // or with no groups claim at all, are denied login.
+  // Claim whose value becomes the Clio username when an SSO account is first
+  // created (looked up in UserInfo first, then the ID token). Defaults to
+  // preferred_username, falling back to the local part of the email address.
+  usernameClaim: process.env.OIDC_USERNAME_CLAIM || null,
   adminGroup:   process.env.OIDC_ADMIN_GROUP || 'clio-admin',
   userGroup:    process.env.OIDC_USER_GROUP  || 'clio-user',
 };

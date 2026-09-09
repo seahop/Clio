@@ -97,6 +97,28 @@ const parseStateRecord = (raw) => {
   return { nonce: raw, codeVerifier: undefined };
 };
 
+// Pick the base username for a new SSO account. When OIDC_USERNAME_CLAIM is
+// set, that claim is read from the UserInfo response first, then the ID token;
+// if it's absent or not a non-empty string we fall back to the default chain
+// (preferred_username, then the local part of the email) rather than failing
+// the login. Only used at account creation — existing accounts are matched by
+// `sub`, so changing the claim never renames users.
+const resolveBaseUsername = (profile, idClaims, email) => {
+  const claim = oidcConfig.usernameClaim;
+  if (claim) {
+    const raw = profile?.[claim] ?? idClaims?.[claim];
+    const value = typeof raw === 'string' ? raw.trim()
+                : typeof raw === 'number' ? String(raw)
+                : '';
+    if (value) return value;
+    console.warn(
+      `OIDC_USERNAME_CLAIM="${claim}" is missing or empty in both UserInfo and the ID token; ` +
+      'falling back to preferred_username / email prefix'
+    );
+  }
+  return profile.preferred_username || email.split('@')[0];
+};
+
 const findUserByOIDCSub = async (sub) => {
   const username = await redisClient.get(`oidc:${sub}`);
   return username ? { username } : null;
@@ -206,7 +228,7 @@ const oidcCallback = async (req, res) => {
 
     const email        = profile.email || `${sub}@oidc`;
     const displayName  = profile.name || profile.preferred_username || email.split('@')[0];
-    const baseUsername = (profile.preferred_username || email.split('@')[0]);
+    const baseUsername = resolveBaseUsername(profile, idClaims, email);
 
     if (!sub) {
       console.error('No sub claim in OIDC ID token');
@@ -298,4 +320,4 @@ const oidcCallback = async (req, res) => {
   }
 };
 
-module.exports = { oidcInitiate, oidcCallback, resolveOIDCRole, parseStateRecord };
+module.exports = { oidcInitiate, oidcCallback, resolveOIDCRole, parseStateRecord, resolveBaseUsername };

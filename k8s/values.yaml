@@ -221,6 +221,10 @@ oidc:
   # Callback URL registered with the OIDC provider.
   # Leave blank to auto-derive: https://<ingress.host>/api/auth/oidc/callback
   callbackUrl: ""
+  # Claim used for the Clio username when an SSO account is first created.
+  # Leave blank for the default: preferred_username, then the email local part.
+  # Examples: "upn" (Azure AD), "sAMAccountName", "email".
+  usernameClaim: ""
   # Group-based role assignment.
   # The OIDC provider must include a "groups" claim (or equivalent) in the ID token.
   # Users in neither group are denied access.
