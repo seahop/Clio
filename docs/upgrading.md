@@ -124,6 +124,17 @@ backup is the safe path.
 intervening migration in order, so you can upgrade directly from an older
 release — you do not have to step through each version.
 
+### Upgrading to 1.0.5 from 1.0.4
+
+- **No database schema changes** and **no new required environment variables**.
+- **OIDC logins now use PKCE (S256).** Clio sends `code_challenge` on every
+  authorize request and `code_verifier` on the token exchange, so it works with
+  providers that enforce PKCE. No provider-side change is needed for providers
+  that don't require it; keep the client registered as *confidential* (client
+  secret) either way.
+- Logins started on 1.0.4 that are still pending when the backend restarts on
+  1.0.5 complete normally.
+
 ### Upgrading to 1.0.4 from 1.0.2
 
 1.0.2 predates migrations 002 and 003, so this upgrade **applies them on first
