@@ -124,6 +124,15 @@ backup is the safe path.
 intervening migration in order, so you can upgrade directly from an older
 release — you do not have to step through each version.
 
+### Upgrading to 1.0.6 from 1.0.5
+
+- **No database schema changes** and **no new required environment variables**.
+- **New optional `OIDC_USERNAME_CLAIM`.** Choose which claim becomes the Clio
+  username when an SSO account is first created (e.g. `upn`, `sAMAccountName`).
+  Unset keeps the existing behaviour (`preferred_username`, then the email
+  local part). It only affects accounts created after the change; existing
+  accounts are matched by `sub` and keep their usernames.
+
 ### Upgrading to 1.0.5 from 1.0.4
 
 - **No database schema changes** and **no new required environment variables**.
