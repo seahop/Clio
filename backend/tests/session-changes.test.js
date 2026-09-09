@@ -100,6 +100,33 @@ describe('resolveOIDCRole — group-based role assignment', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Section 1b — parseStateRecord (PKCE state record, pure unit)
+// ─────────────────────────────────────────────────────────────────────────────
+describe('parseStateRecord — OIDC state record with PKCE verifier', () => {
+  const { parseStateRecord } = require('../controllers/oidc.controller');
+
+  test('returns nonce + codeVerifier from a JSON record', () => {
+    const rec = parseStateRecord(JSON.stringify({ nonce: 'n1', codeVerifier: 'v1' }));
+    assert.deepEqual(rec, { nonce: 'n1', codeVerifier: 'v1' });
+  });
+
+  test('accepts a legacy plain-string nonce (pre-PKCE record) with no verifier', () => {
+    const rec = parseStateRecord('legacy-nonce-value');
+    assert.deepEqual(rec, { nonce: 'legacy-nonce-value', codeVerifier: undefined });
+  });
+
+  test('returns null for a missing/expired record', () => {
+    assert.equal(parseStateRecord(null), null);
+    assert.equal(parseStateRecord(''), null);
+  });
+
+  test('JSON without a string nonce is treated as an opaque legacy nonce', () => {
+    const rec = parseStateRecord('{"foo":1}');
+    assert.deepEqual(rec, { nonce: '{"foo":1}', codeVerifier: undefined });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Section 2 — getAllLogs scoping (mock db.query)
 // ─────────────────────────────────────────────────────────────────────────────
 

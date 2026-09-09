@@ -110,6 +110,8 @@ The exact steps vary by provider, but you will always need to:
    ```
 3. Note the **Client ID**, **Client Secret**, and **Issuer URL**.
 
+Clio uses the authorization-code flow with **PKCE (S256)** on every login, so it works with providers that enforce PKCE (Keycloak "enforced PKCE mode", Okta, Auth0, Azure AD, Authentik, Authelia, etc.). No extra configuration is needed; providers that don't require PKCE simply ignore the challenge. The client must still be registered as a *confidential* client (client secret), since Clio also authenticates the token request with `OIDC_CLIENT_SECRET`.
+
 The issuer URL is the base URL of your provider's OIDC metadata endpoint. Examples:
 
 | Provider | Issuer URL format |
@@ -214,6 +216,9 @@ docker compose build backend && docker compose up -d backend
 **Login button does not appear**
 - The button only shows when the provider is fully configured. Check that all three required variables are set (`ISSUER_URL`, `CLIENT_ID`, `CLIENT_SECRET` for OIDC or `CLIENT_ID` + `CLIENT_SECRET` for Google).
 - For the omnibus build, verify the env vars were passed correctly: `docker inspect clio | grep -A20 Env`.
+
+**Provider logs "No PKCE code challenge was provided" / `invalid_request`**
+- Earlier Clio releases did not send a PKCE challenge. Upgrade; the current release always sends `code_challenge` + `code_challenge_method=S256` on the authorize request.
 
 **"OIDC client initialisation failed" in logs**
 - Clio fetches `<OIDC_ISSUER_URL>/.well-known/openid-configuration` at startup. The container must be able to reach your provider over the network.

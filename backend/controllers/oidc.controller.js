@@ -1,8 +1,12 @@
 // backend/controllers/oidc.controller.js
 // Handles the generic OIDC authorization-code flow without Passport's session
-// requirement. State and nonce are stored in Redis (10-minute TTL) and the
-// state value is echoed back via a short-lived httpOnly cookie so the callback
-// can verify it without needing express-session.
+// requirement. State, nonce and the PKCE code_verifier are stored in Redis
+// (10-minute TTL) and the state value is echoed back via a short-lived
+// httpOnly cookie so the callback can verify it without needing express-session.
+//
+// PKCE (RFC 7636, S256) is always sent. Providers that don't enforce it ignore
+// the extra parameters; providers that do (e.g. "enforced PKCE mode") reject
+// the authorize request with invalid_request without it.
 const { generators } = require('openid-client');
 const { getOIDCClient, isOIDCConfigured } = require('../lib/oidc-client');
 const oidcConfig  = require('../config/oidc');
@@ -25,11 +29,18 @@ const oidcInitiate = async (req, res) => {
   }
   try {
     const client = getOIDCClient();
-    const state  = generators.state();
-    const nonce  = generators.nonce();
+    const state        = generators.state();
+    const nonce        = generators.nonce();
+    const codeVerifier = generators.codeVerifier();
 
-    // Persist nonce keyed by state so the callback can retrieve it
-    await redisClient.setEx(`oidc:state:${state}`, OIDC_STATE_TTL, nonce);
+    // Persist nonce + PKCE verifier keyed by state so the callback can
+    // retrieve them. The verifier never leaves the server; only its S256
+    // hash goes to the provider.
+    await redisClient.setEx(
+      `oidc:state:${state}`,
+      OIDC_STATE_TTL,
+      JSON.stringify({ nonce, codeVerifier })
+    );
 
     // SameSite=Lax is required: the browser must include this cookie when the
     // OIDC provider redirects back to our callback (a cross-site top-level GET).
@@ -47,6 +58,8 @@ const oidcInitiate = async (req, res) => {
       scope: oidcConfig.scope,
       state,
       nonce,
+      code_challenge:        generators.codeChallenge(codeVerifier),
+      code_challenge_method: 'S256',
     });
 
     res.redirect(redirectUrl);
@@ -67,6 +80,21 @@ const resolveOIDCRole = (groups) => {
   if (groups.includes(oidcConfig.adminGroup)) return true;
   if (groups.includes(oidcConfig.userGroup))  return false;
   return null;
+};
+
+// Parse the Redis record written by oidcInitiate. Returns { nonce, codeVerifier }
+// or null when the state is unknown/expired. A bare-string value is a record
+// written by a pre-PKCE build (a login started just before an upgrade); it is
+// still accepted, with no verifier, so that in-flight logins complete.
+const parseStateRecord = (raw) => {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object' && typeof parsed.nonce === 'string') {
+      return { nonce: parsed.nonce, codeVerifier: parsed.codeVerifier || undefined };
+    }
+  } catch (_) { /* legacy plain-string nonce */ }
+  return { nonce: raw, codeVerifier: undefined };
 };
 
 const findUserByOIDCSub = async (sub) => {
@@ -145,18 +173,22 @@ const oidcCallback = async (req, res) => {
       res.clearCookie('oidc_state');
     }
 
-    const nonce = await redisClient.get(`oidc:state:${returnedState}`);
-    if (!nonce) {
+    const stateRecord = parseStateRecord(await redisClient.get(`oidc:state:${returnedState}`));
+    if (!stateRecord) {
       console.error('OIDC state not found or expired');
       return res.redirect('/login?error=oidc_auth_failed');
     }
     await redisClient.del(`oidc:state:${returnedState}`);
+    const { nonce, codeVerifier } = stateRecord;
 
-    // Exchange code for tokens and validate nonce
+    // Exchange code for tokens; openid-client validates state + nonce and
+    // sends code_verifier so the provider can check it against the S256
+    // challenge from the authorize request.
     const params   = client.callbackParams(req);
     const tokenSet = await client.callback(oidcConfig.callbackUrl, params, {
       state: returnedState,
       nonce,
+      code_verifier: codeVerifier,
     });
 
     // sub comes from the ID token — the correct token for authenticating the user.
@@ -266,4 +298,4 @@ const oidcCallback = async (req, res) => {
   }
 };
 
-module.exports = { oidcInitiate, oidcCallback, resolveOIDCRole };
+module.exports = { oidcInitiate, oidcCallback, resolveOIDCRole, parseStateRecord };
