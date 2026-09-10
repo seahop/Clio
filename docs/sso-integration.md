@@ -161,6 +161,7 @@ environment:
 | `OIDC_SCOPE` | No | `openid email profile` | Scopes to request; adjust if your provider uses non-standard scope names |
 | `OIDC_ID_TOKEN_ALG` | No | auto-detected | ID-token signing algorithm (e.g. `ES256`, `RS256`). Auto-detection reads the provider's discovery document and JWKS; set this only when login fails with an algorithm mismatch (see Troubleshooting) |
 | `OIDC_USERNAME_CLAIM` | No | `preferred_username` | Claim whose value becomes the Clio username when an SSO account is first created. Looked up in the UserInfo response, then the ID token; if absent, falls back to `preferred_username` and then the email local part. Examples: `upn`, `sAMAccountName`, `email`. Only affects new accounts — existing accounts are matched by `sub` |
+| `OIDC_LINK_BY_EMAIL` | No | `false` | When an unknown `sub` logs in and the IdP asserts `email_verified`, link it to the existing OIDC SSO account with the same email (adopting the new `sub`) instead of creating a `<name>1` duplicate. Never links to local password accounts. Enable only with a single trusted IdP that controls the email claim — see [Migrating to a new identity provider](#migrating-to-a-new-identity-provider) |
 | `OIDC_ADMIN_GROUP` | No | `clio-admin` | Group name in the `groups` claim that grants the admin role. Admin takes precedence if a user is in both groups |
 | `OIDC_USER_GROUP` | No | `clio-user` | Group name in the `groups` claim that grants the regular user role. Users in neither group, or with no `groups` claim at all, are denied login |
 
@@ -216,7 +217,20 @@ the same `preferred_username`, finds it taken, and creates `<name>1` instead.
 The original account, with its role, active operation, operation assignments
 and the analyst name on existing logs, is left orphaned.
 
-`backend/tools/relink-oidc-sub.js` repairs this in place. It only touches Redis.
+**The easy way: let Clio link at login.** Set `OIDC_LINK_BY_EMAIL=true` before
+users start logging in with the new provider. When an unknown `sub` arrives
+with a verified email that matches an existing OIDC SSO account, Clio adopts
+the new `sub` onto that account and logs an `oidc_account_relinked` security
+event — no duplicate, no manual step. This requires the IdP to send
+`email_verified: true`, only ever links to SSO accounts (never local password
+accounts), and should only be enabled when one trusted IdP controls the email
+claim. Where several SSO accounts share an email (e.g. a leftover
+`user_domain_tld` variant) it links the exact `preferred_username` match or
+else the shortest name, and logs a warning suggesting `--merge` for the rest.
+
+**The manual way.** `backend/tools/relink-oidc-sub.js` repairs accounts in
+place, for deployments that prefer not to enable linking, or for accounts that
+already got duplicated before it was on.
 
 ```bash
 # Omnibus — run inside the container. Compose: docker compose exec backend node tools/relink-oidc-sub.js ...

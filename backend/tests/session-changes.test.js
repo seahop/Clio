@@ -147,6 +147,27 @@ describe('resolveBaseUsername — OIDC_USERNAME_CLAIM', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Section 1c — pickLinkCandidate (OIDC_LINK_BY_EMAIL, pure unit)
+// ─────────────────────────────────────────────────────────────────────────────
+describe('pickLinkCandidate — choosing the account to link by email', () => {
+  const { pickLinkCandidate } = require('../controllers/oidc.controller');
+
+  test('null when there are no candidates', () => {
+    assert.equal(pickLinkCandidate([], 'brandon'), null);
+  });
+
+  test('prefers the exact sanitised preferred_username', () => {
+    assert.equal(pickLinkCandidate(['brandon_idm_x', 'brandon', 'brandon1'], 'brandon'), 'brandon');
+    assert.equal(pickLinkCandidate(['john_doe', 'john'], 'john.doe'), 'john_doe');
+  });
+
+  test('otherwise the shortest name (the original, not a duplicate/variant)', () => {
+    assert.equal(pickLinkCandidate(['brandon1', 'brandon_idm_x', 'brandon'], 'bdoe'), 'brandon');
+    assert.equal(pickLinkCandidate(['alice1', 'alice'], undefined), 'alice');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Section 1b — parseStateRecord (PKCE state record, pure unit)
 // ─────────────────────────────────────────────────────────────────────────────
 describe('parseStateRecord — OIDC state record with PKCE verifier', () => {

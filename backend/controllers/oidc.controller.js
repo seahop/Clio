@@ -130,6 +130,46 @@ const resolveBaseUsername = (profile, idClaims, email) => {
   return profile.preferred_username || email.split('@')[0];
 };
 
+// Choose which of several same-email SSO accounts an incoming identity should
+// link to. Prefer the account whose name is exactly the sanitised
+// preferred_username; otherwise the shortest name (the original, not a
+// `<name>1` duplicate or a `user_domain_tld` variant).
+const pickLinkCandidate = (candidates, baseUsername) => {
+  if (!candidates.length) return null;
+  const wanted = (baseUsername || '').replace(/[^a-zA-Z0-9_-]/g, '_');
+  const exact = candidates.find((c) => c === wanted);
+  if (exact) return exact;
+  return [...candidates].sort((a, b) => a.length - b.length || a.localeCompare(b))[0];
+};
+
+// OIDC_LINK_BY_EMAIL: find an existing OIDC SSO account carrying `email` and
+// rebind it to `sub`. Returns the username, or null when nothing was linked.
+// Requires the IdP to assert email_verified; never links to local password
+// accounts (they have no isOIDCSSO marker).
+const linkExistingAccountByEmail = async (sub, email, emailVerified, baseUsername) => {
+  if (!oidcConfig.linkByEmail || !email || emailVerified !== true) return null;
+  const wanted = email.toLowerCase();
+  const candidates = [];
+  for (const key of await redisClient.keys('user:*:email')) {
+    const username = key.slice('user:'.length, -':email'.length);
+    const stored = await redisClient.get(key);
+    if (!stored || String(stored).toLowerCase() !== wanted) continue;
+    if (!(await redisClient.exists(`user:${username}:isOIDCSSO`))) continue;
+    candidates.push(username);
+  }
+  const username = pickLinkCandidate(candidates, baseUsername);
+  if (!username) return null;
+
+  const oldSub = await redisClient.get(`user:${username}:oidcSub`);
+  await redisClient.set(`oidc:${sub}`, username);
+  await redisClient.set(`user:${username}:oidcSub`, sub);
+  if (oldSub && String(oldSub) !== sub) await redisClient.del(`oidc:${oldSub}`);
+  if (candidates.length > 1) {
+    console.warn(`OIDC_LINK_BY_EMAIL: ${candidates.length} SSO accounts share ${email} (${candidates.join(', ')}); linked '${username}'. Use tools/relink-oidc-sub.js --merge to fold the others in.`);
+  }
+  return { username, oldSub: oldSub ? String(oldSub) : null, candidates };
+};
+
 const findUserByOIDCSub = async (sub) => {
   const username = await redisClient.get(`oidc:${sub}`);
   return username ? { username } : null;
@@ -267,8 +307,23 @@ const oidcCallback = async (req, res) => {
         : '/login?error=oidc_access_denied');
     }
 
-    const existing = await findUserByOIDCSub(sub);
+    let existing = await findUserByOIDCSub(sub);
     let username;
+
+    if (!existing) {
+      const emailVerified = profile.email_verified === true || idClaims.email_verified === true;
+      const linked = await linkExistingAccountByEmail(sub, profile.email || idClaims.email, emailVerified, baseUsername);
+      if (linked) {
+        existing = { username: linked.username };
+        await eventLogger.logSecurityEvent('oidc_account_relinked', linked.username, {
+          sub,
+          previousSub: linked.oldSub,
+          email,
+          candidates: linked.candidates,
+          providerName: oidcConfig.providerName,
+        });
+      }
+    }
 
     if (existing) {
       username = existing.username;
@@ -331,4 +386,7 @@ const oidcCallback = async (req, res) => {
   }
 };
 
-module.exports = { oidcInitiate, oidcCallback, resolveOIDCRole, parseStateRecord, resolveBaseUsername };
+module.exports = {
+  oidcInitiate, oidcCallback, resolveOIDCRole, parseStateRecord, resolveBaseUsername,
+  pickLinkCandidate, linkExistingAccountByEmail,
+};

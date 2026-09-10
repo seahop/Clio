@@ -44,6 +44,9 @@ data:
   {{- if .Values.oidc.usernameClaim }}
   OIDC_USERNAME_CLAIM: {{ .Values.oidc.usernameClaim | quote }}
   {{- end }}
+  {{- if .Values.oidc.linkByEmail }}
+  OIDC_LINK_BY_EMAIL: "true"
+  {{- end }}
   {{- end }}
 ---
 # Redis configuration (no TLS, password auth via requirepass)

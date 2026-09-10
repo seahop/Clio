@@ -70,6 +70,8 @@ services:
       #                                  # auto-detection from the provider's JWKS picks the wrong one
       # OIDC_USERNAME_CLAIM: ""          # claim used for the Clio username on account creation
       #                                  # (default: preferred_username, then email local part)
+      # OIDC_LINK_BY_EMAIL: "false"      # link an unknown sub to the existing SSO account with the
+      #                                  # same verified email (IdP migrations). Single trusted IdP only.
       # OIDC_ADMIN_GROUP: "clio-admin"  # group name in the 'groups' claim that grants admin role
       # OIDC_USER_GROUP: "clio-user"    # group name in the 'groups' claim that grants user role
       #                                  # users in neither group are denied login

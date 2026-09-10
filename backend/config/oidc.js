@@ -20,6 +20,12 @@ module.exports = {
   // created (looked up in UserInfo first, then the ID token). Defaults to
   // preferred_username, falling back to the local part of the email address.
   usernameClaim: process.env.OIDC_USERNAME_CLAIM || null,
+  // When an unknown `sub` logs in, link it to an existing OIDC SSO account
+  // with the same (verified) email instead of creating a `<name>1` duplicate.
+  // Adopts the new sub onto the existing account. Only safe when a single
+  // trusted IdP controls the email claim — leave off for public/multi-tenant
+  // providers where users can set their own address.
+  linkByEmail:  process.env.OIDC_LINK_BY_EMAIL === 'true',
   adminGroup:   process.env.OIDC_ADMIN_GROUP || 'clio-admin',
   userGroup:    process.env.OIDC_USER_GROUP  || 'clio-user',
 };

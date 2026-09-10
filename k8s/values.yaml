@@ -225,6 +225,11 @@ oidc:
   # Leave blank for the default: preferred_username, then the email local part.
   # Examples: "upn" (Azure AD), "sAMAccountName", "email".
   usernameClaim: ""
+  # Link an unknown sub to the existing SSO account with the same *verified*
+  # email instead of creating a "<name>1" duplicate (identity-provider
+  # migrations). Only enable with a single trusted IdP that controls the email
+  # claim; never with public/multi-tenant providers.
+  linkByEmail: false
   # Group-based role assignment.
   # The OIDC provider must include a "groups" claim (or equivalent) in the ID token.
   # Users in neither group are denied access.
