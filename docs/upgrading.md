@@ -124,6 +124,15 @@ backup is the safe path.
 intervening migration in order, so you can upgrade directly from an older
 release — you do not have to step through each version.
 
+### Upgrading to 1.0.12 from 1.0.11
+
+- **No database schema changes.** One **new optional** variable,
+  `OIDC_LINK_BY_EMAIL` (default `false`). When enabled, an unknown `sub` with a
+  verified email that matches an existing OIDC SSO account is linked to that
+  account instead of creating a `<name>1` duplicate — the built-in answer to
+  identity-provider migrations. See
+  [sso-integration.md](sso-integration.md#migrating-to-a-new-identity-provider).
+
 ### Upgrading to 1.0.11 from 1.0.10
 
 - **No database schema changes** and **no new required environment variables**.
