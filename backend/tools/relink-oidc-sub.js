@@ -29,6 +29,14 @@
 //       per line; `#` comments allowed. If a `<name>N` duplicate already holds
 //       that sub, it is removed too.
 //
+//   node tools/relink-oidc-sub.js --rename <old>=<new> [--rename ...] [--dry-run]
+//       Rename an SSO account (e.g. one created as `brandon_idm_example_com`
+//       before the IdP sent a short preferred_username). Moves the Redis keys,
+//       rebinds the sub, rewrites every username-bearing PostgreSQL column
+//       (analyst, created_by, user_operations, …) in one transaction, and
+//       revokes the user's sessions so they sign back in under the new name.
+//       Refuses if <new> is taken or contains characters outside [A-Za-z0-9_-].
+//
 // Run inside the backend container (omnibus: `docker exec -w /app/backend clio
 // node tools/relink-oidc-sub.js ...`). Requires the backend's .env.
 
@@ -36,7 +44,26 @@ require('dotenv').config({ path: require('path').join(__dirname, '../.env') });
 const fs = require('fs');
 const { redisClient } = require('../lib/redis');
 
-const USER_KEYS = ['exists', 'isOIDCSSO', 'email', 'role', 'oidcSub', 'active_operation', 'admin_view_filter'];
+// Plain string keys carried across a rename. `tokens`/`sessions` (sets) and
+// `operations` (a cache) are deleted instead, forcing a clean re-login.
+const USER_STRING_KEYS = ['exists', 'isOIDCSSO', 'email', 'role', 'oidcSub', 'active_operation', 'admin_view_filter'];
+const USER_DROP_KEYS   = ['tokens', 'sessions', 'operations', 'password_reset'];
+
+// Every column that stores a Clio username (who did something). Columns named
+// `username` on logs/relations/file_status are *target* usernames from log
+// entries and are deliberately not listed.
+const PG_USERNAME_COLUMNS = [
+  ['logs', 'analyst'], ['logs', 'locked_by'],
+  ['tags', 'created_by'], ['log_tags', 'tagged_by'],
+  ['operations', 'created_by'],
+  ['user_operations', 'username'], ['user_operations', 'assigned_by'],
+  ['evidence_files', 'uploaded_by'],
+  ['api_keys', 'created_by'],
+  ['log_templates', 'created_by'],
+  ['file_status', 'analyst'], ['file_status_history', 'analyst'],
+  ['log_relationships', 'created_by'],
+];
+const USERNAME_RE = /^[A-Za-z0-9_-]{1,100}$/;
 
 const argv = process.argv.slice(2);
 const has = (f) => argv.includes(f);
@@ -113,6 +140,62 @@ const rebind = async (accounts, baseName, newSub) => {
   return true;
 };
 
+const revokeSessions = async (username) => {
+  const tokenIds = await redisClient.sMembers(`user:${username}:tokens`).catch(() => []);
+  act(`revoke ${tokenIds.length} session token(s) for '${username}'`);
+  if (!dryRun) for (const id of tokenIds) await redisClient.del(`jwt:${id}`);
+};
+
+const renameAccount = async (accounts, oldName, newName) => {
+  const acct = accounts.get(oldName);
+  if (!acct) { log(`  ! '${oldName}' is not an OIDC SSO account — skipped`); return false; }
+  if (!USERNAME_RE.test(newName)) { log(`  ! '${newName}' must match [A-Za-z0-9_-] — skipped`); return false; }
+  if (oldName === newName) { log('  = names are identical — skipped'); return false; }
+  const taken = await redisClient.exists(`user:${newName}:exists`, `admin:password:${newName}`, `user:password:${newName}`);
+  if (taken) { log(`  ! '${newName}' is already taken — skipped`); return false; }
+
+  // PostgreSQL first (transactional); Redis after, so a DB failure leaves the
+  // account untouched and the command can simply be re-run.
+  const db = require('../db');
+  const counts = {};
+  for (const [table, col] of PG_USERNAME_COLUMNS) {
+    const { rows } = await db.query(`SELECT count(*)::int AS n FROM ${table} WHERE ${col} = $1`, [oldName]);
+    if (rows[0].n) counts[`${table}.${col}`] = rows[0].n;
+  }
+  act(`postgres: ${Object.keys(counts).length ? Object.entries(counts).map(([k, n]) => `${k}=${n}`).join(', ') : 'no rows reference this user'}`);
+  if (!dryRun && Object.keys(counts).length) {
+    const client = await db.pool.connect();
+    try {
+      await client.query('BEGIN');
+      for (const [table, col] of PG_USERNAME_COLUMNS) {
+        await client.query(`UPDATE ${table} SET ${col} = $1 WHERE ${col} = $2`, [newName, oldName]);
+      }
+      await client.query('COMMIT');
+    } catch (e) {
+      await client.query('ROLLBACK');
+      throw e;
+    } finally {
+      client.release();
+    }
+  }
+
+  await revokeSessions(oldName);
+  for (const k of USER_STRING_KEYS) {
+    const v = await redisClient.get(`user:${oldName}:${k}`);
+    if (v === null || v === undefined) continue;
+    act(`user:${newName}:${k} <= user:${oldName}:${k}`);
+    if (!dryRun) { await redisClient.set(`user:${newName}:${k}`, v); await redisClient.del(`user:${oldName}:${k}`); }
+  }
+  for (const k of USER_DROP_KEYS) {
+    if (!dryRun) await redisClient.del(`user:${oldName}:${k}`);
+  }
+  if (acct.sub) {
+    act(`oidc:${acct.sub} => '${newName}'`);
+    if (!dryRun) await redisClient.set(`oidc:${acct.sub}`, newName);
+  }
+  return true;
+};
+
 // ── Modes ────────────────────────────────────────────────────────────────────
 const parseMappings = () => {
   const pairs = [];
@@ -160,8 +243,18 @@ const main = async () => {
     if (await rebind(accounts, name, sub)) changed++;
   }
 
-  if (!has('--auto') && !mappings.length) {
-    log('Nothing to do. Use --list, --auto, --map <name>=<sub> or --file <path>.');
+  const renames = vals('--rename').map((r) => {
+    const m = /^([^=\s]+)=(\S+)$/.exec(r);
+    if (!m) throw new Error(`Bad rename '${r}' — expected <old>=<new>`);
+    return { oldName: m[1], newName: m[2] };
+  });
+  for (const { oldName, newName } of renames) {
+    log(`\nrename ${oldName}  ->  ${newName}`);
+    if (await renameAccount(accounts, oldName, newName)) changed++;
+  }
+
+  if (!has('--auto') && !mappings.length && !renames.length) {
+    log('Nothing to do. Use --list, --auto, --map <name>=<sub>, --file <path> or --rename <old>=<new>.');
     return;
   }
   log(`\n${dryRun ? 'Would change' : 'Changed'} ${changed} account(s).${dryRun ? ' Re-run without --dry-run to apply.' : ''}`);

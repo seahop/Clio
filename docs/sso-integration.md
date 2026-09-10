@@ -251,8 +251,24 @@ docker exec -w /app/backend clio node tools/relink-oidc-sub.js \
 or put one `<name>=<sub>` per line in a file and pass `--file map.txt`. Both
 options can be combined and re-run safely; already-bound accounts are skipped.
 
+**Option C — rename an account.** Accounts created while the IdP still sent
+the full `user@domain` form in `preferred_username` end up as
+`brandon_idm_example_com`. Rename them once the IdP sends the short name:
+
+```bash
+docker exec -w /app/backend clio node tools/relink-oidc-sub.js \
+  --rename brandon_idm_example_com=brandon --dry-run
+```
+
+This moves the account's Redis keys, rebinds its `sub`, rewrites every
+username-bearing PostgreSQL column (log analyst and lock holder, operation
+assignments, tag/operation/API-key/template creators, evidence uploader, file
+status) in one transaction, and revokes the user's sessions. Target usernames
+recorded *inside* log entries are not touched. It refuses a new name that is
+already taken or contains characters outside `[A-Za-z0-9_-]`.
+
 Affected users should sign out and back in afterwards — an existing session keeps
-the old username until it does.
+the old username until it does (a rename revokes the sessions for you).
 
 ## Troubleshooting
 
