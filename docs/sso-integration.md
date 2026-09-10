@@ -207,6 +207,53 @@ docker compose build backend && docker compose up -d backend
 
 ---
 
+## Migrating to a new identity provider
+
+Clio matches SSO users by the provider's subject identifier (`sub`). Moving to a
+new IdP — or rebuilding the old one — gives every user a new `sub`, so on their
+next login Clio sees an unknown subject, tries to create a fresh account under
+the same `preferred_username`, finds it taken, and creates `<name>1` instead.
+The original account, with its role, active operation, operation assignments
+and the analyst name on existing logs, is left orphaned.
+
+`backend/tools/relink-oidc-sub.js` repairs this in place. It only touches Redis.
+
+```bash
+# Omnibus — run inside the container. Compose: docker compose exec backend node tools/relink-oidc-sub.js ...
+docker exec -w /app/backend clio node tools/relink-oidc-sub.js --list
+```
+
+`--list` shows every OIDC account with its `sub` and email, and flags `<name>N`
+accounts that share an email with `<name>` as duplicates.
+
+**Option A — after users have logged in once.** Each affected user now has a
+`<name>N` duplicate holding their new `sub`. Merge them back:
+
+```bash
+docker exec -w /app/backend clio node tools/relink-oidc-sub.js --auto --dry-run   # preview
+docker exec -w /app/backend clio node tools/relink-oidc-sub.js --auto             # apply
+```
+
+For each duplicate this points the new `sub` at the original account, drops the
+stale `sub`, and deletes the duplicate's keys. Accounts whose names merely end
+in a digit but belong to a different person (different email) are left alone.
+
+**Option B — before anyone logs in.** If you can read the new subjects from the
+IdP (e.g. `kanidm person list`, or the `sub` shown by an OIDC debugger), rebind
+directly:
+
+```bash
+docker exec -w /app/backend clio node tools/relink-oidc-sub.js \
+  --map seanh=92f9be91-da86-44d6-9e65-2131284018f3 \
+  --map brandon=87583c47-2e78-4ce2-8407-9900603e09ca --dry-run
+```
+
+or put one `<name>=<sub>` per line in a file and pass `--file map.txt`. Both
+options can be combined and re-run safely; already-bound accounts are skipped.
+
+Affected users should sign out and back in afterwards — an existing session keeps
+the old username until it does.
+
 ## Troubleshooting
 
 **"SSO authentication failed" on the login page**
