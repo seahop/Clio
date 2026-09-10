@@ -72,6 +72,17 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     sourcemap: false,
+    commonjsOptions: {
+      // aws-sdk v2 is CommonJS and relies on require() side-effect order:
+      // clients/sts.js assigns AWS.STS and *then* requires lib/services/sts.js,
+      // which patches AWS.STS.prototype. Rollup's default hoists those requires
+      // into module-level imports, so the patch ran before the assignment and
+      // the production bundle threw "Cannot read properties of undefined
+      // (reading 'prototype')" at load — a blank page. (The dev server uses
+      // esbuild pre-bundling and never hit this.) strictRequires wraps those
+      // modules so requires execute in source order.
+      strictRequires: ['**/node_modules/aws-sdk/**'],
+    },
   },
   test: {
     globals: true,
