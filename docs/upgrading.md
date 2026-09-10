@@ -124,6 +124,13 @@ backup is the safe path.
 intervening migration in order, so you can upgrade directly from an older
 release — you do not have to step through each version.
 
+### Upgrading to 1.0.11 from 1.0.10
+
+- **No database schema changes** and **no new required environment variables**.
+- `tools/relink-oidc-sub.js` gains `--merge <from>=<into>` for users who ended
+  up with two SSO accounts (old-IdP original plus a later long-named one). See
+  [sso-integration.md](sso-integration.md#migrating-to-a-new-identity-provider).
+
 ### Upgrading to 1.0.10 from 1.0.9
 
 - **No database schema changes** and **no new required environment variables**.
