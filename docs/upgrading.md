@@ -124,6 +124,13 @@ backup is the safe path.
 intervening migration in order, so you can upgrade directly from an older
 release — you do not have to step through each version.
 
+### Upgrading to 1.0.9 from 1.0.8
+
+- **No database schema changes** and **no new required environment variables**.
+- **New maintenance tool `tools/relink-oidc-sub.js`** for re-binding SSO
+  accounts after an identity-provider migration (users otherwise come back as
+  `<name>1`). See [sso-integration.md](sso-integration.md#migrating-to-a-new-identity-provider).
+
 ### Upgrading to 1.0.8 from 1.0.5 – 1.0.7
 
 - **Fixes OIDC login against providers that enforce PKCE.** 1.0.5–1.0.7
