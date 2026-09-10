@@ -37,6 +37,14 @@
 //       revokes the user's sessions so they sign back in under the new name.
 //       Refuses if <new> is taken or contains characters outside [A-Za-z0-9_-].
 //
+//   node tools/relink-oidc-sub.js --merge <from>=<into> [--merge ...] [--dry-run]
+//       Fold one SSO account into another belonging to the same person (same
+//       email), e.g. `brandon_idm_example_com` (holds the live sub, has recent
+//       data) into `brandon` (older account, older data). <into> keeps its
+//       name and preferences and adopts <from>'s sub; <from>'s PostgreSQL rows
+//       are rewritten to <into> and its Redis keys removed. Both users'
+//       sessions are revoked. Operation assignments are unioned.
+//
 // Run inside the backend container (omnibus: `docker exec -w /app/backend clio
 // node tools/relink-oidc-sub.js ...`). Requires the backend's .env.
 
@@ -140,6 +148,38 @@ const rebind = async (accounts, baseName, newSub) => {
   return true;
 };
 
+// Rewrite every username-bearing PostgreSQL column from -> to, in one
+// transaction. user_operations is UNIQUE(username, operation_id): rows for
+// operations the target already has are dropped instead of updated.
+const rewritePostgres = async (fromName, toName) => {
+  const db = require('../db');
+  const counts = {};
+  for (const [table, col] of PG_USERNAME_COLUMNS) {
+    const { rows } = await db.query(`SELECT count(*)::int AS n FROM ${table} WHERE ${col} = $1`, [fromName]);
+    if (rows[0].n) counts[`${table}.${col}`] = rows[0].n;
+  }
+  act(`postgres: ${Object.keys(counts).length ? Object.entries(counts).map(([k, n]) => `${k}=${n}`).join(', ') : 'no rows reference this user'}`);
+  if (dryRun || !Object.keys(counts).length) return;
+  const client = await db.pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(
+      `DELETE FROM user_operations a USING user_operations b
+        WHERE a.username = $1 AND b.username = $2 AND a.operation_id = b.operation_id`,
+      [fromName, toName]
+    );
+    for (const [table, col] of PG_USERNAME_COLUMNS) {
+      await client.query(`UPDATE ${table} SET ${col} = $1 WHERE ${col} = $2`, [toName, fromName]);
+    }
+    await client.query('COMMIT');
+  } catch (e) {
+    await client.query('ROLLBACK');
+    throw e;
+  } finally {
+    client.release();
+  }
+};
+
 const revokeSessions = async (username) => {
   const tokenIds = await redisClient.sMembers(`user:${username}:tokens`).catch(() => []);
   act(`revoke ${tokenIds.length} session token(s) for '${username}'`);
@@ -152,32 +192,17 @@ const renameAccount = async (accounts, oldName, newName) => {
   if (!USERNAME_RE.test(newName)) { log(`  ! '${newName}' must match [A-Za-z0-9_-] — skipped`); return false; }
   if (oldName === newName) { log('  = names are identical — skipped'); return false; }
   const taken = await redisClient.exists(`user:${newName}:exists`, `admin:password:${newName}`, `user:password:${newName}`);
-  if (taken) { log(`  ! '${newName}' is already taken — skipped`); return false; }
+  if (taken) {
+    const other = accounts.get(newName);
+    const hint = other && other.email && acct.email && other.email.toLowerCase() === acct.email.toLowerCase()
+      ? ` (same email as '${oldName}' — use --merge ${oldName}=${newName} to fold them together)` : '';
+    log(`  ! '${newName}' is already taken${hint} — skipped`);
+    return false;
+  }
 
   // PostgreSQL first (transactional); Redis after, so a DB failure leaves the
   // account untouched and the command can simply be re-run.
-  const db = require('../db');
-  const counts = {};
-  for (const [table, col] of PG_USERNAME_COLUMNS) {
-    const { rows } = await db.query(`SELECT count(*)::int AS n FROM ${table} WHERE ${col} = $1`, [oldName]);
-    if (rows[0].n) counts[`${table}.${col}`] = rows[0].n;
-  }
-  act(`postgres: ${Object.keys(counts).length ? Object.entries(counts).map(([k, n]) => `${k}=${n}`).join(', ') : 'no rows reference this user'}`);
-  if (!dryRun && Object.keys(counts).length) {
-    const client = await db.pool.connect();
-    try {
-      await client.query('BEGIN');
-      for (const [table, col] of PG_USERNAME_COLUMNS) {
-        await client.query(`UPDATE ${table} SET ${col} = $1 WHERE ${col} = $2`, [newName, oldName]);
-      }
-      await client.query('COMMIT');
-    } catch (e) {
-      await client.query('ROLLBACK');
-      throw e;
-    } finally {
-      client.release();
-    }
-  }
+  await rewritePostgres(oldName, newName);
 
   await revokeSessions(oldName);
   for (const k of USER_STRING_KEYS) {
@@ -193,6 +218,43 @@ const renameAccount = async (accounts, oldName, newName) => {
     act(`oidc:${acct.sub} => '${newName}'`);
     if (!dryRun) await redisClient.set(`oidc:${acct.sub}`, newName);
   }
+  return true;
+};
+
+// Fold <from> into <into> (same person, same email). <into> keeps its name and
+// preferences and adopts <from>'s sub — the one the IdP is using now.
+const mergeAccounts = async (accounts, fromName, intoName) => {
+  const from = accounts.get(fromName);
+  const into = accounts.get(intoName);
+  if (!from) { log(`  ! '${fromName}' is not an OIDC SSO account — skipped`); return false; }
+  if (!into) { log(`  ! '${intoName}' is not an OIDC SSO account — skipped`); return false; }
+  if (fromName === intoName) { log('  = names are identical — skipped'); return false; }
+  if (!from.email || !into.email || from.email.toLowerCase() !== into.email.toLowerCase()) {
+    log(`  ! emails differ ('${from.email}' vs '${into.email}') — refusing to merge different people`);
+    return false;
+  }
+  if (!from.sub) { log(`  ! '${fromName}' has no sub — skipped`); return false; }
+
+  const [intoOp, fromOp] = await Promise.all([
+    redisClient.get(`user:${intoName}:active_operation`),
+    redisClient.get(`user:${fromName}:active_operation`),
+  ]);
+  log(`  '${intoName}' keeps its name and preferences (role=${into.role}, active_operation=${intoOp}) and adopts sub ${from.sub}`);
+  log(`  '${fromName}' (role=${from.role}, active_operation=${fromOp}) is folded in and removed`);
+
+  await rewritePostgres(fromName, intoName);
+  await revokeSessions(fromName);
+  await revokeSessions(intoName);
+
+  act(`oidc:${from.sub} => '${intoName}'`);
+  act(`user:${intoName}:oidcSub => ${from.sub}`);
+  if (into.sub && into.sub !== from.sub) act(`del oidc:${into.sub} (stale)`);
+  if (!dryRun) {
+    await redisClient.set(`oidc:${from.sub}`, intoName);
+    await redisClient.set(`user:${intoName}:oidcSub`, from.sub);
+    if (into.sub && into.sub !== from.sub) await redisClient.del(`oidc:${into.sub}`);
+  }
+  await deleteAccount(fromName);
   return true;
 };
 
@@ -253,8 +315,18 @@ const main = async () => {
     if (await renameAccount(accounts, oldName, newName)) changed++;
   }
 
-  if (!has('--auto') && !mappings.length && !renames.length) {
-    log('Nothing to do. Use --list, --auto, --map <name>=<sub>, --file <path> or --rename <old>=<new>.');
+  const merges = vals('--merge').map((r) => {
+    const m = /^([^=\s]+)=(\S+)$/.exec(r);
+    if (!m) throw new Error(`Bad merge '${r}' — expected <from>=<into>`);
+    return { fromName: m[1], intoName: m[2] };
+  });
+  for (const { fromName, intoName } of merges) {
+    log(`\nmerge ${fromName}  ->  ${intoName}`);
+    if (await mergeAccounts(accounts, fromName, intoName)) changed++;
+  }
+
+  if (!has('--auto') && !mappings.length && !renames.length && !merges.length) {
+    log('Nothing to do. Use --list, --auto, --map <name>=<sub>, --file <path>, --rename <old>=<new> or --merge <from>=<into>.');
     return;
   }
   log(`\n${dryRun ? 'Would change' : 'Changed'} ${changed} account(s).${dryRun ? ' Re-run without --dry-run to apply.' : ''}`);

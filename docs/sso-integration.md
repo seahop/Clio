@@ -267,8 +267,25 @@ status) in one transaction, and revokes the user's sessions. Target usernames
 recorded *inside* log entries are not touched. It refuses a new name that is
 already taken or contains characters outside `[A-Za-z0-9_-]`.
 
+**Option D — merge two accounts belonging to the same person.** If a user
+already has *both* an original account (say `brandon`, from the old IdP, with
+older data) and a second one created later (`brandon_idm_example_com`, holding
+the sub the IdP uses now, with recent data), `--rename` refuses because the
+target exists. Fold them together instead:
+
+```bash
+docker exec -w /app/backend clio node tools/relink-oidc-sub.js \
+  --merge brandon_idm_example_com=brandon --dry-run
+```
+
+`<into>` keeps its name, role and preferences and adopts `<from>`'s sub;
+`<from>`'s PostgreSQL rows are rewritten to `<into>` (operation assignments are
+unioned) and its Redis keys removed. Both accounts' sessions are revoked. The
+two accounts must have the same email — the tool refuses to merge different
+people.
+
 Affected users should sign out and back in afterwards — an existing session keeps
-the old username until it does (a rename revokes the sessions for you).
+the old username until it does (rename and merge revoke the sessions for you).
 
 ## Troubleshooting
 
