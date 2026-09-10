@@ -124,6 +124,14 @@ backup is the safe path.
 intervening migration in order, so you can upgrade directly from an older
 release — you do not have to step through each version.
 
+### Upgrading to 1.0.7 from 1.0.3 – 1.0.6
+
+- **Fixes a blank page in the published images.** Every image built since the
+  Vite migration (1.0.3 through 1.0.6) shipped a frontend bundle that crashed
+  on load, so the UI rendered as an empty dark page. If you pulled one of those
+  tags, upgrade to 1.0.7. If you build images locally, rebuild the frontend.
+- **No database schema changes** and **no new required environment variables**.
+
 ### Upgrading to 1.0.6 from 1.0.5
 
 - **No database schema changes** and **no new required environment variables**.
