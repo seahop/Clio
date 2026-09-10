@@ -124,6 +124,15 @@ backup is the safe path.
 intervening migration in order, so you can upgrade directly from an older
 release — you do not have to step through each version.
 
+### Upgrading to 1.0.8 from 1.0.5 – 1.0.7
+
+- **Fixes OIDC login against providers that enforce PKCE.** 1.0.5–1.0.7
+  advertised a PKCE challenge but did not send the verifier on the token
+  exchange, so enforcing providers rejected every login with
+  `invalid_request` and the UI showed "SSO authentication failed". Providers
+  that don't enforce PKCE were unaffected.
+- **No database schema changes** and **no new required environment variables**.
+
 ### Upgrading to 1.0.7 from 1.0.3 – 1.0.6
 
 - **Fixes a blank page in the published images.** Every image built since the
