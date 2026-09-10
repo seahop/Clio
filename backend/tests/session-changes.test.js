@@ -152,9 +152,21 @@ describe('resolveBaseUsername — OIDC_USERNAME_CLAIM', () => {
 describe('parseStateRecord — OIDC state record with PKCE verifier', () => {
   const { parseStateRecord } = require('../controllers/oidc.controller');
 
-  test('returns nonce + codeVerifier from a JSON record', () => {
+  test('returns nonce + codeVerifier from a JSON string record', () => {
     const rec = parseStateRecord(JSON.stringify({ nonce: 'n1', codeVerifier: 'v1' }));
     assert.deepEqual(rec, { nonce: 'n1', codeVerifier: 'v1' });
+  });
+
+  test('returns nonce + codeVerifier from an already-parsed object (lib/redis.js decrypt path)', () => {
+    // redisClient.get() JSON-parses decrypted values, so the controller
+    // receives an object, not a string. This was the v1.0.5–v1.0.7 bug:
+    // the object fell through to the legacy path and no verifier was sent.
+    const rec = parseStateRecord({ nonce: 'n2', codeVerifier: 'v2' });
+    assert.deepEqual(rec, { nonce: 'n2', codeVerifier: 'v2' });
+  });
+
+  test('object without a string nonce is rejected (null), not treated as legacy', () => {
+    assert.equal(parseStateRecord({ foo: 1 }), null);
   });
 
   test('accepts a legacy plain-string nonce (pre-PKCE record) with no verifier', () => {

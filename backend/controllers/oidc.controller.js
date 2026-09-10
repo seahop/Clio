@@ -83,18 +83,29 @@ const resolveOIDCRole = (groups) => {
 };
 
 // Parse the Redis record written by oidcInitiate. Returns { nonce, codeVerifier }
-// or null when the state is unknown/expired. A bare-string value is a record
-// written by a pre-PKCE build (a login started just before an upgrade); it is
-// still accepted, with no verifier, so that in-flight logins complete.
+// or null when the state is unknown/expired.
+//
+// lib/redis.js decrypts on read and JSON-parses the result when it looks like
+// JSON, so the record normally arrives here already as an object. A JSON
+// string is accepted too (a raw client, or a wrapper that stops parsing). A
+// bare non-JSON string is a record written by a pre-PKCE build (a login
+// started just before an upgrade); it is still accepted, with no verifier, so
+// that in-flight logins complete.
 const parseStateRecord = (raw) => {
   if (!raw) return null;
-  try {
-    const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed === 'object' && typeof parsed.nonce === 'string') {
-      return { nonce: parsed.nonce, codeVerifier: parsed.codeVerifier || undefined };
-    }
-  } catch (_) { /* legacy plain-string nonce */ }
-  return { nonce: raw, codeVerifier: undefined };
+  let parsed = raw;
+  if (typeof raw === 'string') {
+    try { parsed = JSON.parse(raw); } catch (_) { parsed = null; }
+  }
+  if (parsed && typeof parsed === 'object' && typeof parsed.nonce === 'string') {
+    return {
+      nonce: parsed.nonce,
+      codeVerifier: typeof parsed.codeVerifier === 'string' && parsed.codeVerifier
+        ? parsed.codeVerifier : undefined,
+    };
+  }
+  if (typeof raw === 'string') return { nonce: raw, codeVerifier: undefined };
+  return null;
 };
 
 // Pick the base username for a new SSO account. When OIDC_USERNAME_CLAIM is
