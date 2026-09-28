@@ -124,6 +124,15 @@ backup is the safe path.
 intervening migration in order, so you can upgrade directly from an older
 release — you do not have to step through each version.
 
+### Upgrading to 1.0.13 from 1.0.12
+
+- **No database schema changes.** One **new optional** variable,
+  `OIDC_CLOCK_TOLERANCE` (default `300` seconds). SSO logins previously failed
+  with `JWT not active yet` whenever the Clio host's clock was even a second
+  behind the IdP's; up to five minutes of drift is now tolerated. Set `0` to
+  restore strict validation. See
+  [sso-integration.md](sso-integration.md#troubleshooting).
+
 ### Upgrading to 1.0.12 from 1.0.11
 
 - **No database schema changes.** One **new optional** variable,
