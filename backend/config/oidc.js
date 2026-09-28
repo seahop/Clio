@@ -1,4 +1,16 @@
 // backend/config/oidc.js
+const DEFAULT_CLOCK_TOLERANCE = 300;
+
+const parseClockTolerance = (value) => {
+  if (value === undefined || value === '') return DEFAULT_CLOCK_TOLERANCE;
+  const seconds = Number(value);
+  if (!Number.isInteger(seconds) || seconds < 0) {
+    console.warn(`Invalid OIDC_CLOCK_TOLERANCE "${value}"; using ${DEFAULT_CLOCK_TOLERANCE}s.`);
+    return DEFAULT_CLOCK_TOLERANCE;
+  }
+  return seconds;
+};
+
 module.exports = {
   issuerUrl:    process.env.OIDC_ISSUER_URL,
   clientId:     process.env.OIDC_CLIENT_ID,
@@ -12,6 +24,11 @@ module.exports = {
   // from the provider's discovery document (id_token_signing_alg_values_supported).
   // Set this if auto-detection picks the wrong algorithm.
   idTokenAlg:   process.env.OIDC_ID_TOKEN_ALG || null,
+  // Seconds of clock skew allowed when validating ID-token time claims
+  // (iat / nbf / exp / auth_time). openid-client defaults to 0, so a Clio host
+  // even one second behind the IdP rejects freshly issued tokens with
+  // "JWT not active yet". 0 disables the allowance.
+  clockTolerance: parseClockTolerance(process.env.OIDC_CLOCK_TOLERANCE),
   // Group-based role assignment via the 'groups' claim.
   // When the provider includes a groups claim, users must belong to one of
   // these groups. Admin takes precedence over user. Users in neither group,

@@ -218,6 +218,9 @@ oidc:
   # Leave blank — the chart auto-detects from the provider's discovery document.
   # Set only if validation fails (e.g. some Azure AD tenants need "RS256").
   idTokenAlg: ""
+  # Seconds of clock skew tolerated between Clio and the provider when
+  # validating ID-token time claims. 0 = strict (any drift fails login).
+  clockTolerance: 300
   # Callback URL registered with the OIDC provider.
   # Leave blank to auto-derive: https://<ingress.host>/api/auth/oidc/callback
   callbackUrl: ""

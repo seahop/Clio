@@ -38,6 +38,9 @@ data:
   OIDC_SCOPE:         {{ .Values.oidc.scope | quote }}
   OIDC_ADMIN_GROUP:   {{ .Values.oidc.adminGroup | quote }}
   OIDC_USER_GROUP:    {{ .Values.oidc.userGroup | quote }}
+  {{- if hasKey .Values.oidc "clockTolerance" }}
+  OIDC_CLOCK_TOLERANCE: {{ .Values.oidc.clockTolerance | toString | quote }}
+  {{- end }}
   {{- if .Values.oidc.idTokenAlg }}
   OIDC_ID_TOKEN_ALG:  {{ .Values.oidc.idTokenAlg | quote }}
   {{- end }}

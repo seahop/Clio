@@ -306,8 +306,9 @@ if [ -n "$OIDC_ISSUER_URL" ]; then
   [ -n "$OIDC_PROVIDER_NAME" ] && echo "OIDC_PROVIDER_NAME=$OIDC_PROVIDER_NAME"     >> /app/backend/.env
   [ -n "$OIDC_SCOPE"         ] && echo "OIDC_SCOPE=$OIDC_SCOPE"                     >> /app/backend/.env
   [ -n "$OIDC_ID_TOKEN_ALG"  ] && echo "OIDC_ID_TOKEN_ALG=$OIDC_ID_TOKEN_ALG"       >> /app/backend/.env
+  [ -n "$OIDC_CLOCK_TOLERANCE" ] && echo "OIDC_CLOCK_TOLERANCE=$OIDC_CLOCK_TOLERANCE" >> /app/backend/.env
   export OIDC_ISSUER_URL OIDC_CLIENT_ID OIDC_CLIENT_SECRET OIDC_CALLBACK_URL="$_OIDC_CB" \
-         OIDC_PROVIDER_NAME OIDC_SCOPE OIDC_ID_TOKEN_ALG
+         OIDC_PROVIDER_NAME OIDC_SCOPE OIDC_ID_TOKEN_ALG OIDC_CLOCK_TOLERANCE
 fi
 
 # Also export them so that supervisord child processes inherit them directly

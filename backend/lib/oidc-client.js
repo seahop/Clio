@@ -121,7 +121,11 @@ const initializeOIDCClient = async () => {
       response_types: ['code'],
       id_token_signed_response_alg: alg,
     });
-    console.log(`OIDC client initialised (issuer: ${issuer.issuer}, alg: ${alg} via ${source})`);
+    _client[custom.clock_tolerance] = oidcConfig.clockTolerance;
+    console.log(
+      `OIDC client initialised (issuer: ${issuer.issuer}, alg: ${alg} via ${source}, ` +
+      `clock tolerance: ${oidcConfig.clockTolerance}s)`
+    );
     return true;
   } catch (err) {
     console.error('OIDC client initialisation failed:', err.message);

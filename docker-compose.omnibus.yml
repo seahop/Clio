@@ -68,6 +68,8 @@ services:
       # OIDC_SCOPE: "openid email profile"  # default; adjust if your provider requires different scopes
       # OIDC_ID_TOKEN_ALG: ""            # override the ID-token signing algorithm (e.g. ES256) if
       #                                  # auto-detection from the provider's JWKS picks the wrong one
+      # OIDC_CLOCK_TOLERANCE: "300"      # seconds of clock skew allowed between Clio and the IdP
+      #                                  # when validating ID tokens (0 = strict)
       # OIDC_USERNAME_CLAIM: ""          # claim used for the Clio username on account creation
       #                                  # (default: preferred_username, then email local part)
       # OIDC_LINK_BY_EMAIL: "false"      # link an unknown sub to the existing SSO account with the

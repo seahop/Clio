@@ -160,6 +160,7 @@ environment:
 | `OIDC_PROVIDER_NAME` | No | `SSO` | Label shown on the login button |
 | `OIDC_SCOPE` | No | `openid email profile` | Scopes to request; adjust if your provider uses non-standard scope names |
 | `OIDC_ID_TOKEN_ALG` | No | auto-detected | ID-token signing algorithm (e.g. `ES256`, `RS256`). Auto-detection reads the provider's discovery document and JWKS; set this only when login fails with an algorithm mismatch (see Troubleshooting) |
+| `OIDC_CLOCK_TOLERANCE` | No | `300` | Seconds of clock skew allowed between Clio and the IdP when validating ID-token time claims (`iat`, `nbf`, `exp`). `0` makes validation strict (see Troubleshooting) |
 | `OIDC_USERNAME_CLAIM` | No | `preferred_username` | Claim whose value becomes the Clio username when an SSO account is first created. Looked up in the UserInfo response, then the ID token; if absent, falls back to `preferred_username` and then the email local part. Examples: `upn`, `sAMAccountName`, `email`. Only affects new accounts — existing accounts are matched by `sub` |
 | `OIDC_LINK_BY_EMAIL` | No | `false` | When an unknown `sub` logs in and the IdP asserts `email_verified`, link it to the existing OIDC SSO account with the same email (adopting the new `sub`) instead of creating a `<name>1` duplicate. Never links to local password accounts. Enable only with a single trusted IdP that controls the email claim — see [Migrating to a new identity provider](#migrating-to-a-new-identity-provider) |
 | `OIDC_ADMIN_GROUP` | No | `clio-admin` | Group name in the `groups` claim that grants the admin role. Admin takes precedence if a user is in both groups |
@@ -307,6 +308,10 @@ the old username until it does (rename and merge revoke the sessions for you).
 - Check container logs: `docker logs clio`
 - Verify the callback URL registered in your provider exactly matches what Clio uses.
 - Ensure your server's clock is synchronized — OIDC token validation is time-sensitive.
+
+**"JWT not active yet" / "JWT expired" in logs (SSO works only after several clicks)**
+- The Clio host's clock differs from the provider's. The provider stamps `nbf`/`iat` at issue time, so a Clio clock that is behind sees the token as coming from the future.
+- Clio tolerates up to `OIDC_CLOCK_TOLERANCE` seconds of drift (default `300`); the startup log shows the value in effect. If drift exceeds it, raise the value — but fix the host clock first: `timedatectl` should report `System clock synchronized: yes`. On VMs, a clock that jumps around usually means hypervisor time sync and NTP are both adjusting it; keep only one.
 
 **Login button does not appear**
 - The button only shows when the provider is fully configured. Check that all three required variables are set (`ISSUER_URL`, `CLIENT_ID`, `CLIENT_SECRET` for OIDC or `CLIENT_ID` + `CLIENT_SECRET` for Google).
