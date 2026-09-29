@@ -62,6 +62,6 @@ spec:
             - configMapRef:
                 name: clio-config
             - secretRef:
-                name: clio-secrets
+                name: {{ include "clio.secretName" . }}
           resources:
             {{- toYaml .Values.backend.resources | nindent 12 }}

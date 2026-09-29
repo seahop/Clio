@@ -44,7 +44,8 @@ volume-snapshot tooling, or `pg_dump` from the postgres pod.
 > ### The one rule that matters
 > **Never run `docker compose down -v` as part of an upgrade.** The `-v` flag
 > deletes the named volumes — that *is* your data. Use `docker compose up -d`
-> (optionally `down` **without** `-v` first). `helm upgrade` never deletes PVCs.
+> (optionally `down` **without** `-v` first). `helm upgrade` never deletes PVCs,
+> and `helm uninstall` keeps them and the Secret.
 
 ---
 
@@ -82,13 +83,16 @@ volume are kept.
 ### Kubernetes (Helm)
 
 ```bash
-helm upgrade clio ./k8s -n clio -f your-values.yaml
+helm upgrade clio oci://ghcr.io/seahop/charts/clio --version <chart-version> \
+  -n clio -f your-values.yaml
 ```
 
-A `pre-upgrade` Helm hook Job runs the migration runner before the new backend
-pods roll out, so the schema is current when they start. PVCs and the
-auto-generated Secret are preserved across the upgrade. See
-[kubernetes.md](kubernetes.md) for details.
+The chart version pins the Clio version (its `appVersion`) as long as
+`backend.image.tag` / `frontend.image.tag` are left blank. A `pre-upgrade` Helm
+hook Job runs the migration runner before the new backend pods roll out, so the
+schema is current when they start. PVCs and the auto-generated Secret are
+preserved across upgrades and `helm uninstall`. See
+[kubernetes.md](kubernetes.md#upgrading) for details.
 
 ---
 

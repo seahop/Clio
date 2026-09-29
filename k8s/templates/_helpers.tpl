@@ -65,3 +65,12 @@ Image pull policy: as configured, but force Always when the effective tag is
        start; any other tag falls back to the configured policy. */ -}}
 {{- if eq (.image.pullPolicy | toString) "Never" -}}Never{{- else if eq $tag "latest" -}}Always{{- else -}}{{ .image.pullPolicy | default "IfNotPresent" }}{{- end -}}
 {{- end }}
+
+{{/*
+Name of the Secret holding passwords and keys: the chart-managed clio-secrets,
+or secrets.existingSecret when the Secret is supplied externally (External
+Secrets Operator, Sealed Secrets, GitOps).
+*/}}
+{{- define "clio.secretName" -}}
+{{- .Values.secrets.existingSecret | default "clio-secrets" }}
+{{- end }}

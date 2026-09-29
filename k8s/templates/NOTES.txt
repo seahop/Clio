@@ -7,8 +7,8 @@ NEXT STEPS
   1. Check all pods are running:
        kubectl get pods -n {{ include "clio.namespace" . }}
 
-  2. Retrieve the auto-generated admin password:
-       kubectl get secret clio-secrets -n {{ include "clio.namespace" . }} \
+  2. Retrieve the {{ if .Values.secrets.existingSecret }}initial{{ else }}auto-generated{{ end }} admin password:
+       kubectl get secret {{ include "clio.secretName" . }} -n {{ include "clio.namespace" . }} \
          -o jsonpath='{.data.ADMIN_PASSWORD}' | base64 -d && echo
 
 {{- if .Values.ingress.tls.enabled }}
@@ -17,8 +17,15 @@ NEXT STEPS
 {{- end }}
 
 MANAGING SECRETS
+{{- if .Values.secrets.existingSecret }}
+  Secrets come from the externally managed Secret "{{ .Values.secrets.existingSecret }}".
+  After changing it, restart the backend:
+    kubectl rollout restart deployment -n {{ include "clio.namespace" . }} \
+      {{ include "clio.fullname" . }}-backend
+{{- else }}
   All passwords and cryptographic secrets are auto-generated on first install
-  and preserved across upgrades.
+  and preserved across upgrades — and across `helm uninstall` (the Secret is
+  kept alongside the PVCs, so a reinstall reuses it).
   Rotation — safe for JWT_SECRET, REDIS_PASSWORD, and the bootstrap
   ADMIN/USER passwords (remove just that key, then helm upgrade):
     kubectl patch secret clio-secrets -n {{ include "clio.namespace" . }} --type=json \
@@ -27,17 +34,12 @@ MANAGING SECRETS
   (rotate with ALTER ROLE inside postgres first), and rotating
   FIELD_ENCRYPTION_KEY or REDIS_ENCRYPTION_KEY permanently destroys
   already-encrypted data.
-  To patch a single value without rotation:
-    kubectl patch secret -n {{ include "clio.namespace" . }} clio-secrets \
-      --type=merge -p '{"stringData":{"REDIS_PASSWORD":"new-value"}}'
-    kubectl rollout restart deployment -n {{ include "clio.namespace" . }} \
-      {{ include "clio.fullname" . }}-backend
+{{- end }}
 
 UPGRADING
-  helm upgrade clio ./k8s -n {{ include "clio.namespace" . }} -f my-values.yaml
-  (always pass -n {{ include "clio.namespace" . }} so release state stays in this namespace)
-
-  Image tag pinning (recommended for production):
-    helm upgrade clio ./k8s -n {{ include "clio.namespace" . }} \
-      --set backend.image.tag=1.2.3 \
-      --set frontend.image.tag=1.2.3
+  Upgrade to a specific chart version — the chart version pins the app
+  version (this release: chart {{ .Chart.Version }}, app {{ .Chart.AppVersion }}):
+    helm upgrade {{ .Release.Name }} oci://ghcr.io/seahop/charts/clio --version <chart-version> \
+      -n {{ include "clio.namespace" . }} -f my-values.yaml
+  Leave backend.image.tag / frontend.image.tag blank so the images follow the
+  chart. Always pass -n {{ include "clio.namespace" . }} so release state stays in this namespace.

@@ -24,6 +24,13 @@ spec:
       annotations:
         # Restart pods when config changes
         checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- if not .Values.secrets.existingSecret }}
+        # Stable across upgrades (generated values are read back via lookup),
+        # so this only changes when a values-driven key such as
+        # secrets.oidcClientSecret does. An existingSecret is not tracked —
+        # restart the backend (or use a reloader) when it changes.
+        checksum/secret: {{ include (print $.Template.BasePath "/secrets.yaml") . | sha256sum }}
+        {{- end }}
         {{- if .Values.linkerd.enabled }}
         linkerd.io/inject: enabled
         # Skip Linkerd's outbound mTLS for database ports. Linkerd edge's
@@ -56,7 +63,7 @@ spec:
             - configMapRef:
                 name: clio-config
             - secretRef:
-                name: clio-secrets
+                name: {{ include "clio.secretName" . }}
           volumeMounts:
             - name: evidence
               mountPath: /app/evidence

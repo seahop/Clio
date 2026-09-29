@@ -39,7 +39,7 @@ spec:
             - name: REDIS_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: clio-secrets
+                  name: {{ include "clio.secretName" . }}
                   key: REDIS_PASSWORD
           volumeMounts:
             - name: data

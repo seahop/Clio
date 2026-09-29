@@ -13,7 +13,10 @@
 # that predate that default.
 namespace: ""
 
-# -- Override the resource-name prefix (defaults to the release name)
+# -- Override the resource-name prefix (defaults to the release name).
+# Install one Clio release per namespace: the Secret, ConfigMaps and backend
+# PVCs use fixed clio-* names, so a second release in the same namespace
+# would collide with the first.
 fullnameOverride: ""
 
 # -- Pull secrets for private registries, e.g. [{name: ghcr-creds}]
@@ -23,8 +26,10 @@ imagePullSecrets: []
 backend:
   image:
     repository: ghcr.io/seahop/clio-backend
-    # Leave blank to use the chart's appVersion (pinned, upgrade-safe).
-    # Setting "latest" forces pullPolicy Always so upgrades re-pull.
+    # Leave blank: the chart's appVersion is used, so the chart version you
+    # install pins the app version and a chart upgrade moves the images with
+    # it. A tag set here overrides that and keeps the image fixed across chart
+    # upgrades until you change it. "latest" forces pullPolicy Always.
     tag: ""
     pullPolicy: IfNotPresent
   # Keep at 1: relation-analysis cron jobs run in every replica (no leader
@@ -79,6 +84,10 @@ frontend:
 postgres:
   image:
     repository: postgres
+    # Floats within PostgreSQL 17 (minor/patch updates are drop-in). Do NOT
+    # change the major version (e.g. to 18) on an existing install: the data
+    # directory is tied to the major version and postgres will refuse to
+    # start. A major upgrade needs a dump/restore — see docs/kubernetes.md.
     tag: "17-alpine"
     pullPolicy: IfNotPresent
   port: 5432
@@ -160,11 +169,26 @@ ingress:
 #
 # GitOps note: secret generation uses Helm's lookup(), which returns empty
 # during `helm template`, `--dry-run`, and ArgoCD/Flux server-side rendering —
-# every render would mint new passwords. GitOps users must pre-create
-# clio-secrets (see the External Secrets section in docs/kubernetes.md).
+# every render would mint new passwords. GitOps users must set
+# secrets.existingSecret (see the External Secrets section in docs/kubernetes.md).
 #
-# Only set the values below if you are enabling Google SSO or generic OIDC.
+# Uninstall: the Secret is annotated helm.sh/resource-policy: keep, so it
+# survives `helm uninstall` alongside the PVCs and a reinstall with the same
+# release name reuses it. Delete it only when you also delete the PVCs.
+#
+# Only set the values below if you are enabling Google SSO or generic OIDC,
+# or supplying the Secret yourself (existingSecret).
 secrets:
+  # Name of a pre-created Secret to use instead of the chart-generated
+  # clio-secrets (External Secrets Operator, Sealed Secrets, ArgoCD/Flux).
+  # When set, the chart creates no Secret and the googleClientSecret /
+  # oidcClientSecret values below are ignored. The Secret must contain:
+  #   POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB, REDIS_PASSWORD,
+  #   JWT_SECRET, REDIS_ENCRYPTION_KEY, SERVER_INSTANCE_ID,
+  #   FIELD_ENCRYPTION_KEY, ADMIN_PASSWORD, USER_PASSWORD
+  # plus OIDC_CLIENT_SECRET / GOOGLE_CLIENT_SECRET when that SSO is enabled.
+  existingSecret: ""
+
   # Non-secret database config (safe to keep here)
   postgresUser: clio
   postgresDb: redteamlogger

@@ -228,12 +228,17 @@ OIDC_PROVIDER_NAME=Keycloak
 
 For cluster deployments there is a full Helm chart in [k8s/](./k8s/) with
 auto-generated secrets, a pre-upgrade DB migration job, NetworkPolicies,
-optional Linkerd mTLS, and cert-manager TLS support:
+optional Linkerd mTLS, and cert-manager TLS support. It is published to GHCR
+with each release; the chart version pins the app version:
 
 ```bash
-helm install clio ./k8s -n clio --create-namespace \
-  --set ingress.host=clio.example.com
+helm install clio oci://ghcr.io/seahop/charts/clio --version <chart-version> \
+  -n clio --create-namespace --set ingress.host=clio.example.com
 ```
+
+Chart versions are listed on the
+[package page](https://github.com/seahop/Clio/pkgs/container/charts%2Fclio);
+`helm install clio ./k8s ...` from a checkout also works.
 
 See the [Kubernetes Deployment Guide](./docs/kubernetes.md) for the full
 walkthrough (ingress controllers, TLS options, SSO, upgrades, backups).

@@ -36,17 +36,17 @@ spec:
             - name: POSTGRES_USER
               valueFrom:
                 secretKeyRef:
-                  name: clio-secrets
+                  name: {{ include "clio.secretName" . }}
                   key: POSTGRES_USER
             - name: POSTGRES_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: clio-secrets
+                  name: {{ include "clio.secretName" . }}
                   key: POSTGRES_PASSWORD
             - name: POSTGRES_DB
               valueFrom:
                 secretKeyRef:
-                  name: clio-secrets
+                  name: {{ include "clio.secretName" . }}
                   key: POSTGRES_DB
             - name: TZ
               value: {{ .Values.config.timezone | quote }}

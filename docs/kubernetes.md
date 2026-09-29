@@ -75,7 +75,7 @@ deployments** and is already included in the chart.
 | Requirement | Notes |
 |-------------|-------|
 | Kubernetes ≥ 1.24 | Any distribution: GKE, EKS, AKS, k3s, RKE2, Rancher, etc. |
-| Helm 3.x | `helm version` to confirm |
+| Helm ≥ 3.8 | Needed to install the chart from the OCI registry. `helm version` to confirm |
 | cert-manager | Recommended for automatic TLS. [Install guide](https://cert-manager.io/docs/installation/). Skip if you manage certs manually. |
 | Ingress controller | Defaults to Traefik — built into k3s / Rancher Desktop / RKE2, so no install step. Change `ingress.className` (and `networkPolicy.ingressController`) for other controllers. |
 | A `ReadWriteOnce` storage class | For postgres, redis, and evidence file PVCs |
@@ -114,11 +114,23 @@ That's it for a basic deployment. See the sections below for optional extras
 
 ### 3. Install
 
+The chart is published to GHCR with every release. Pick a chart version from
+the [package page](https://github.com/seahop/Clio/pkgs/container/charts%2Fclio)
+(or `helm show chart oci://ghcr.io/seahop/charts/clio` for the newest) — the
+chart version pins the Clio version it deploys (`appVersion`):
+
 ```bash
-helm install clio ./k8s \
+helm install clio oci://ghcr.io/seahop/charts/clio \
+  --version <chart-version> \
   --namespace clio \
   --values my-clio-values.yaml
 ```
+
+From a git checkout, `./k8s` works in place of the OCI reference (the chart
+version is then whatever the checkout contains).
+
+Install **one Clio release per namespace** — the Secret, ConfigMaps and backend
+PVCs use fixed `clio-*` names, so two releases in the same namespace collide.
 
 ### 4. Verify
 
@@ -138,8 +150,8 @@ kubectl get secret clio-secrets -n clio \
   -o jsonpath='{.data.ADMIN_PASSWORD}' | base64 -d && echo
 ```
 
-> Secrets are preserved across `helm upgrade` — rotating them requires either
-> deleting the Secret (rotates everything) or patching individual keys (see
+> Secrets are preserved across `helm upgrade` and `helm uninstall`. Rotate
+> individual keys only — never delete the whole Secret (see
 > [Rotating secrets](#rotating-secrets)).
 
 ---
@@ -511,26 +523,34 @@ kubectl run migrate-debug --rm -it \
 
 ## Upgrading
 
-### Standard upgrade (new config values)
+### Versioning
+
+Every Clio release `vX.Y.Z` publishes the images tagged `X.Y.Z` and a chart
+whose `appVersion` is `X.Y.Z`. The chart has its own version (e.g. `0.3.11`),
+bumped on every release and on chart-only changes. With `backend.image.tag` and
+`frontend.image.tag` left blank (the default), **the chart version you install
+decides the Clio version** — so pinning the chart version is how you pin the
+deployment. `helm history clio -n clio` shows both per revision.
+
+Don't set the image tags in your values file unless you mean to hold the images
+back: a tag set there stays in force across chart upgrades until you change it.
+
+### Standard upgrade
+
+Back up first (see [Backup](#backup)), then:
 
 ```bash
-helm upgrade clio ./k8s \
+helm upgrade clio oci://ghcr.io/seahop/charts/clio \
+  --version <new-chart-version> \
   --namespace clio \
   --values my-clio-values.yaml
 ```
 
-### Pinning image versions (recommended for production)
+Read the version notes in [upgrading.md](upgrading.md) for every release you
+are skipping. The `pre-upgrade` migration Job runs first; the backend is then
+replaced (strategy `Recreate`, so expect a short outage while it restarts).
 
-```bash
-helm upgrade clio ./k8s \
-  --namespace clio \
-  --values my-clio-values.yaml \
-  --set backend.image.tag=1.2.3 \
-  --set frontend.image.tag=1.2.3
-```
-
-Available image tags are listed on the
-[GitHub Container Registry](https://github.com/seahop/Clio/pkgs/container/clio-backend).
+To change config only, run the same command with your current chart version.
 
 ### Rolling back
 
@@ -539,6 +559,48 @@ helm rollback clio --namespace clio          # rollback to previous release
 helm rollback clio 3 --namespace clio        # rollback to revision 3
 helm history clio --namespace clio           # list all revisions
 ```
+
+Rollback restores the previous chart and images but **not the database
+schema** — migrations only move forward. That is safe because migrations are
+written to be backwards-compatible (see
+[Backwards-compatible migrations](#backwards-compatible-migrations-zero-downtime-deploys));
+if a release notes otherwise, restore from backup instead.
+
+### Uninstalling and reinstalling
+
+`helm uninstall clio -n clio` removes the workloads but **keeps** every PVC and
+the `clio-secrets` Secret (all carry `helm.sh/resource-policy: keep`, and
+StatefulSet volumes are never deleted by Helm). A later `helm install clio ...`
+with the same release name and namespace picks all of them up again — same
+data, same passwords and encryption keys.
+
+To wipe an install completely, delete them explicitly after uninstalling:
+
+```bash
+helm uninstall clio -n clio
+kubectl delete pvc -n clio -l app.kubernetes.io/instance=clio
+kubectl delete secret clio-secrets -n clio
+```
+
+Never delete only the Secret while keeping the PVCs: the regenerated
+`POSTGRES_PASSWORD` would not match the existing database and the new
+`FIELD_ENCRYPTION_KEY` could not decrypt existing data.
+
+### Upgrading PostgreSQL to a new major version
+
+The chart runs `postgres:17-alpine`, which only moves within PostgreSQL 17 —
+minor updates are picked up on pod restart and need no action. A **major**
+upgrade (17 → 18) is not a tag change: the data directory format is tied to
+the major version, and a PostgreSQL 18 pod pointed at the existing volume
+refuses to start (`database files are incompatible with server`). Leave
+`postgres.image.tag` on 17 unless a Clio release notes says otherwise; when a
+major upgrade is needed, do it as a dump and restore:
+
+1. Back up: `pg_dump` as shown under [Backup](#backup) (and snapshot the PVC).
+2. `helm uninstall`, delete the `data-clio-postgres-0` PVC (keep the Secret).
+3. Reinstall with the new `postgres.image.tag`; the backend creates an empty
+   schema on first start.
+4. Scale the backend to 0, restore the dump with `psql`, scale it back to 1.
 
 ---
 
@@ -572,24 +634,41 @@ kubectl rollout restart deployment -n clio clio-backend
 > **GitOps note:** the chart auto-generates secrets with Helm's `lookup()`,
 > which returns empty during `helm template`/`--dry-run` and ArgoCD/Flux
 > server-side rendering — every render would mint new passwords. GitOps users
-> must pre-create `clio-secrets` (see the External Secrets section).
+> must set `secrets.existingSecret` (see
+> [External secrets management](#external-secrets-management)).
 
 ---
 
 ## External secrets management
 
-For production clusters, avoid storing secrets in values files. Integrate with an
-external secrets manager instead:
+For production clusters and GitOps (ArgoCD, Flux), supply the Secret yourself
+and point the chart at it with `secrets.existingSecret`. The chart then creates
+no Secret of its own — required for GitOps, because the chart's
+auto-generation uses Helm's `lookup()`, which returns nothing under
+`helm template` / server-side rendering and would mint new passwords on every
+sync.
 
-**External Secrets Operator** (works with AWS Secrets Manager, GCP Secret Manager,
+The Secret must contain these keys:
+
+| Key | Notes |
+|-----|-------|
+| `POSTGRES_USER`, `POSTGRES_DB` | e.g. `clio` / `redteamlogger` |
+| `POSTGRES_PASSWORD` | Only applied when the database volume is first initialised |
+| `REDIS_PASSWORD` | |
+| `JWT_SECRET` | 64+ random characters |
+| `REDIS_ENCRYPTION_KEY`, `FIELD_ENCRYPTION_KEY` | 32 random characters; **never change after first start** |
+| `SERVER_INSTANCE_ID` | Random, stable — changing it logs every user out |
+| `ADMIN_PASSWORD`, `USER_PASSWORD` | Bootstrap passwords for the built-in accounts |
+| `OIDC_CLIENT_SECRET` / `GOOGLE_CLIENT_SECRET` | Only when that SSO provider is enabled |
+
+**External Secrets Operator** (AWS Secrets Manager, GCP Secret Manager,
 HashiCorp Vault, Azure Key Vault):
 
 ```yaml
-# Instead of the Helm-managed Secret, create an ExternalSecret
 apiVersion: external-secrets.io/v1beta1
 kind: ExternalSecret
 metadata:
-  name: clio-secrets
+  name: clio-external-secrets
   namespace: clio
 spec:
   refreshInterval: 1h
@@ -597,20 +676,30 @@ spec:
     name: my-vault-store
     kind: ClusterSecretStore
   target:
-    name: clio-secrets
+    name: clio-external-secrets
   data:
     - secretKey: POSTGRES_PASSWORD
       remoteRef:
         key: clio/postgres
         property: password
-    # ... repeat for each secret key
+    # ... repeat for each key in the table above
 ```
 
-Then install Helm with secrets disabled (the ExternalSecret creates the K8s Secret):
-```bash
-helm install clio ./k8s --values my-values.yaml
-# The ExternalSecret will create clio-secrets independently
+```yaml
+# my-clio-values.yaml
+secrets:
+  existingSecret: clio-external-secrets
 ```
+
+Use a name other than `clio-secrets` — that name belongs to the chart-managed
+Secret, and an existing install still has one (kept on uninstall). To move an
+existing install to an external Secret, copy the current values out of
+`clio-secrets` first so the database password and encryption keys stay the
+same.
+
+The backend is not restarted automatically when an external Secret changes;
+run `kubectl rollout restart deployment -n clio clio-backend` or use a
+reloader.
 
 ---
 
@@ -623,6 +712,11 @@ Three PersistentVolumeClaims are created:
 | `data-clio-postgres-0` | PostgreSQL data | 20 Gi |
 | `data-clio-redis-0` | Redis AOF persistence | 2 Gi |
 | `clio-evidence` | Evidence file uploads | 10 Gi |
+| `clio-exports` | Generated export packages | 5 Gi |
+| `clio-data` | Event logs and rotated archives | 5 Gi |
+
+All five survive `helm uninstall` (see
+[Uninstalling and reinstalling](#uninstalling-and-reinstalling)).
 
 ### Changing storage class
 
