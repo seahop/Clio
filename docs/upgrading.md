@@ -128,6 +128,19 @@ backup is the safe path.
 intervening migration in order, so you can upgrade directly from an older
 release — you do not have to step through each version.
 
+### Upgrading to 1.0.14 from 1.0.13
+
+- **No database schema changes, no application changes** — this release is
+  the Helm chart (0.3.11) and docs. Docker/omnibus users can skip it.
+- The chart is now published to `oci://ghcr.io/seahop/charts/clio`; upgrade
+  with `--version <chart-version>` and leave the image tags blank so the
+  chart version pins the app version.
+- `clio-secrets` is now kept on `helm uninstall` (like the PVCs), so a
+  reinstall reuses the same passwords and encryption keys. The first upgrade
+  to this chart adds the annotation and restarts the backend once.
+- New `secrets.existingSecret` for External Secrets / ArgoCD / Flux. See
+  [kubernetes.md](kubernetes.md#external-secrets-management).
+
 ### Upgrading to 1.0.13 from 1.0.12
 
 - **No database schema changes.** One **new optional** variable,
