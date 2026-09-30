@@ -2,8 +2,8 @@ apiVersion: v2
 name: clio
 description: Clio red-team logging platform — HA Kubernetes deployment
 type: application
-version: 0.3.11
-appVersion: "1.0.14"
+version: 0.3.12
+appVersion: "1.0.15"
 keywords:
   - redteam
   - logging
