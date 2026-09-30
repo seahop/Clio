@@ -20,20 +20,45 @@ async function initRelationTables() {
         last_seen TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
         metadata JSONB DEFAULT '{}'::jsonb,
         operation_tags INTEGER[] DEFAULT '{}',
-        source_log_ids INTEGER[] DEFAULT '{}',
-        UNIQUE(source_type, source_value, target_type, target_value)
+        source_log_ids INTEGER[] DEFAULT '{}'
       );
 
-      CREATE INDEX IF NOT EXISTS idx_relations_source ON relations(source_type, source_value);
-      CREATE INDEX IF NOT EXISTS idx_relations_target ON relations(target_type, target_value);
+      -- Values can be long commands, which exceed the ~2.7 KB B-tree entry
+      -- limit: uniqueness is on md5() of the values and equality lookups use
+      -- hash indexes (migration 004 converts existing installs). The ON
+      -- CONFLICT clauses in models/relations.js target relations_values_unique.
+      CREATE UNIQUE INDEX IF NOT EXISTS relations_values_unique
+        ON relations (source_type, md5(source_value), target_type, md5(target_value));
+      CREATE INDEX IF NOT EXISTS idx_relations_source_value ON relations USING hash (source_value);
+      CREATE INDEX IF NOT EXISTS idx_relations_target_value ON relations USING hash (target_value);
+      CREATE INDEX IF NOT EXISTS idx_relations_types ON relations(source_type, target_type);
       CREATE INDEX IF NOT EXISTS idx_relations_last_seen ON relations(last_seen);
-      CREATE INDEX IF NOT EXISTS idx_relations_compound ON relations(source_type, source_value, target_type, target_value);
+
+      -- Retire the pre-1.0.15 B-tree uniqueness on the raw values, which
+      -- fails for values over ~2.7 KB. Done here rather than in migration
+      -- 004 because the previous backend (still running while the Helm
+      -- pre-upgrade Job migrates) depends on it; by the time this code runs,
+      -- the old backend has stopped. Idempotent.
+      DO $$
+      DECLARE c record;
+      BEGIN
+        FOR c IN
+          SELECT conname FROM pg_constraint
+           WHERE conrelid = 'relations'::regclass AND contype = 'u'
+             AND pg_get_constraintdef(oid) = 'UNIQUE (source_type, source_value, target_type, target_value)'
+        LOOP
+          EXECUTE format('ALTER TABLE relations DROP CONSTRAINT %I', c.conname);
+        END LOOP;
+      END $$;
+      DROP INDEX IF EXISTS idx_relations_source;
+      DROP INDEX IF EXISTS idx_relations_target;
+      DROP INDEX IF EXISTS idx_relations_compound;
+      DROP INDEX IF EXISTS idx_relations_command_sequence;
       CREATE INDEX IF NOT EXISTS idx_relations_metadata_gin ON relations USING GIN (metadata);
       CREATE INDEX IF NOT EXISTS idx_relations_operation_tags ON relations USING GIN (operation_tags);
       CREATE INDEX IF NOT EXISTS idx_relations_source_log_ids ON relations USING GIN (source_log_ids);
       CREATE INDEX IF NOT EXISTS idx_relations_mac_address_source ON relations(source_value) WHERE source_type = 'mac_address';
       CREATE INDEX IF NOT EXISTS idx_relations_mac_address_target ON relations(target_value) WHERE target_type = 'mac_address';
-      CREATE INDEX IF NOT EXISTS idx_relations_command_sequence ON relations(source_type, target_type, source_value, target_value) WHERE source_type = 'command' AND target_type = 'command';
       CREATE INDEX IF NOT EXISTS idx_relations_metadata_type_gin ON relations USING GIN ((metadata -> 'type'));
     `);
 

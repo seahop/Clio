@@ -1,6 +1,6 @@
 // backend/middleware/sanitize.middleware.js
 
-const { sanitizeObject, sanitizeLogData } = require('../utils/sanitize');
+const { sanitizeObject, sanitizeLogData, MAX_COMMAND_LENGTH } = require('../utils/sanitize');
 
 // Add input validation with length checks
 const constraints = {
@@ -10,7 +10,7 @@ const constraints = {
   hostname: 75,
   domain: 75,
   username: 75,
-  command: 254,
+  command: MAX_COMMAND_LENGTH,
   notes: 254,
   filename: 254,
   status: 75,

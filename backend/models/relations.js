@@ -86,7 +86,7 @@ class RelationsModel {
         INSERT INTO relations (source_type, source_value, target_type, target_value,
           metadata, first_seen, last_seen, strength, connection_count, operation_tags, source_log_ids)
         VALUES ($1, $2, $3, $4, $5, $6, $7, 1, 1, $8, $9)
-        ON CONFLICT (source_type, source_value, target_type, target_value)
+        ON CONFLICT (source_type, md5(source_value), target_type, md5(target_value))
         DO UPDATE SET
           last_seen = CASE WHEN EXCLUDED.last_seen > relations.last_seen THEN EXCLUDED.last_seen ELSE relations.last_seen END,
           metadata = EXCLUDED.metadata,
@@ -186,7 +186,7 @@ class RelationsModel {
           const result = await client.query(`
             INSERT INTO relations (source_type, source_value, target_type, target_value, metadata, first_seen, last_seen, strength, connection_count)
             VALUES ($1, $2, $3, $4, $5, $6, $7, 1, 1)
-            ON CONFLICT (source_type, source_value, target_type, target_value)
+            ON CONFLICT (source_type, md5(source_value), target_type, md5(target_value))
             DO UPDATE SET last_seen = CASE WHEN EXCLUDED.last_seen > relations.last_seen THEN EXCLUDED.last_seen ELSE relations.last_seen END, metadata = EXCLUDED.metadata, strength = relations.strength + 1, connection_count = relations.connection_count + 1
             RETURNING *`,
             [sourceType, normSourceValue, targetType, normTargetValue, metadata, metadata.firstSeen || new Date(), metadata.timestamp || new Date()]
@@ -366,7 +366,7 @@ class RelationsModel {
 
         const upsertSql = `INSERT INTO relations (source_type, source_value, target_type, target_value, strength, connection_count, first_seen, last_seen, metadata, operation_tags, source_log_ids)
           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-          ON CONFLICT (source_type, source_value, target_type, target_value)
+          ON CONFLICT (source_type, md5(source_value), target_type, md5(target_value))
           DO UPDATE SET last_seen = EXCLUDED.last_seen, strength = GREATEST(relations.strength, EXCLUDED.strength), connection_count = relations.connection_count + 1, metadata = EXCLUDED.metadata,
             operation_tags = ARRAY(SELECT DISTINCT unnest(relations.operation_tags || EXCLUDED.operation_tags)),
             source_log_ids = ARRAY(SELECT DISTINCT unnest(relations.source_log_ids || EXCLUDED.source_log_ids))`;

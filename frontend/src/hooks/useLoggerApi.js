@@ -109,8 +109,12 @@ export const useLoggerApi = (csrfToken) => {
     } catch (e) {
       errorData = { error: `Server error: ${response.status}` };
     }
-    
-    throw new Error(errorData.error || 'An error occurred');
+
+    // Validation failures list the specific problems in `details`
+    // (e.g. "command must not exceed 32768 characters").
+    const details = Array.isArray(errorData.details) && errorData.details.length
+      ? `: ${errorData.details.join('; ')}` : '';
+    throw new Error(`${errorData.error || 'An error occurred'}${details}`);
   };
 
   // Execute a fetch request with automatic CSRF token refresh on 403 errors

@@ -33,6 +33,11 @@ const redactSensitiveData = (obj, fieldsToRedact = ['secrets', 'password']) => {
 // List of fields that should preserve special characters
 const PRESERVE_SPECIAL_CHARS_FIELDS = ['command', 'notes', 'filename', 'secrets'];
 
+// Commands are logged verbatim and can be long (encoded PowerShell, pasted
+// one-liners). Enforced here, in sanitize.middleware and by the logs table's
+// CHECK constraint (migration 004).
+const MAX_COMMAND_LENGTH = 32768;
+
 /**
  * Sanitizes a string with special handling for specific fields
  * @param {string} str - The string to sanitize
@@ -74,44 +79,20 @@ const sanitizeString = (str, fieldName = '') => {
 };
 
 /**
- * Enhanced sanitization for command fields and other special content
- * Preserves important command syntax while removing dangerous elements
+ * Sanitization for command-like fields (command, notes, filename, secrets).
+ *
+ * These are an operator's record of exactly what was run, so they are stored
+ * verbatim: quotes, backslashes, <, >, redirections, "data:", "on...=" and
+ * anything tag-shaped must survive unchanged. Only NUL is removed (PostgreSQL
+ * text cannot hold it). XSS is handled where the value is rendered — React
+ * escapes text content and the HTML exports escape every interpolated value —
+ * not by rewriting the stored data.
  * @param {string} str - The string to sanitize
- * @returns {string} - The sanitized string
+ * @returns {string} - The value with NUL characters removed
  */
 const sanitizeCommandField = (str) => {
   if (!str) return '';
-  
-  try {
-    // Remove potentially dangerous character sequences while preserving syntax
-    let sanitized = str
-      .replace(/<script/gi, '&lt;script')
-      .replace(/javascript:/gi, 'javascript&#58;')
-      .replace(/data:/gi, 'data&#58;')
-      .replace(/\bon\w+=/gi, 'data-on-')  // handle onclick, onload, etc.
-      .replace(/[\u0000-\u001F\u007F-\u009F]/g, ''); // control chars
-    
-    // Use a custom escaper that preserves quotes and backslashes
-    // but blocks HTML tags formation
-    sanitized = xss(sanitized, {
-      whiteList: {}, // No HTML tags allowed
-      stripIgnoreTag: true,
-      stripIgnoreTagBody: ['script', 'style'],
-      // Critical change: Use a custom escaper that preserves command syntax
-      escapeHtml: function(html) {
-        // Only escape < and > for command strings, as these could form HTML tags
-        return html
-          .replace(/</g, '&lt;')
-          .replace(/>/g, '&gt;');
-      }
-    });
-    
-    return sanitized;
-  } catch (error) {
-    console.error('Command sanitization error:', error);
-    // Fallback to more aggressive sanitization in case of error
-    return String(str).replace(/[<>'"&]/g, '');
-  }
+  return String(str).replace(/\u0000/g, '');
 };
 
 /**
@@ -128,7 +109,7 @@ const validateInput = (value, field) => {
     if (PRESERVE_SPECIAL_CHARS_FIELDS.includes(field)) {
       // Just check length constraints instead of character constraints
       const maxLengths = {
-        command: 254,
+        command: MAX_COMMAND_LENGTH,
         notes: 254,
         filename: 254,
         secrets: 254
@@ -318,5 +299,6 @@ module.exports = {
   redactSensitiveData,
   normalizeMacAddress,
   validateLogData,
-  sanitizeCommandField
+  sanitizeCommandField,
+  MAX_COMMAND_LENGTH
 };

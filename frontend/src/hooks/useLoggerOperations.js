@@ -218,14 +218,15 @@ export const useLoggerOperations = (currentUser, csrfToken) => {
         )));
 
         console.log('Update result:', result);
+        setError(null);
       }
       setEditingCell(null);
       setEditingValue('');
     } catch (err) {
+      // Keep the cell open with the operator's text so a rejected save (e.g.
+      // a command over the length limit) can be fixed instead of lost.
       console.error('Error updating cell:', err);
       setError(err.message || 'Failed to update cell');
-      setEditingCell(null);
-      setEditingValue('');
     }
   };
 
@@ -283,6 +284,7 @@ export const useLoggerOperations = (currentUser, csrfToken) => {
           setLogs(prevLogs => sortLogs(prevLogs.map(log =>
             log.id === currentRowId ? { ...log, [currentField]: valueToSend } : log
           )));
+          setError(null);
         }
   
         // Set the next cell's value, ensuring proper handling
@@ -300,7 +302,9 @@ export const useLoggerOperations = (currentUser, csrfToken) => {
         setEditingCell({ rowId: nextRowId, field: nextField });
         setEditingValue(nextValue);
       } catch (err) {
+        // The current cell stays open with its value; surface why.
         console.error('Failed to update cell:', err);
+        setError(err.message || 'Failed to update cell');
       }
     }
   };
