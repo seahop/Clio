@@ -564,7 +564,8 @@ Rollback restores the previous chart and images but **not the database
 schema** — migrations only move forward. That is safe because migrations are
 written to be backwards-compatible (see
 [Backwards-compatible migrations](#backwards-compatible-migrations-zero-downtime-deploys));
-if a release notes otherwise, restore from backup instead.
+if a release notes otherwise, restore from backup instead — rolling back from
+1.0.15 to 1.0.14 needs one SQL step first (see [upgrading.md](upgrading.md#upgrading-to-1015-from-1014)).
 
 ### Uninstalling and reinstalling
 

@@ -128,6 +128,43 @@ backup is the safe path.
 intervening migration in order, so you can upgrade directly from an older
 release — you do not have to step through each version.
 
+### Upgrading to 1.0.15 from 1.0.14
+
+- **One database migration, applied automatically** (`004-long-commands.sql`)
+  on every deployment method: the omnibus and compose backends run it on start;
+  the Helm chart runs it in the `pre-upgrade` Job. No new variables, no manual
+  steps. It:
+  - raises the `logs.command` limit from 254 to **32768** characters;
+  - adds md5-based unique and hash indexes to `relations`, so relation
+    analysis works for long commands (B-tree entries cannot exceed ~2.7 KB);
+  - decodes `&lt;` `&gt;` `&#58;` that earlier versions wrote into commands,
+    notes, filenames, templates and relations — `>> $PROFILE` had been stored
+    as `&gt;&gt; $PROFILE`. Commands are now stored exactly as typed.
+- **Safe for the Helm pre-upgrade window.** The migration only adds indexes,
+  so the 1.0.14 backend keeps working while the Job runs. The new backend
+  retires the old `relations` unique constraint and B-tree indexes when it
+  starts, after the old one has stopped.
+- **Not recoverable by the migration:** text the old sanitizer deleted or
+  rewrote (tag-like `<...>` spans, `on…=` words turned into `data-on-`), and
+  escaped entities inside `secrets` (encrypted, so SQL cannot decode them).
+- **Rolling back to 1.0.14** (after 1.0.15 has started) needs one SQL step
+  before starting the old images — 1.0.14 relies on the old unique
+  constraint, and cannot index relation values longer than ~2.7 KB:
+
+  ```sql
+  -- Relations are an analysis cache; these rows are rebuilt by analysis.
+  DELETE FROM relations WHERE octet_length(source_value) + octet_length(target_value) > 2000;
+  ALTER TABLE relations ADD CONSTRAINT relations_source_type_source_value_target_type_target_value_key
+    UNIQUE (source_type, source_value, target_type, target_value);
+  ```
+
+  Run it with the new backend stopped: `docker exec -it clio su-exec postgres psql -d redteamlogger`
+  (omnibus), `docker compose exec db psql -U <POSTGRES_USER> -d redteamlogger` (compose), or
+  `kubectl exec -it -n clio clio-postgres-0 -- psql -U clio -d redteamlogger` (Helm, after
+  scaling `clio-backend` to 0), then start 1.0.14. Commands longer than 254
+  characters stay readable in 1.0.14 but cannot be edited there. Restoring the
+  pre-upgrade backup remains the simplest rollback.
+
 ### Upgrading to 1.0.14 from 1.0.13
 
 - **No database schema changes, no application changes** — this release is
